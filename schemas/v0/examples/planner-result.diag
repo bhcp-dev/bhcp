@@ -1,0 +1,9 @@
+{
+  "version": "bhcp/v0",
+  "features": [],
+  "kind": "planner-result",
+  "request": {"media_type": "application/cbor", "size": 0, "digests": [{"algorithm": "sha2-256", "digest": h'0000000000000000000000000000000000000000000000000000000000000000'}]},
+  "status": "indeterminate",
+  "reason": {"code": "bhcp.reason/no-executor@0", "message": "No executor in fixture"},
+  "diagnostics": []
+}

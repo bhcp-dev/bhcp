@@ -1,0 +1,13 @@
+{
+  "version": "bhcp/v0",
+  "features": [],
+  "kind": "content-reference",
+  "content": {
+    "media_type": "application/cbor",
+    "size": 0,
+    "digests": [
+      {"algorithm": "sha2-256", "digest": h'0000000000000000000000000000000000000000000000000000000000000000'},
+      {"algorithm": "example/checksum@0", "digest": h'00010203'}
+    ]
+  }
+}

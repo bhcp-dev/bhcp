@@ -48,6 +48,10 @@ rubber.cache
 # latexrun
 latex.out/
 
+## Local Ruby schema-validation dependencies
+.bundle/
+vendor/bundle/
+
 ## Auxiliary and intermediate files from other packages:
 # algorithms
 *.alg

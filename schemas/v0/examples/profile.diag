@@ -1,0 +1,9 @@
+{
+  "version": "bhcp/v0",
+  "features": [],
+  "kind": "profile",
+  "symbol": "bhcp/canonical@0",
+  "syntax": "bhcp.syntax/canonical@0",
+  "policy_overlays": [],
+  "type_mode": "infer-strict"
+}

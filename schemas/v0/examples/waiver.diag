@@ -1,0 +1,19 @@
+{
+  "version": "bhcp/v0",
+  "features": [],
+  "kind": "waiver",
+  "symbol": "example/waiver@0",
+  "rules": ["rule-1"],
+  "scope": {"repository": "example"},
+  "weakening": {"limit": "attempts"},
+  "justification": "Temporary migration",
+  "issuer": "release-manager",
+  "issued_at": 0("2026-07-16T00:00:00Z"),
+  "not_before": 0("2026-07-16T00:00:00Z"),
+  "expires_at": 0("2026-07-17T00:00:00Z"),
+  "audit_reference": {
+    "media_type": "application/cbor",
+    "size": 0,
+    "digests": [{"algorithm": "sha2-256", "digest": h'0000000000000000000000000000000000000000000000000000000000000000'}]
+  }
+}

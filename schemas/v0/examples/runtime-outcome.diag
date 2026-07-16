@@ -1,0 +1,11 @@
+{
+  "version": "bhcp/v0",
+  "features": [],
+  "kind": "runtime-outcome",
+  "goal": "goal-1",
+  "outcome": {
+    "status": "indeterminate",
+    "reason": {"code": "bhcp.reason/not-run@0", "message": "Example only"},
+    "partial_evidence": []
+  }
+}

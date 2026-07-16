@@ -1,0 +1,11 @@
+{
+  "version": "bhcp/v0",
+  "features": [],
+  "kind": "semantic-ir",
+  "type_mode": "infer-strict",
+  "types": [],
+  "predicates": [],
+  "goals": [],
+  "extensions": [],
+  "entrypoints": []
+}

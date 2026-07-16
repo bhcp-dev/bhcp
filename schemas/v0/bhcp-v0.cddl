@@ -1,0 +1,681 @@
+; BHCP v0 canonical artifact schema
+; CDDL: RFC 8610. Canonical encoding: deterministic CBOR, RFC 8949 section 4.2.
+
+root-document = canonical-ast-document
+              / semantic-ir-document
+              / syntax-document
+              / profile-document
+              / policy-document
+              / waiver-document
+              / extension-descriptor-document
+              / obligation-graph-document
+              / capability-graph-document
+              / state-graph-document
+              / execution-graph-document
+              / evidence-bundle-document
+              / runtime-outcome-document
+              / planner-request-document
+              / planner-result-document
+              / feature-manifest-document
+              / content-reference-document
+
+; ---------- Common document and identity model ----------
+
+document-header = (
+  "version": "bhcp/v0",
+  "features": [* feature-id],
+  ? "semantic_id": semantic-id,
+  ? "artifact_id": artifact-id,
+  ? "provenance": provenance,
+  ? "authorization": [* authorization]
+)
+
+feature-id = symbol-id
+ref-id = tstr .size (1..128)
+symbol-id = tstr .regexp "^[A-Za-z0-9._-]+(/[A-Za-z0-9._-]+)+@[A-Za-z0-9._-]+$"
+bhcp-uri = tstr
+media-type = tstr
+timestamp = #6.0(tstr)
+
+semantic-id = hash-id
+artifact-id = hash-id
+hash-id = {
+  "algorithm": "sha2-256",
+  "digest": bstr .size 32
+} / {
+  "algorithm": symbol-id,
+  "digest": bstr
+}
+digest = hash-id
+
+content-reference = {
+  "media_type": media-type,
+  "size": uint,
+  "digests": [1* digest],
+  ? "locations": [* bhcp-uri]
+}
+
+content-reference-document = {
+  document-header,
+  "kind": "content-reference",
+  "content": content-reference
+}
+
+provenance = {
+  "producer": symbol-id,
+  "created_at": timestamp,
+  ? "source": content-reference,
+  ? "parents": [* artifact-id],
+  ? "annotations": { * tstr => value }
+}
+
+authorization = {
+  "scheme": symbol-id,
+  "issuer": tstr,
+  "subject": content-reference,
+  "signature": bstr,
+  ? "expires_at": timestamp
+}
+
+reference = { "ref": ref-id }
+typed-reference = { "ref": ref-id, "type": type }
+
+; ---------- Exact values and types ----------
+
+value = bool / nil-value / tstr / bstr / exact-number / machine-float-value
+      / [* value] / { * tstr => value } / variant-value / reference
+
+nil-value = ["unit"]
+exact-number = integer-value / rational-value / decimal-value
+integer-value = ["integer", int]
+rational-value = ["rational", int, uint] ; denominator > 0 is a semantic check
+decimal-value = ["decimal", int, int] ; coefficient, base-10 scale
+machine-float-value = ["machine-float", "binary16", bstr .size 2]
+                    / ["machine-float", "binary32", bstr .size 4]
+                    / ["machine-float", "binary64", bstr .size 8]
+                    / ["machine-float", "binary128", bstr .size 16]
+float-format = "binary16" / "binary32" / "binary64" / "binary128"
+variant-value = ["variant", tstr, value]
+
+type = primitive-type / exact-number-type / machine-number-type / record-type
+     / tuple-type / variant-type / union-type / intersection-type / collection-type
+     / parameter-type / application-type / refinement-type / nominal-type
+     / structural-type / option-type / result-type / special-type / goal-type
+     / effect-row-type / evidence-type / resource-type / handle-type
+
+primitive-type = ["primitive", "Bool" / "Text" / "Bytes" / "Unit"
+                            / "Timestamp" / "Duration"]
+exact-number-type = ["exact-number", "Integer" / "Rational" / "Decimal"]
+machine-number-type = ["machine-integer", "signed" / "unsigned", uint]
+                    / ["machine-float", float-format]
+record-type = ["record", bool, [* field-type]] ; open, fields
+field-type = [tstr, type, bool] ; name, type, optional
+tuple-type = ["tuple", [* type]]
+variant-type = ["variant", [1* variant-case-type]]
+variant-case-type = [tstr, [* type]]
+union-type = ["union", [2* type]]
+intersection-type = ["intersection", [2* type]]
+collection-type = ["list", type] / ["set", type] / ["map", type, type]
+parameter-type = ["parameter", uint]
+application-type = ["application", type, [1* type]]
+refinement-type = ["refinement", ref-id, type, binding, expression]
+nominal-type = ["nominal", symbol-id, [* type]]
+structural-type = ["structural", type]
+option-type = ["option", type]
+result-type = ["result", type, type]
+special-type = ["special", "Dynamic" / "Never"]
+goal-type = ["goal", type, type, effect-row, evidence-type]
+effect-row-type = ["effect-row-type", effect-row]
+evidence-type = ["evidence", [* evidence-class]]
+evidence-class = "formal" / "static" / "empirical" / "statistical"
+               / "model-judged" / "human-approved" / "unresolved" / symbol-id
+resource-type = ["resource", symbol-id, type]
+handle-type = ["handle", handle-mode, access-mode, usage-mode, lifetime, type]
+handle-mode = "owned" / "shared" / "borrowed"
+access-mode = "read" / "write"
+usage-mode = "unrestricted" / "affine" / "linear"
+lifetime = tstr
+type-mode = "dynamic" / "gradual" / "infer-strict" / "strict"
+
+binding = {
+  "id": ref-id,
+  ? "name": tstr,
+  "type": type
+}
+
+type-definition = {
+  "id": ref-id,
+  "symbol": symbol-id,
+  "parameters": [* binding],
+  "identity": "nominal" / "structural",
+  "definition": type,
+  ? "refines": [* symbol-id]
+}
+
+pattern = ["wildcard"] / ["literal", value] / ["bind", binding]
+        / ["variant", tstr, [* pattern]] / ["tuple", [* pattern]]
+        / ["record", { * tstr => pattern }]
+
+expression = {
+  "id": ref-id,
+  "type": type,
+  "form": expression-form
+}
+
+expression-form = ["literal", value]
+                / ["reference", ref-id]
+                / ["record", { * tstr => expression }]
+                / ["tuple", [* expression]]
+                / ["variant", tstr, expression]
+                / ["collection", "list" / "set", [* expression]]
+                / ["map", [* [expression, expression]]]
+                / ["select", expression, tstr / uint]
+                / ["unary", tstr, expression]
+                / ["binary", tstr, expression, expression]
+                / ["if", expression, expression, expression]
+                / ["let", binding, expression, expression]
+                / ["match", expression, [1* match-arm]]
+                / ["call", symbol-id, [* expression]]
+                / ["quantify", quantifier, binding, expression, expression, ? verifier-binding]
+                / ["cast-dynamic", expression, type]
+
+match-arm = [pattern, ? expression, expression]
+quantifier = "forall" / "exists"
+
+; ---------- Effects, clauses, definitions, and composition ----------
+
+effect-row = {
+  "effects": [* effect],
+  ? "row_variable": tstr
+}
+
+effect = {
+  "id": symbol-id,
+  ? "resource": ref-id,
+  ? "parameters": [* value]
+}
+
+verifier-binding = {
+  "verifier": symbol-id,
+  "input": type,
+  "output": evidence-type,
+  ? "configuration": value,
+  ? "trust": [* evidence-class]
+}
+
+predicate-definition = {
+  "id": ref-id,
+  "symbol": symbol-id,
+  "parameters": [* binding],
+  "result": type,
+  ? "definition": expression,
+  ? "verifier": verifier-binding
+}
+
+clause = fact-clause / contract-clause / authority-clause / preference / verify-clause
+       / case-clause
+
+clause-common = (
+  "id": ref-id,
+  ? "label": tstr
+)
+
+fact-clause = {
+  clause-common,
+  "kind": "input" / "output" / "resource" / "state",
+  "binding": binding,
+  ? "handle": handle-type,
+  ? "initial": expression
+}
+
+contract-clause = {
+  clause-common,
+  "kind": "requires" / "ensures" / "invariant" / "limit",
+  "condition": expression
+}
+
+authority-clause = {
+  clause-common,
+  "kind": "allows" / "forbids",
+  "effects": [1* effect]
+}
+
+preference = {
+  clause-common,
+  "kind": "prefer",
+  "priority": int,
+  "objective": expression,
+  ? "aggregation": symbol-id
+}
+
+verify-clause = {
+  clause-common,
+  "kind": "verify",
+  "binding": verifier-binding,
+  ? "obligations": [* ref-id]
+}
+
+case-clause = {
+  clause-common,
+  "kind": "case",
+  "inputs": { * tstr => value },
+  "expected": outcome-tag
+}
+
+budget = {
+  "dimension": symbol-id,
+  "limit": exact-number,
+  "allocation": "shared" / "explicit",
+  ? "children": { * ref-id => exact-number }
+}
+
+composition-node = {
+  "id": ref-id,
+  "kind": composition-kind,
+  "output": type,
+  "branches": [* composition-branch],
+  ? "condition": expression,
+  ? "quantified": quantified-family,
+  ? "recursion": recursion-bound,
+  ? "latch": latch-spec,
+  ? "budgets": [* budget],
+  ? "parallel_eligible": bool,
+  ? "parallel_reasons": [* tstr]
+}
+
+composition-kind = "all" / "any" / "none" / "chain" / "gate" / "latch"
+composition-branch = {
+  "id": ref-id,
+  "tag": tstr,
+  "goal": ref-id,
+  "arguments": { * tstr => argument-binding }
+}
+argument-binding = {
+  "mode": "value" / "move" / "borrow" / "share",
+  "value": expression
+}
+quantified-family = {
+  "quantifier": quantifier,
+  "binding": binding,
+  "domain": expression,
+  ? "enumeration_evidence": ref-id
+}
+recursion-bound = { "kind": "bounded", "maximum": uint }
+                / { "kind": "well-founded", "measure": expression }
+latch-spec = {
+  "key": tstr,
+  "value_type": type,
+  "capture": "owned" / "persistent-share",
+  ? "freshness": expression,
+  ? "initial": value
+}
+
+goal-definition = {
+  "id": ref-id,
+  "symbol": symbol-id,
+  "type_mode": type-mode,
+  "input": type,
+  "output": type,
+  "effects": effect-row,
+  "evidence": evidence-type,
+  "clauses": [* clause],
+  "body": composition-node,
+  ? "refines": symbol-id
+}
+
+extension-node = {
+  "id": ref-id,
+  "extension": symbol-id,
+  "payload": value,
+  "must_understand": true
+}
+
+; ---------- Canonical AST and semantic IR ----------
+
+token-span = {
+  "source": content-reference,
+  "start_byte": uint,
+  "end_byte": uint,
+  "start_line": uint,
+  "start_column": uint,
+  "end_line": uint,
+  "end_column": uint
+}
+
+ast-node = {
+  "id": ref-id,
+  "kind": tstr,
+  ? "token": tstr,
+  ? "value": value,
+  ? "children": [* ast-node],
+  ? "span": token-span,
+  ? "attributes": { * tstr => value }
+}
+
+canonical-ast-document = {
+  document-header,
+  "kind": "canonical-ast",
+  "profile": symbol-id,
+  "root": ast-node,
+  ? "source": content-reference
+}
+
+semantic-ir-document = {
+  document-header,
+  "kind": "semantic-ir",
+  "type_mode": type-mode,
+  "types": [* type-definition],
+  "predicates": [* predicate-definition],
+  "goals": [* goal-definition],
+  "extensions": [* extension-node],
+  "entrypoints": [* ref-id]
+}
+
+; ---------- Profiles, policies, waivers, and extensions ----------
+
+syntax-mapping = {
+  "category": "keyword" / "sigil" / "open-delimiter" / "close-delimiter"
+            / "terminator" / "alias" / "formatting",
+  "canonical": tstr,
+  "surface": tstr
+}
+
+syntax-document = {
+  document-header,
+  "kind": "syntax",
+  "symbol": symbol-id,
+  ? "extends": symbol-id,
+  "preamble": "#!bhcp-profile",
+  "mappings": [* syntax-mapping],
+  "formatting": { * tstr => value }
+}
+
+profile-document = {
+  document-header,
+  "kind": "profile",
+  "symbol": symbol-id,
+  ? "extends": symbol-id,
+  "syntax": symbol-id,
+  "policy_overlays": [* symbol-id],
+  "type_mode": type-mode
+}
+
+policy-rule = {
+  "id": ref-id,
+  "category": "requirement" / "limit" / "type-mode" / "evidence"
+            / "prohibition" / "capability",
+  "operation": "add" / "tighten" / "deny" / "narrow" / "strengthen",
+  "value": value,
+  "waivable": bool,
+  ? "authorized_issuers": [* tstr]
+}
+
+policy-document = {
+  document-header,
+  "kind": "policy",
+  "symbol": symbol-id,
+  "layer": "organization" / "team" / "repository" / "user",
+  ? "extends": symbol-id,
+  "rules": [* policy-rule]
+}
+
+waiver-document = {
+  document-header,
+  "kind": "waiver",
+  "symbol": symbol-id,
+  "rules": [1* ref-id],
+  "scope": value,
+  "weakening": value,
+  "justification": tstr,
+  "issuer": tstr,
+  "issued_at": timestamp,
+  "not_before": timestamp,
+  "expires_at": timestamp,
+  "audit_reference": content-reference
+}
+
+extension-descriptor-document = {
+  document-header,
+  "kind": "extension-descriptor",
+  "symbol": symbol-id,
+  "extension_kind": "derived" / "native",
+  "must_understand": bool,
+  ? "lowering": content-reference,
+  ? "payload_schema": content-reference,
+  "type_rule": content-reference,
+  "effect_rule": content-reference,
+  "policy_rule": content-reference,
+  "normalization_rule": content-reference,
+  "evidence_rule": content-reference
+}
+
+; ---------- Analysis graphs ----------
+
+graph-edge = { "id": ref-id, "from": ref-id, "to": ref-id, "kind": tstr }
+
+obligation-node = {
+  "id": ref-id,
+  "kind": "requirement" / "guarantee" / "invariant" / "limit" / "verification"
+        / "case" / "discharge",
+  "clause": ref-id,
+  "status": "open" / "discharged" / "refuted" / "indeterminate",
+  ? "evidence": [* ref-id]
+}
+obligation-graph-document = {
+  document-header,
+  "kind": "obligation-graph",
+  "semantic_ir": content-reference,
+  "nodes": [* obligation-node],
+  "edges": [* graph-edge]
+}
+
+capability = {
+  "effect": effect,
+  "scope": value,
+  "decision": "allow" / "deny",
+  "sources": [1* ref-id]
+}
+capability-node = {
+  "id": ref-id,
+  "kind": "request" / "grant" / "denial" / "resource" / "decision",
+  ? "capability": capability,
+  ? "payload": value
+}
+capability-graph-document = {
+  document-header,
+  "kind": "capability-graph",
+  "semantic_ir": content-reference,
+  "nodes": [* capability-node],
+  "edges": [* graph-edge]
+}
+
+state-cell = {
+  "key": tstr,
+  "type": type,
+  "state": ["empty"] / ["captured", value, [1* ref-id], provenance, timestamp, expression],
+  "atomic_version": uint
+}
+state-node = {
+  "id": ref-id,
+  "kind": "resource" / "cell" / "borrow" / "ownership" / "transition" / "invariant",
+  ? "cell": state-cell,
+  ? "handle": handle-type,
+  ? "payload": value
+}
+state-transition = {
+  "id": ref-id,
+  "cell": ref-id,
+  "from_version": uint,
+  "to_version": uint,
+  "outcome": outcome-tag,
+  "atomic": true
+}
+state-graph-document = {
+  document-header,
+  "kind": "state-graph",
+  "semantic_ir": content-reference,
+  "nodes": [* state-node],
+  "edges": [* graph-edge],
+  "transitions": [* state-transition]
+}
+
+; ---------- Planning and execution ----------
+
+executor = {
+  "id": symbol-id,
+  "features": [* feature-id],
+  "effects": effect-row,
+  "evidence": [* evidence-class]
+}
+
+execution-node = {
+  "id": ref-id,
+  "kind": "goal" / "verifier" / "condition" / "state" / "approval" / "executor",
+  "executor": symbol-id,
+  "inputs": { * tstr => typed-reference },
+  "outputs": { * tstr => type },
+  "effects": effect-row,
+  "capability_decisions": [* ref-id],
+  "budgets": [* budget],
+  "expected_evidence": [* evidence-class],
+  "dependencies": [* ref-id]
+}
+execution-edge = {
+  "id": ref-id,
+  "from": ref-id,
+  "to": ref-id,
+  "kind": "data" / "control" / "effect" / "state" / "evidence",
+  ? "binding": tstr
+}
+execution-graph-document = {
+  document-header,
+  "kind": "execution-graph",
+  "semantic_ir": content-reference,
+  "nodes": [* execution-node],
+  "edges": [* execution-edge],
+  "entrypoints": [* ref-id]
+}
+
+planner-request-document = {
+  document-header,
+  "kind": "planner-request",
+  "semantic_ir": content-reference,
+  "entrypoint": ref-id,
+  "input": value,
+  "obligation_graph": content-reference,
+  "capability_graph": content-reference,
+  "state_graph": content-reference,
+  "budgets": [* budget],
+  "policy": [* content-reference],
+  "executors": [* executor],
+  "required_features": [* feature-id]
+}
+
+planner-result-document = {
+  document-header,
+  "kind": "planner-result",
+  "request": content-reference,
+  "status": "planned" / "refused" / "indeterminate" / "faulted",
+  ? "execution_graph": content-reference,
+  ? "reason": reason,
+  ? "diagnostics": [* diagnostic]
+}
+
+; ---------- Runtime and evidence ----------
+
+outcome-tag = "satisfied" / "refuted" / "indeterminate" / "faulted"
+reason = { "code": symbol-id, "message": tstr, ? "details": value }
+diagnostic = { "code": symbol-id, "severity": "error" / "warning" / "info",
+               "message": tstr, ? "node": ref-id }
+trace-event = { "sequence": uint, "node": ref-id, "at": timestamp,
+                "kind": symbol-id, ? "payload": value }
+
+runtime-outcome = satisfied-outcome / refuted-outcome / indeterminate-outcome
+                / faulted-outcome
+satisfied-outcome = {
+  "status": "satisfied",
+  "output": value,
+  "evidence": [1* ref-id]
+}
+refuted-outcome = {
+  "status": "refuted",
+  "counter_evidence": [1* ref-id]
+}
+indeterminate-outcome = {
+  "status": "indeterminate",
+  "reason": reason,
+  "partial_evidence": [* ref-id]
+}
+faulted-outcome = {
+  "status": "faulted",
+  "error": reason,
+  "trace": [* trace-event]
+}
+
+runtime-outcome-document = {
+  document-header,
+  "kind": "runtime-outcome",
+  "goal": ref-id,
+  "outcome": runtime-outcome,
+  ? "execution_graph": content-reference
+}
+
+evidence-claim = {
+  "id": ref-id,
+  "obligation": ref-id,
+  "polarity": "supports" / "refutes",
+  "subject": content-reference,
+  "predicate": symbol-id,
+  "status": "accepted" / "rejected" / "stale" / "unresolved"
+}
+evidence-item = {
+  "id": ref-id,
+  "class": evidence-class,
+  "verifier": symbol-id,
+  "verifier_artifact": content-reference,
+  "payload": content-reference,
+  "claims": [1* ref-id],
+  "produced_at": timestamp,
+  ? "fresh_until": timestamp,
+  "provenance": provenance,
+  "trust": [* symbol-id]
+}
+evidence-gap = {
+  "id": ref-id,
+  "kind": "unsafe" / "foreign" / "missing" / "stale" / "unsupported" / symbol-id,
+  "obligations": [* ref-id],
+  "reason": reason,
+  "required": bool
+}
+evidence-edge = {
+  "id": ref-id,
+  "from": ref-id,
+  "to": ref-id,
+  "kind": "supports" / "refutes" / "derived-from" / "produced-by" / "depends-on"
+}
+evidence-bundle-document = {
+  document-header,
+  "kind": "evidence-bundle",
+  "semantic_ir": content-reference,
+  "execution_graph": content-reference,
+  "claims": [* evidence-claim],
+  "items": [* evidence-item],
+  "gaps": [* evidence-gap],
+  "edges": [* evidence-edge],
+  "obligation_status": { * ref-id => "discharged" / "refuted" / "indeterminate" }
+}
+
+feature-support = {
+  "feature": feature-id,
+  "level": "required" / "supported" / "unsupported",
+  ? "notes": tstr
+}
+feature-manifest-document = {
+  document-header,
+  "kind": "feature-manifest",
+  "implementation": symbol-id,
+  "implementation_version": tstr,
+  "documents": [* tstr],
+  "features_supported": [* feature-support],
+  "native_extensions": [* symbol-id]
+}

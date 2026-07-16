@@ -1,0 +1,8 @@
+{
+  "version": "bhcp/v0",
+  "features": [],
+  "kind": "policy",
+  "symbol": "example/policy@0",
+  "layer": "repository",
+  "rules": []
+}

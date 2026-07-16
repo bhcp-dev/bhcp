@@ -1,0 +1,7 @@
+{
+  "version": "bhcp/v0",
+  "features": [],
+  "kind": "canonical-ast",
+  "profile": "bhcp/canonical@0",
+  "root": {"id": "ast-0", "kind": "program", "children": []}
+}

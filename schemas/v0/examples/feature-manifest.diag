@@ -1,0 +1,10 @@
+{
+  "version": "bhcp/v0",
+  "features": [],
+  "kind": "feature-manifest",
+  "implementation": "example/checker@0",
+  "implementation_version": "0.0.0",
+  "documents": ["semantic-ir"],
+  "features_supported": [{"feature": "bhcp/core@0", "level": "required"}],
+  "native_extensions": []
+}

@@ -1,0 +1,9 @@
+{
+  "version": "bhcp/v0",
+  "features": [],
+  "kind": "syntax",
+  "symbol": "bhcp.syntax/canonical@0",
+  "preamble": "#!bhcp-profile",
+  "mappings": [],
+  "formatting": {}
+}

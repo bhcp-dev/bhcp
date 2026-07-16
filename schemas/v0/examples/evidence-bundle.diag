@@ -1,0 +1,12 @@
+{
+  "version": "bhcp/v0",
+  "features": [],
+  "kind": "evidence-bundle",
+  "semantic_ir": {"media_type": "application/cbor", "size": 0, "digests": [{"algorithm": "sha2-256", "digest": h'0000000000000000000000000000000000000000000000000000000000000000'}]},
+  "execution_graph": {"media_type": "application/cbor", "size": 0, "digests": [{"algorithm": "sha2-256", "digest": h'0000000000000000000000000000000000000000000000000000000000000000'}]},
+  "claims": [],
+  "items": [],
+  "gaps": [],
+  "edges": [],
+  "obligation_status": {}
+}
