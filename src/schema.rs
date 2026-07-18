@@ -1,4 +1,4 @@
-//! Dependency-free CBOR diagnostic-notation and v0 root-fixture validation.
+//! CBOR diagnostic-notation, CDDL parsing, and v0 root-fixture validation.
 
 use std::collections::HashSet;
 
@@ -45,6 +45,9 @@ pub fn validate_root(value: &Value, expected_kind: &str) -> Result<()> {
 }
 
 pub fn validate_schema_inventory(schema: &str, expected_kinds: &[&str]) -> Result<()> {
+    cddl::cddl_from_str(schema, false).map_err(|error| {
+        Diagnostic::plain("BHCP5002", format!("CDDL schema does not parse: {error}"))
+    })?;
     if !schema.contains("root-document = canonical-ast-document") {
         return Err(Diagnostic::plain(
             "BHCP5002",

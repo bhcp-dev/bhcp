@@ -15,7 +15,7 @@ ID-02, and deterministic emission for CBOR-01 using
 `fixtures/canonical-simple.bhcp`. The adjacent presentation fixture proves that
 comments, formatting, and diagnostic labels do not affect semantic identity. The
 checked-in `.ast.cbor` and `.ir.cbor` files are compiler output and are validated by
-the same dependency-free Rust harness as the 17 root diagnostic fixtures. Unlisted
+the same Rust harness as the 17 root diagnostic fixtures. Unlisted
 scenarios remain normative acceptance requirements, not claimed implementation
 support.
 

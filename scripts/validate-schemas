@@ -8,7 +8,7 @@ if command -v mise >/dev/null 2>&1; then
 fi
 
 if ! command -v cargo >/dev/null 2>&1; then
-  echo "error: Rust 1.96.0 is required (install mise for the pinned toolchain)" >&2
+  echo "error: Rust 1.97.1 is required (install mise for the pinned toolchain)" >&2
   exit 1
 fi
 

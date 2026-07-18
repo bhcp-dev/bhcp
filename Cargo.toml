@@ -2,7 +2,7 @@
 name = "bhcp"
 version = "0.1.0"
 edition = "2024"
-rust-version = "1.96"
+rust-version = "1.97.1"
 default-run = "bhcp"
 license = "Apache-2.0"
 description = "Executable foundation for BHCP canonical source and v0 artifacts"
@@ -19,6 +19,7 @@ name = "generate-fixtures"
 path = "src/bin/generate_fixtures.rs"
 
 [dependencies]
+cddl = { version = "=0.10.6", default-features = false, features = ["additional-controls", "ast-span", "cbor", "json", "std"] }
 
 [lints.rust]
 unsafe_code = "forbid"

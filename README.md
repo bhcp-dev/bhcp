@@ -5,7 +5,7 @@ people declare outcomes, authority, limits, and required evidence while machines
 discover acceptable executions.
 
 This repository defines the normative v0 foundation and a focused first executable
-slice. The dependency-free Rust implementation accepts a clause-only canonical
+slice. The Rust implementation accepts a clause-only canonical
 goal, emits a validated canonical AST and semantic IR, encodes both as deterministic
 CBOR, and computes algorithm-tagged semantic and artifact identities. It is not yet
 a complete v0 parser, checker, planner, runtime, or SDK.
@@ -64,8 +64,10 @@ post-quantum preimage margin. [`bhcp-project.toml`](bhcp-project.toml) is the ex
 algorithm-agility boundary: projects may select another algorithm once the Rust
 implementation registers it; unknown selections fail before parsing.
 
-The crate has no third-party dependencies and does not invoke C, Ruby, Node.js, or a
-package registry. Run every local acceptance check with:
+The crate uses the `cddl` 0.10.6 parser from cddl-rs to reject malformed RFC 8610
+schemas. The BHCP compiler, deterministic CBOR codec, SHA3-512 implementation, and
+fixture validator remain repository-owned safe Rust; the repository contains no
+project-owned C, Ruby, or Node.js tooling. Run every local acceptance check with:
 
 ```sh
 cargo fmt --check
