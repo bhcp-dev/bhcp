@@ -1,0 +1,12 @@
+[package]
+name = "agent-experiment-oracle"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.97.1"
+publish = false
+
+[dependencies]
+batch-ledger = { path = "../subject" }
+
+[lints.rust]
+unsafe_code = "forbid"
