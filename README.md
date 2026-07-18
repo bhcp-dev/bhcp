@@ -34,7 +34,7 @@ The Rust schema harness checks the CDDL root inventory, parses and validates all
 diagnostic fixtures, and verifies deterministic-CBOR round trips:
 
 ```sh
-./scripts/validate-schemas
+cargo test --test schema_fixtures
 ```
 
 See [`schemas/v0/README.md`](schemas/v0/README.md) for the artifact inventory,
@@ -90,7 +90,6 @@ cargo fmt --check
 cargo clippy --all-targets -- -D warnings
 cargo test --all-targets
 cargo build --release
-./scripts/validate-schemas
 ```
 
 `cargo run --bin generate-fixtures` regenerates the checked-in AST and IR CBOR
