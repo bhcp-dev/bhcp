@@ -1,0 +1,62 @@
+diff --git a/src/lib.rs b/src/lib.rs
+index f84499b..1135d01 100644
+--- a/src/lib.rs
++++ b/src/lib.rs
+@@ -1,5 +1,7 @@
+ #![forbid(unsafe_code)]
+ 
++use std::cmp::Ordering;
++
+ #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+ pub enum Effect {
+     Allow,
+@@ -65,17 +67,17 @@ impl Policy {
+     }
+ 
+     pub fn decide(&self, tenant: &str, subject: &str, action: &str, resource: &str) -> Decision {
+-        let _requested_tenant = tenant;
+         let selected = self
+             .rules
+             .iter()
+             .filter(|rule| {
+                 rule.enabled
++                    && rule.tenant == tenant
+                     && pattern_matches(&rule.subject, subject)
+                     && pattern_matches(&rule.action, action)
+                     && pattern_matches(&rule.resource, resource)
+             })
+-            .max_by_key(|rule| rule.priority);
++            .max_by(|left, right| compare_rules(left, right));
+ 
+         match selected {
+             Some(rule) => Decision {
+@@ -93,3 +95,29 @@ impl Policy {
+ fn pattern_matches(pattern: &str, value: &str) -> bool {
+     pattern == "*" || pattern == value
+ }
++
++fn compare_rules(left: &Rule, right: &Rule) -> Ordering {
++    specificity_score(left)
++        .cmp(&specificity_score(right))
++        .then(left.priority.cmp(&right.priority))
++        .then(effect_rank(left.effect).cmp(&effect_rank(right.effect)))
++        .then_with(|| right.id.cmp(&left.id))
++}
++
++fn specificity_score(rule: &Rule) -> usize {
++    [
++        rule.subject.as_str(),
++        rule.action.as_str(),
++        rule.resource.as_str(),
++    ]
++    .into_iter()
++    .filter(|pattern| *pattern != "*")
++    .count()
++}
++
++fn effect_rank(effect: Effect) -> u8 {
++    match effect {
++        Effect::Allow => 0,
++        Effect::Deny => 1,
++    }
++}
