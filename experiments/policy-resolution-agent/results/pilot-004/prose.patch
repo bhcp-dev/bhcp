@@ -1,0 +1,57 @@
+diff --git a/src/lib.rs b/src/lib.rs
+index f84499b..08ad655 100644
+--- a/src/lib.rs
++++ b/src/lib.rs
+@@ -65,17 +65,17 @@ impl Policy {
+     }
+ 
+     pub fn decide(&self, tenant: &str, subject: &str, action: &str, resource: &str) -> Decision {
+-        let _requested_tenant = tenant;
+         let selected = self
+             .rules
+             .iter()
+             .filter(|rule| {
+                 rule.enabled
++                    && rule.tenant == tenant
+                     && pattern_matches(&rule.subject, subject)
+                     && pattern_matches(&rule.action, action)
+                     && pattern_matches(&rule.resource, resource)
+             })
+-            .max_by_key(|rule| rule.priority);
++            .max_by(|left, right| compare_rules(left, right));
+ 
+         match selected {
+             Some(rule) => Decision {
+@@ -93,3 +93,32 @@ impl Policy {
+ fn pattern_matches(pattern: &str, value: &str) -> bool {
+     pattern == "*" || pattern == value
+ }
++
++fn compare_rules(left: &Rule, right: &Rule) -> std::cmp::Ordering {
++    use std::cmp::Ordering;
++
++    left.priority
++        .cmp(&right.priority)
++        .then_with(|| rule_specificity(left).cmp(&rule_specificity(right)))
++        .then_with(|| effect_rank(left.effect).cmp(&effect_rank(right.effect)))
++        .then_with(|| right.id.cmp(&left.id))
++        .then(Ordering::Equal)
++}
++
++fn rule_specificity(rule: &Rule) -> u8 {
++    [
++        rule.subject.as_str(),
++        rule.action.as_str(),
++        rule.resource.as_str(),
++    ]
++    .into_iter()
++    .filter(|pattern| *pattern != "*")
++    .count() as u8
++}
++
++fn effect_rank(effect: Effect) -> u8 {
++    match effect {
++        Effect::Deny => 1,
++        Effect::Allow => 0,
++    }
++}

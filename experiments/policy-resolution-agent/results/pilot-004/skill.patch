@@ -1,0 +1,53 @@
+diff --git a/src/lib.rs b/src/lib.rs
+index f84499b..6fb8b4d 100644
+--- a/src/lib.rs
++++ b/src/lib.rs
+@@ -65,17 +65,17 @@ impl Policy {
+     }
+ 
+     pub fn decide(&self, tenant: &str, subject: &str, action: &str, resource: &str) -> Decision {
+-        let _requested_tenant = tenant;
+         let selected = self
+             .rules
+             .iter()
+             .filter(|rule| {
+                 rule.enabled
++                    && rule.tenant == tenant
+                     && pattern_matches(&rule.subject, subject)
+                     && pattern_matches(&rule.action, action)
+                     && pattern_matches(&rule.resource, resource)
+             })
+-            .max_by_key(|rule| rule.priority);
++            .max_by(compare_rules);
+ 
+         match selected {
+             Some(rule) => Decision {
+@@ -93,3 +93,28 @@ impl Policy {
+ fn pattern_matches(pattern: &str, value: &str) -> bool {
+     pattern == "*" || pattern == value
+ }
++
++fn compare_rules(left: &&Rule, right: &&Rule) -> std::cmp::Ordering {
++    rule_rank(left).cmp(&rule_rank(right))
++}
++
++fn rule_rank(rule: &Rule) -> (u8, i32, u8, std::cmp::Reverse<&str>) {
++    let specificity = pattern_specificity(&rule.subject)
++        + pattern_specificity(&rule.action)
++        + pattern_specificity(&rule.resource);
++    let effect_rank = match rule.effect {
++        Effect::Deny => 1,
++        Effect::Allow => 0,
++    };
++
++    (
++        specificity,
++        rule.priority,
++        effect_rank,
++        std::cmp::Reverse(rule.id.as_str()),
++    )
++}
++
++fn pattern_specificity(pattern: &str) -> u8 {
++    u8::from(pattern != "*")
++}
