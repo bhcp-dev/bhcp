@@ -82,17 +82,23 @@ fn canonical_contract_pins_the_precedence_ladder_and_verifier_targets() {
 
 #[test]
 fn prose_remains_ambiguous_where_the_contract_is_normative() {
-    let task = fs::read_to_string(experiment().join("TASK.md")).unwrap();
-
-    for canonical_detail in [
-        "specificity dominates priority",
-        "lexicographically smaller",
-        "more exact patterns",
+    for path in [
+        experiment().join("TASK.md"),
+        experiment().join("results/pilot-004/refined-task.md"),
     ] {
-        assert!(
-            !task.contains(canonical_detail),
-            "ticket accidentally disclosed canonical detail: {canonical_detail}"
-        );
+        let task = fs::read_to_string(&path).unwrap();
+        assert!(task.contains("tenant-policy-resolution@0"));
+        for canonical_detail in [
+            "specificity dominates priority",
+            "lexicographically smaller",
+            "more exact patterns",
+        ] {
+            assert!(
+                !task.contains(canonical_detail),
+                "{} accidentally disclosed canonical detail: {canonical_detail}",
+                path.display()
+            );
+        }
     }
 }
 

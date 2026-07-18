@@ -54,3 +54,7 @@ Only `src/lib.rs` may change. The first paired run should pin both arms to
 - [`results/pilot-003/`](results/pilot-003/) — prose, raw BHCP, and BHCP plus the
   interpretation skill all produced accepted patches; raw BHCP was the most
   efficient arm, while the skill arm correctly withheld an unverified success claim.
+- [`results/pilot-004/`](results/pilot-004/) — a refined prose ticket produced a
+  visible-test-passing but oracle-rejected priority-first patch; both BHCP arms
+  preserved the canonical precedence ladder, and the merged skill again withheld
+  an unverified success claim.

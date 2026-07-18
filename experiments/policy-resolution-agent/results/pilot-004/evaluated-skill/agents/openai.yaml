@@ -1,0 +1,6 @@
+interface:
+  display_name: "Interpret BHCP Contract"
+  short_description: "Turn BHCP contracts into obligation matrices"
+  default_prompt: "Use $interpret-bhcp-contract to inspect this canonical BHCP contract and map its structural obligations to implementation and evidence."
+policy:
+  allow_implicit_invocation: false
