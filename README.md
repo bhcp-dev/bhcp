@@ -65,9 +65,10 @@ algorithm-agility boundary: projects may select another algorithm once the Rust
 implementation registers it; unknown selections fail before parsing.
 
 The crate uses the `cddl` 0.10.6 parser from cddl-rs to reject malformed RFC 8610
-schemas. The BHCP compiler, deterministic CBOR codec, SHA3-512 implementation, and
-fixture validator remain repository-owned safe Rust; the repository contains no
-project-owned C, Ruby, or Node.js tooling. Run every local acceptance check with:
+schemas and the pure-Rust RustCrypto `sha3` 0.12.0 crate for SHA3-512. The BHCP
+compiler, deterministic CBOR codec, and fixture validator remain repository-owned
+safe Rust; the repository contains no project-owned C, Ruby, or Node.js tooling. Run
+every local acceptance check with:
 
 ```sh
 cargo fmt --check
@@ -86,6 +87,16 @@ versioned BHCP prelude definitions rather than privileged IR kinds. This slice
 validates and encodes the kernel model but does not yet parse, lower, or execute
 network source. The next executable boundary is the total expression checker plus
 standard-prelude lowering to monomorphized networks.
+
+The trusted composition boundary is deliberately narrow. A network carries its
+structural ID, output type, finite typed children, and reducer symbol—nothing else.
+It carries no behavior kind, quantifier family, guard, dependency list, budget,
+scheduling order, or parallelism hint. Quantifiers expand to finite children before
+IR; recursive bounds belong to the recursive child call; and budget/concurrency
+decisions live in execution graphs. The complete v0 boundary requires checked-in
+canonical BHCP prelude functions over the compile-time derived-form/network-shape
+metamodel to supply all named orchestration behavior; implementing those definitions
+is the next executable slice, not a claim of the current clause-only compiler.
 
 ## Status
 

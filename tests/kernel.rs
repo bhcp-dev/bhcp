@@ -5,7 +5,8 @@ use bhcp::kernel::{
     Reason, Reduction, Verdict,
 };
 use bhcp::model::{
-    BhcpType, Expression, ExpressionForm, FunctionDefinition, GoalDefinition, SemanticIrDocument,
+    BhcpType, Binding, Expression, ExpressionForm, FieldType, FunctionDefinition, GoalDefinition,
+    SemanticIrDocument,
 };
 use bhcp::value::Value;
 
@@ -89,13 +90,19 @@ fn reduction_uses_consistent_adjectival_states() {
         }),
         derivation: Derivation {
             id: "derivation-1".to_owned(),
-            rule: "bhcp/proof/all-satisfied@0".to_owned(),
             premises: vec!["evidence-1".to_owned()],
         },
     };
     assert_eq!(
         concluded.to_value().get("state"),
         Some(&Value::Text("concluded".to_owned()))
+    );
+    assert!(
+        concluded
+            .to_value()
+            .get("derivation")
+            .and_then(|derivation| derivation.get("rule"))
+            .is_none()
     );
     concluded.validate(&network, &observed).unwrap();
 }
@@ -114,7 +121,6 @@ fn concluded_truth_claims_reference_their_checked_derivation() {
         }),
         derivation: Derivation {
             id: "derivation-empty-all".to_owned(),
-            rule: "bhcp/proof/empty-all@0".to_owned(),
             premises: vec![],
         },
     };
@@ -181,6 +187,10 @@ fn kernel_network_contains_structure_but_no_privileged_behavior_kind() {
     assert!(value.get("kind").is_none());
     assert!(value.get("dependencies").is_none());
     assert!(value.get("guards").is_none());
+    assert!(value.get("quantified").is_none());
+    assert!(value.get("recursion").is_none());
+    assert!(value.get("parallel_eligible").is_none());
+    assert!(value.get("parallel_reasons").is_none());
 }
 
 #[test]
@@ -201,16 +211,36 @@ fn kernel_types_preserve_the_factored_categories() {
         BhcpType::Reduction(Box::new(text.clone())).to_value(),
         Value::Array(vec![Value::Text("reduction".to_owned()), text.to_value()])
     );
+    assert_eq!(
+        BhcpType::Option(Box::new(text.clone())).to_value(),
+        Value::Array(vec![Value::Text("option".to_owned()), text.to_value()])
+    );
 }
 
 #[test]
 fn semantic_ir_resolves_network_reducers_as_bhcp_functions() {
     let text = BhcpType::Primitive("Text");
+    let parent_input = BhcpType::Record(vec![]);
+    let observations = BhcpType::Record(vec![FieldType {
+        name: "a".to_owned(),
+        value_type: BhcpType::Option(Box::new(BhcpType::ExecutionResult(Box::new(text.clone())))),
+    }]);
     let reducer_symbol = "bhcp/prelude.all-reducer@0";
     let reducer = FunctionDefinition {
         id: "function-1".to_owned(),
         symbol: reducer_symbol.to_owned(),
-        parameters: vec![],
+        parameters: vec![
+            Binding {
+                id: "parameter-parent".to_owned(),
+                name: "parent".to_owned(),
+                value_type: parent_input.clone(),
+            },
+            Binding {
+                id: "parameter-observations".to_owned(),
+                name: "observations".to_owned(),
+                value_type: observations,
+            },
+        ],
         result: BhcpType::Reduction(Box::new(text.clone())),
         definition: Expression {
             id: "expression-1".to_owned(),
@@ -227,7 +257,7 @@ fn semantic_ir_resolves_network_reducers_as_bhcp_functions() {
     let child = GoalDefinition {
         id: "goal-a".to_owned(),
         symbol: "example/child@0".to_owned(),
-        input: BhcpType::Record(vec![]),
+        input: parent_input,
         output: text.clone(),
         evidence: BhcpType::Evidence(vec!["static".to_owned()]),
         clauses: vec![],
@@ -261,6 +291,9 @@ fn semantic_ir_resolves_network_reducers_as_bhcp_functions() {
         artifact_id: None,
     };
     ir.validate().unwrap();
+
+    ir.functions[0].parameters.pop();
+    assert_eq!(ir.validate().unwrap_err().code, "BHCP4001");
 
     ir.functions.clear();
     let diagnostic = ir.validate().unwrap_err();

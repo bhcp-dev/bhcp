@@ -179,7 +179,6 @@ impl ExecutionResult {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Derivation {
     pub id: String,
-    pub rule: String,
     pub premises: Vec<String>,
 }
 
@@ -187,16 +186,12 @@ impl Derivation {
     fn to_value(&self) -> Value {
         Value::map([
             ("id", Value::Text(self.id.clone())),
-            ("rule", Value::Text(self.rule.clone())),
             ("premises", refs_value(&self.premises)),
         ])
     }
 
     fn validate(&self) -> Result<()> {
         validate_ref(&self.id)?;
-        if !is_symbol(&self.rule) {
-            return Err(invalid("derivation rule must be a symbol-id"));
-        }
         validate_refs(&self.premises)
     }
 }

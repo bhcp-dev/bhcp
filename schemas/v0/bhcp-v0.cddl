@@ -99,7 +99,7 @@ type = primitive-type / exact-number-type / machine-number-type / record-type
      / parameter-type / application-type / refinement-type / nominal-type
      / structural-type / option-type / result-type / special-type / goal-type
      / effect-row-type / evidence-type / resource-type / handle-type
-     / verdict-type / execution-result-type / reduction-type
+     / verdict-type / execution-result-type / reduction-type / meta-type
 
 primitive-type = ["primitive", "Bool" / "Text" / "Bytes" / "Unit"
                             / "Timestamp" / "Duration"]
@@ -126,6 +126,7 @@ goal-type = ["goal", type, type, effect-row, evidence-type]
 verdict-type = ["verdict", type]
 execution-result-type = ["execution-result", type]
 reduction-type = ["reduction", type]
+meta-type = ["meta", "derived-form" / "network-shape", type, type]
 effect-row-type = ["effect-row-type", effect-row]
 evidence-type = ["evidence", [* evidence-class]]
 evidence-class = "formal" / "static" / "empirical" / "statistical"
@@ -282,29 +283,32 @@ kernel-network = {
   "id": ref-id,
   "output": type,
   "children": [* kernel-child],
-  "reducer": symbol-id,
-  ? "quantified": quantified-family,
-  ? "recursion": recursion-bound,
-  ? "budgets": [* budget],
-  ? "parallel_eligible": bool,
-  ? "parallel_reasons": [* tstr]
+  "reducer": symbol-id
 }
 
 kernel-child = {
   "id": ref-id,
+  lowering-child-shape
+}
+lowering-child-shape = (
   "tag": tstr,
   "goal": ref-id,
-  "arguments": { * tstr => argument-binding }
+  "arguments": { * tstr => argument-binding },
+  ? "recursion": recursion-bound
+)
+derived-form-shape = {
+  "input": type,
+  "children": [* { lowering-child-shape }],
+  ? "condition": expression
+}
+network-shape = {
+  "output": type,
+  "children": [* { lowering-child-shape }],
+  "reducer": symbol-id
 }
 argument-binding = {
   "mode": "value" / "move" / "borrow" / "share",
   "value": expression
-}
-quantified-family = {
-  "quantifier": quantifier,
-  "binding": binding,
-  "domain": expression,
-  ? "enumeration_evidence": ref-id
 }
 recursion-bound = { "kind": "bounded", "maximum": uint }
                 / { "kind": "well-founded", "measure": expression }
@@ -315,7 +319,6 @@ child-observation = {
 }
 derivation = {
   "id": ref-id,
-  "rule": symbol-id,
   "premises": [* ref-id]
 }
 reduction = pending-reduction / concluded-reduction
@@ -454,19 +457,35 @@ waiver-document = {
   "audit_reference": content-reference
 }
 
-extension-descriptor-document = {
-  document-header,
-  "kind": "extension-descriptor",
-  "symbol": symbol-id,
-  "extension_kind": "derived" / "native",
-  "must_understand": bool,
-  ? "lowering": symbol-id,
-  ? "payload_schema": content-reference,
+extension-rules = (
   "type_rule": content-reference,
   "effect_rule": content-reference,
   "policy_rule": content-reference,
   "normalization_rule": content-reference,
   "evidence_rule": content-reference
+)
+
+extension-descriptor-document = derived-extension-descriptor-document
+                              / native-extension-descriptor-document
+
+derived-extension-descriptor-document = {
+  document-header,
+  "kind": "extension-descriptor",
+  "symbol": symbol-id,
+  "extension_kind": "derived",
+  "must_understand": false,
+  "lowering": symbol-id,
+  extension-rules
+}
+
+native-extension-descriptor-document = {
+  document-header,
+  "kind": "extension-descriptor",
+  "symbol": symbol-id,
+  "extension_kind": "native",
+  "must_understand": true,
+  "payload_schema": content-reference,
+  extension-rules
 }
 
 ; ---------- Analysis graphs ----------
@@ -680,7 +699,7 @@ evidence-edge = {
   "id": ref-id,
   "from": ref-id,
   "to": ref-id,
-  "kind": "supports" / "refutes" / "derived-from" / "produced-by" / "depends-on"
+  "kind": "supports" / "refutes" / "derives-from" / "produces" / "depends-on"
 }
 evidence-bundle-document = {
   document-header,

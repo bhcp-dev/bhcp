@@ -5,6 +5,7 @@
   "symbol": "example/derived@0",
   "extension_kind": "derived",
   "must_understand": false,
+  "lowering": "example/lower-derived@0",
   "type_rule": {"media_type": "text/bhcp", "size": 0, "digests": [{"algorithm": "bhcp.hash/sha3-512@0", "digest": h'00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000'}]},
   "effect_rule": {"media_type": "text/bhcp", "size": 0, "digests": [{"algorithm": "bhcp.hash/sha3-512@0", "digest": h'00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000'}]},
   "policy_rule": {"media_type": "text/bhcp", "size": 0, "digests": [{"algorithm": "bhcp.hash/sha3-512@0", "digest": h'00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000'}]},

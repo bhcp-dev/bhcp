@@ -43,6 +43,8 @@ pub fn validate_root(value: &Value, expected_kind: &str) -> Result<()> {
     validate_hashes(value)?;
     if expected_kind == "execution-result" {
         validate_execution_result(value)?;
+    } else if expected_kind == "extension-descriptor" {
+        validate_extension_descriptor(value)?;
     }
     Ok(())
 }
@@ -76,11 +78,40 @@ pub fn validate_schema_inventory(schema: &str, expected_kinds: &[&str]) -> Resul
         "reduction = pending-reduction / concluded-reduction",
         "execution-result = completed-result / faulted-result",
         "verdict = satisfied-verdict / refuted-verdict / unresolved-verdict",
+        "meta-type = [\"meta\", \"derived-form\" / \"network-shape\", type, type]",
+        "derived-form-shape = {",
+        "network-shape = {",
     ] {
         if !schema.contains(rule) {
             return Err(Diagnostic::plain(
                 "BHCP5002",
                 format!("CDDL kernel rule is missing: {rule}"),
+            ));
+        }
+    }
+    for forbidden in [
+        "? \"quantified\": quantified-family",
+        "? \"parallel_eligible\": bool",
+        "? \"parallel_reasons\": [* tstr]",
+        "? \"budgets\": [* budget]",
+        "\"rule\": symbol-id",
+    ] {
+        if schema.contains(forbidden) {
+            return Err(Diagnostic::plain(
+                "BHCP5002",
+                format!("CDDL minimal-kernel boundary contains forbidden field: {forbidden}"),
+            ));
+        }
+    }
+    for rule in [
+        "extension-descriptor-document = derived-extension-descriptor-document",
+        "derived-extension-descriptor-document = {",
+        "native-extension-descriptor-document = {",
+    ] {
+        if !schema.contains(rule) {
+            return Err(Diagnostic::plain(
+                "BHCP5002",
+                format!("CDDL extension boundary is missing: {rule}"),
             ));
         }
     }
@@ -262,6 +293,63 @@ fn validate_execution_result(document: &Value) -> Result<()> {
         _ => Err(Diagnostic::plain(
             "BHCP5002",
             "execution state must be completed or faulted",
+        )),
+    }
+}
+
+fn validate_extension_descriptor(document: &Value) -> Result<()> {
+    match document.get("extension_kind") {
+        Some(Value::Text(kind)) if kind == "derived" => {
+            require_bool(document, "must_understand", false)?;
+            match document.get("lowering") {
+                Some(Value::Text(lowering)) if is_symbol(lowering) => {}
+                _ => {
+                    return Err(Diagnostic::plain(
+                        "BHCP5002",
+                        "derived extension requires a BHCP lowering function symbol",
+                    ));
+                }
+            }
+            if document.get("payload_schema").is_some() {
+                return Err(Diagnostic::plain(
+                    "BHCP5002",
+                    "derived extension must not declare a native payload schema",
+                ));
+            }
+            Ok(())
+        }
+        Some(Value::Text(kind)) if kind == "native" => {
+            require_bool(document, "must_understand", true)?;
+            match document.get("payload_schema") {
+                Some(Value::Map(_)) => {}
+                _ => {
+                    return Err(Diagnostic::plain(
+                        "BHCP5002",
+                        "native extension requires a payload schema",
+                    ));
+                }
+            }
+            if document.get("lowering").is_some() {
+                return Err(Diagnostic::plain(
+                    "BHCP5002",
+                    "native extension must not masquerade as a derived lowering",
+                ));
+            }
+            Ok(())
+        }
+        _ => Err(Diagnostic::plain(
+            "BHCP5002",
+            "extension kind must be derived or native",
+        )),
+    }
+}
+
+fn require_bool(value: &Value, field: &str, expected: bool) -> Result<()> {
+    match value.get(field) {
+        Some(Value::Bool(actual)) if *actual == expected => Ok(()),
+        _ => Err(Diagnostic::plain(
+            "BHCP5002",
+            format!("field {field} must equal {expected}"),
         )),
     }
 }

@@ -23,12 +23,34 @@ adjectives `pending | concluded`; execution states are `completed | faulted`; an
 completed verdict states are `satisfied | refuted | unresolved`. Operational faults
 therefore remain outside semantic verdicts.
 
+A `kernel-network` contains only structural identity, output type, finite children,
+and a reducer symbol. Quantified derived forms must expand before IR, recursion
+bounds attach to recursive children, and budget/scheduling/parallel-eligibility
+analysis belongs to execution graphs rather than semantic IR. Derivations carry only
+an ID and sealed premise references: the generic checker re-evaluates the network's
+BHCP reducer, so no behavior-specific proof-rule registry is part of the kernel.
+Reducer validation requires exactly the parent input and a closed record containing
+one `Option<ExecutionResult<ChildOutput>>` field per child, and requires
+`Reduction<ParentOutput>` as the result.
+
+Self-hosted lowerers use compile-time-only `meta-type` values. A lowerer receives a
+typed `derived-form-shape` and returns an ID-free `network-shape`; both use
+source-independent resolved children and expressions. The elaborator validates the
+shape, assigns structural IDs, and rejects all meta values that survive into runtime
+semantic IR.
+
+Extension descriptors preserve the same boundary. A derived descriptor must name a
+BHCP lowering function, is not must-understand after full lowering, and has no native
+payload schema. A native descriptor has a required payload schema, is always
+must-understand, and cannot masquerade as a derived lowering.
+
 The files in [`examples/`](examples/) use CBOR diagnostic notation and contain at
 least one instance of every root alternative. `examples/manifest.txt` binds each
 fixture to its expected root kind. The Rust validation harness:
 
 - parses the normative bundle with cddl-rs 0.10.6 and rejects malformed CDDL;
-- checks the CDDL root inventory and the declarative-goal/kernel-network rule;
+- checks the CDDL root inventory, the minimal kernel-network shape, and the disjoint
+  derived/native extension rules;
 - parses every diagnostic fixture and validates its v0 root contract;
 - confirms all root kinds are present exactly as declared by the fixture manifest;
 - checks every understood `bhcp.hash/sha3-512@0` digest length;

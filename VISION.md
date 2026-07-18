@@ -73,7 +73,10 @@ The example says that implementation precedes independent checks, high-risk chan
 require approval, and publication receives ownership of the patch. The planner may
 parallelize the checks only when effects, state, and borrows do not conflict. The
 source does not prescribe retry algorithms, model providers, prompts, or worker
-topology.
+topology. These readable forms are prelude syntax: after lowering, no `chain`, `all`,
+or `gate` node remains. Their checked BHCP lowerers consume a source-independent
+compile-time shape and produce the same minimal network IR that an explicit core
+composition would produce.
 
 ## One meaning, several representations
 
@@ -138,7 +141,7 @@ system. Its required end-to-end scope includes:
   quantification and namespaced, versioned functions and domain predicates;
 - goals, contracts, authority, budgets, preferences, verifiers, cases, recursive
   references, profiles, policies, waivers, and extensions;
-- a minimal outcome-aware network kernel and proof checker, with `§all`, `§any`,
+- a minimal execution-result-aware network kernel and generic proof checker, with `§all`, `§any`,
   `§none`, `§chain`, `§gate`, persistent retention, and future orchestration behavior
   defined by a versioned self-hosted BHCP prelude;
 - a parser, formatter, type/effect/policy checker, semantic lowering pipeline,

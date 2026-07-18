@@ -37,6 +37,12 @@ temporal/reactive logic, and universal workflow synthesis are outside v0. The fu
 v0 type system, minimal network kernel, proof checker, and standard derived prelude
 are not optional.
 
+“Required” does not mean “privileged.” The trusted composition mechanism is limited
+to the network transition protocol, total pure reducer evaluation, sealed
+observations, and generic derivation checking. The standard prelude is required
+canonical BHCP code built on that mechanism; schedulers, named combinators,
+persistence policies, and behavior-specific proof rules are outside the kernel.
+
 Schema anchors: `feature-manifest-document`, `canonical-ast-document`,
 `semantic-ir-document`, and all graph documents.
 
@@ -128,6 +134,8 @@ v0 has the following canonical type forms:
 - `Option<T> = None | Some(T)` and `Result<T,E> = Ok(T) | Err(E)`;
 - `Dynamic`, whose use never suppresses runtime checks, and uninhabited `Never`;
 - `Goal<I,O,effects,evidence>`, effect-row types, and evidence types;
+- compile-time-only `Meta<DerivedForm,I,O>` and `Meta<NetworkShape,I,O>` lowering
+  types, which MUST NOT occur in executable runtime IR; and
 - resources, state cells, and owned/shared/borrowed handles with access and lifetime.
 
 Union and intersection members MUST be flattened, deduplicated, and sorted by their
@@ -192,7 +200,7 @@ omitted usage mode is `unrestricted`. Semantic IR always carries every qualifier
 | dynamic-language value | `Dynamic` plus explicit boundary checks and unchanged policy/effect rules |
 
 Schema anchors: `type-definition`, `type`, `exact-number`, `machine-float-value`,
-`value`, `resource-type`, `handle-type`, and `type-mode`.
+`value`, `resource-type`, `handle-type`, `meta-type`, and `type-mode`.
 
 ## S5. Expressions, functions, and predicates
 
@@ -256,7 +264,8 @@ UTF-8 NFC text, and flat typed clauses inside goals. The reserved vocabulary is:
 | contracts | `§requires`, `§ensures`, `§invariant`, `§limit` |
 | authority | `§allows`, `§forbids` |
 | optimization/evidence | `§prefer`, `§verify`, `§case` |
-| kernel/derived composition | `§compose`, `§all`, `§any`, `§none`, `§chain`, `§gate` |
+| kernel composition | `§compose` |
+| derived prelude | `§all`, `§any`, `§none`, `§chain`, `§gate` |
 | meta/policy | `§syntax`, `§profile`, `§policy`, `§waiver`, `§extension`, `§extends` |
 
 There is no generic `constraint` or `test` keyword. A precise contract clause lowers
@@ -298,8 +307,8 @@ contract-key    = "§requires" | "§ensures" | "§invariant" | "§limit" ;
 authority-clause= ( "§allows" | "§forbids" ) [ label ] effect-list ";" ;
 prefer-clause   = "§prefer" [ integer ":" ] [ label ] expression ";" ;
 verify-clause   = "§verify" [ label ] verifier-binding ";" ;
-case-clause     = "§case" [ label ] "{" { binding | outcome-expectation } "}" ";" ;
-outcome-expectation = "expect" ( "completed" verdict-state | "faulted" )
+case-clause     = "§case" [ label ] "{" { binding | execution-expectation } "}" ";" ;
+execution-expectation = "expect" ( "completed" verdict-state | "faulted" )
                       [ expression ] ";" ;
 composition     = compose-expr ";" | all-expr ";" | any-expr ";" | none-expr ";"
                 | chain-expr ";" | gate-expr ";" ;
@@ -426,11 +435,30 @@ Schema anchors: `canonical-ast-document`, `ast-node`, and `token-span`.
 The only privileged composition form in semantic IR is a finite `kernel-network`.
 It contains statically typed child goal invocations and the symbol of one total pure
 BHCP reducer function. It contains no behavioral `kind`, implicit guard, implicit
-dependency, or built-in choice rule.
+dependency, built-in choice rule, quantified family, scheduling order, or planner
+parallelism hint. It also contains no budget or policy decision; those belong to
+clauses and analysis/execution artifacts. Every referenced reducer definition MUST
+be resolved and present in semantic IR.
 
-The runtime invokes the reducer with the parent input and the sealed observations
-already produced by children. A child observation contains its structural child ID
-and an `execution-result`. The reducer returns exactly one reduction state:
+Each network is monomorphized. Conceptually its reducer has this exact signature,
+where every child tag and output type is materialized as a closed record field:
+
+```text
+(parent: I,
+ observations: {tag: Option<ExecutionResult<ChildOutput>>, ...})
+    -> Reduction<O>
+```
+
+A record field's tag statically identifies its child; a present value is that
+child's sealed `execution-result`, while absence means the child has not produced an
+observation. The runtime `child-observation` envelope carries the structural child
+ID and result before constructing this monomorphized record. The runtime invokes the
+reducer with the parent input and this record. Child argument
+expressions are total and pure, are evaluated only when that child is first
+requested, and may read the parent input and already-present sealed observations.
+Reading an absent observation or producing an argument of the wrong type is rejected
+before execution when provable and is otherwise an operational fault. The reducer
+returns exactly one reduction state:
 
 | Reduction | Meaning |
 | --- | --- |
@@ -444,23 +472,33 @@ the reducer runs again. A concluded reduction is terminal. Requesting an unknown
 already observed child, returning an invalid derivation, or evaluating a non-total
 reducer is an operational fault.
 
-Child observations and evidence tokens are sealed. Reducers MAY inspect verdicts,
-outputs, reasons, and traces, and MAY reference accepted premise tokens. They MUST
-NOT manufacture evidence, counter-evidence, or operational traces. The proof checker
-validates every derivation against the reducer's declared result and seals a valid
-derivation under its structural ID. A concluded satisfied verdict MUST include that
-ID in `evidence`; a concluded refuted verdict MUST include it in `counterEvidence`.
-The derivation can therefore prove a premise-free logical identity without synthetic
-child evidence.
+Child observations and evidence tokens are sealed. Reducers MAY pattern-match
+execution/verdict states, inspect outputs and reasons, propagate an operational fault
+opaquely, and reference accepted premise tokens. Operational trace contents and
+timestamps are not reducer inputs to semantic choice: reducers MUST NOT branch on
+them, alter them, or manufacture evidence, counter-evidence, or traces. A derivation
+contains only its structural ID and sealed premise references; it has no
+behavior-specific rule tag. The generic proof checker re-evaluates the exact reducer
+with the same parent input and observations, checks that the reduction is identical,
+and verifies that the premises exist, are accepted, and cover the obligations the
+result claims to discharge. It then seals the derivation under its ID. A concluded
+satisfied verdict MUST include that ID in `evidence`; a concluded refuted verdict
+MUST include it in `counterEvidence`. The derivation can therefore prove a
+premise-free logical identity without synthetic child evidence.
 
 A goal containing only flat clauses is declarative and has no network. Its semantic
 IR omits `body`; its input and output types are derived from its fact clauses. Empty
 networks are permitted because a reducer can immediately conclude a logical identity
 without requesting a child.
 
-Finite quantified families lower to statically described or verifier-witnessed
-children. Recursive goal references MUST carry a static bound or a checker-accepted
-well-founded decreasing measure. Unbounded recursion is rejected.
+Composition quantifiers are stricter than logical quantifiers in S5: their domains
+MUST normalize during elaboration to a statically known finite collection. They then
+expand to explicit, deterministically ordered children before kernel-network IR and
+semantic hashing. A verifier-backed or runtime-only domain is rejected as
+composition input; bounded or well-founded recursive goals express traversal of a
+runtime collection without adding a dynamic-family kernel primitive. A recursive
+child reference MUST carry its own static bound or checker-accepted well-founded
+decreasing measure. Unbounded recursion is rejected.
 
 ### S8.2 Semantic self-hosting
 
@@ -468,6 +506,41 @@ Named orchestration behavior is defined by versioned BHCP functions and derived
 extensions in the standard prelude. `all`, `any`, `none`, `chain`, and `gate` are not
 kernel node kinds. Their surface forms deterministically lower to kernel networks
 whose reducers are ordinary total pure BHCP definitions.
+
+The canonical profile binds its convenience forms to these v0 prelude symbols:
+
+| Surface form | Compile-time BHCP lowerer | Runtime BHCP reducer |
+| --- | --- | --- |
+| `§all` | `bhcp/prelude.lower-all@0` | `bhcp/prelude.all-reducer@0` |
+| `§any` | `bhcp/prelude.lower-any@0` | `bhcp/prelude.any-reducer@0` |
+| `§none` | `bhcp/prelude.lower-none@0` | `bhcp/prelude.none-reducer@0` |
+| `§chain` | `bhcp/prelude.lower-chain@0` | `bhcp/prelude.chain-reducer@0` |
+| `§gate` | `bhcp/prelude.lower-gate@0` | `bhcp/prelude.gate-reducer@0` |
+
+Those bindings are versioned semantic names, not compiler callbacks. The standard
+prelude is canonical BHCP source checked by the same type, totality, purity, policy,
+and normalization rules as project code. A lowerer runs during elaboration and
+disappears after producing core IR. Every reachable reducer definition remains in
+semantic IR and semantic identity. `§compose using f` is the sole core surface form;
+it constructs the same network shape directly and requires `f` to have the exact
+monomorphized reducer signature from S8.1.
+
+Every lowerer has the compile-time signature:
+
+```text
+Meta<DerivedForm,I,O> -> Meta<NetworkShape,I,O>
+```
+
+`DerivedForm` contains only the parent input type, resolved typed child shapes, and
+an optional typed condition. Quantifiers have already expanded. `NetworkShape`
+contains only the output type, child shapes, and reducer symbol; it deliberately has
+no network or child structural IDs. These closed nominal meta values are defined by
+`derived-form-shape` and `network-shape`. A lowerer cannot observe tokens, comments,
+diagnostic-only labels, spans, profiles, source order already proven unobservable,
+ambient state, or planner data, and cannot allocate network or child IDs. After
+validating the returned shape, the elaborator assigns deterministic structural IDs.
+Meta values and executed lowerer definitions MUST NOT survive into executable
+semantic IR or its semantic hash.
 
 Derived lowering is restricted metaprogramming: it is typed, total, deterministic,
 structurally recursive over a finite typed goal shape, has no I/O or ambient state,
@@ -490,6 +563,11 @@ The standard prelude defines these behaviors:
 No block implicitly means `all` or `any`. A gate has exactly one child; multiple
 guarded children require an explicit derived composition inside it.
 
+A gate condition is a total pure `Bool` expression. It therefore yields true or
+false, or faults if its operational evaluator violates its contract; the condition
+itself is never an unresolved verdict. Evidence-dependent judgment MUST be modeled
+as an explicit child goal whose execution result can be unresolved.
+
 The empty identities are: `all {}` is satisfied with `{}`; `any {}` is refuted;
 `none {}` is satisfied with `Unit`; and `chain {}` is satisfied with `Unit`. Nested
 derived forms MAY normalize only when their prelude definition proves the rewrite
@@ -506,7 +584,7 @@ been safely cancelled:
 | `any` | any child completed satisfied | every relevant child completed refuted | faulted if a relevant child faulted; otherwise completed unresolved |
 | `none` | every relevant child completed refuted | any child completed satisfied | faulted if a relevant child faulted; otherwise completed unresolved |
 | `chain` | each requested child completed satisfied in order | first requested child completed refuted | first causally relevant fault; otherwise completed unresolved; later children are never requested |
-| `gate` closed | completed satisfied with `Excluded` | never | condition evaluation fault or unresolution propagates |
+| `gate` closed | completed satisfied with `Excluded` | never | condition evaluation fault propagates |
 | `gate` open | child satisfaction mapped to `Included<T>` | child refutation | child unresolution or fault propagates |
 
 Thus a refuted branch can conclude `all` despite an unrelated fault, and a satisfied
@@ -524,24 +602,28 @@ Every network also obeys these rules:
 2. Parent invariants hold before, during, and after every child transition.
 3. Child authority is intersected with the parent ceiling. Prohibitions accumulate;
    deny wins.
-4. Limits are shared budgets by default. A child allocation MUST be explicit, fit
-   within the remaining parent budget, and account for retries and parallel work.
+4. Limits are shared budgets by default. A child allocation in the execution graph
+   MUST be explicit, fit within the remaining parent budget, and account for retries
+   and parallel work. Budget decisions do not mutate `kernel-network`.
 5. Preferences compare valid results lexicographically in ascending integer-priority
    order. Within a priority, objectives are Pareto-combined unless policy supplies a
    deterministic aggregation function.
 6. A multi-child pending set is parallel-eligible only when data dependencies,
    mutable state, exclusive borrows, linear use, and effects do not conflict. The
-   analysis graph records the decision and reasons.
-7. A reducer-requested order is semantic. Retries, speculative races, and fallback
-   order are planner strategies only when state, effects, budgets, outputs, evidence,
-   and reducer observations make them unobservable.
+   execution graph records the relevant dependency, effect, and state edges; planner
+   diagnostics explain any denied concurrency. Neither decision nor rationale is
+   stored in `kernel-network`.
+7. The sequence of pending sets returned across reducer evaluations is semantic;
+   member order inside one pending set is not. Retries, speculative races, and
+   fallback order are planner strategies only when state, effects, budgets, outputs,
+   evidence, and reducer observations make them unobservable.
 
 ### S8.5 Persistent retention
 
-Persistent retention is not composition syntax. The kernel exposes capability-
-controlled atomic state-read and compare-and-swap goals. A versioned prelude
-definition may derive a `retain` or last-known-good behavior from those goals and a
-normal kernel network.
+Persistent retention is not composition syntax. The capability/executor boundary
+provides effectful atomic state-read and compare-and-swap goals; they are ordinary
+typed child goals, not kernel operations. A versioned prelude definition may derive
+a `retain` or last-known-good behavior from those goals and a normal kernel network.
 
 A retained key identifies one atomic persistent cell. `Empty` is explicit and is not
 a missing field. On a completed satisfied candidate, value, accepted evidence,
@@ -553,9 +635,9 @@ serialize or use compare-and-swap over the prior state ID; lost updates are
 forbidden. Storage captures an owned value or a policy-approved persistent share and
 MUST NOT retain an expired borrow.
 
-Schema anchors: `kernel-network`, `child-observation`, `reduction`, `derivation`,
-`execution-result`, `budget`, `preference`, `state-cell`, and
-`state-graph-document`.
+Schema anchors: `meta-type`, `derived-form-shape`, `network-shape`,
+`kernel-network`, `child-observation`, `reduction`, `derivation`,
+`execution-result`, `budget`, `preference`, `state-cell`, and `state-graph-document`.
 
 ## S9. Profiles, policies, waivers, and extensions
 
@@ -603,11 +685,16 @@ Invalid, expired, overbroad, or unauthorized waivers are rejected, not ignored.
 A derived extension has a namespaced/versioned identity and names a total pure BHCP
 lowering function satisfying S8.2. It deterministically lowers completely to core IR
 before checking and hashing. A content reference MAY retain its canonical source for
-audit, but an opaque implementation callback is not a conforming derived lowering. A
-native extension is a namespaced/versioned, must-understand IR node with declared
-type, effect, policy, normalization, hashing, and evidence behavior. Unsupported
-native extensions cause rejection. Extensions MUST NOT override core meanings or
-loosen enclosing policy.
+audit, but an opaque implementation callback is not a conforming derived lowering.
+Its descriptor has `extension_kind = derived`, `must_understand = false`, a mandatory
+`lowering` function symbol, and no native `payload_schema`. A native extension has
+`extension_kind = native`, `must_understand = true`, a mandatory payload schema, no
+derived lowering, and declared type, effect, policy, normalization, hashing, and
+evidence behavior. Unsupported native extensions cause rejection. Extensions MUST
+NOT override core meanings or loosen enclosing policy. `must_understand = false`
+does not permit a compiler to ignore a derived use: it means no opaque feature
+remains after the mandatory lowering succeeds. Missing, rejected, or unevaluated
+lowering is an error.
 
 Schema anchors: `syntax-document`, `profile-document`, `policy-document`,
 `waiver-document`, and `extension-descriptor-document`.
@@ -660,11 +747,16 @@ Before semantic hashing, an implementation MUST:
 2. execute every derived lowering and monomorphize it to `kernel-network` IR;
 3. infer and materialize canonical types/effect rows;
 4. alpha-normalize non-observable binders;
-5. apply only prelude-proved network rewrites and deterministic child ordering;
+5. expand statically finite composition quantifiers, apply only prelude-proved
+   network rewrites, and deterministically order the explicit child set;
 6. normalize union/intersection members and policy clauses;
-7. preserve reducer-requested order, observable names/tags, effects, preferences,
-   policy, ownership/state semantics, and native extension nodes; and
+7. retain every reachable reducer definition and preserve the sequence of pending
+   sets, observable names/tags, effects, preferences, policy, ownership/state
+   semantics, and native extension nodes; and
 8. remove source/profile presentation and provenance metadata.
+
+Compile-time meta values and executed lowerer definitions are also removed at step
+2; reachable runtime reducer definitions are retained by step 7.
 
 There are two distinct identities:
 
@@ -697,9 +789,10 @@ A complete v0 suite MUST include scenarios for:
   boundaries, linear/affine paths, and unsafe evidence gaps;
 - completed satisfied, refuted, and unresolved verdicts plus operational faults for
   kernel networks and every standard derived behavior;
-- pending/concluded reducer validation, sealed evidence, invalid derivations,
+- pending/concluded reducer validation, generic reducer re-evaluation, sealed
+  evidence, invalid derivations,
   deterministic derived lowering, and equivalence with hand-written core networks;
-- unary gate skipping, retained-value empty/capture/retain, atomic update, and stale
+- unary gate exclusion/inclusion, retained-value empty/capture/retain, atomic update, and stale
   evidence;
 - chain type mismatch, bounded/well-founded recursion, budget allocation, effect
   conflict, and multi-child pending-set parallel eligibility;
@@ -755,10 +848,11 @@ The first form is equivalent after lowering to explicit core source:
 
 The `all` output is `{build: BuildOutput, docs: DocsOutput}`. The `any` output is
 `cache(CacheOutput) | source(BuildOutput)`. The `none` output is `Unit`. The gate is
-`Excluded | Included<Approval>`. Each form lowers to a `kernel-network` using its
-versioned standard-prelude reducer. Persistent retention is expressed by calling a
-prelude goal backed by state-read and compare-and-swap capabilities, not by a
-composition keyword.
+`Excluded | Included<Approval>`. Each convenience form invokes its versioned
+standard-prelude lowerer from S8.2, then leaves only a `kernel-network` and the
+reachable reducer definition in semantic IR. Persistent retention is expressed by
+calling a prelude goal backed by state-read and compare-and-swap capabilities, not
+by a composition keyword or kernel operation.
 
 ### A.3 Refinement and result
 
@@ -782,6 +876,13 @@ composition keyword.
     };
 }
 ```
+
+The first quantifier is valid only when `workspace.packages` normalizes to a finite
+collection during elaboration; it then expands to explicit children before kernel
+IR. A runtime-only package collection requires a bounded or well-founded recursive
+goal like `WalkTree`. Each recursive child carries its own checked decreasing
+measure; neither a quantified family nor a network-wide recursion mode survives
+lowering.
 
 ### A.5 Ownership and effects
 
@@ -809,7 +910,7 @@ composition keyword.
 | effects, authority, unsafe gaps | S6 | `effect-row`, `authority-clause`, `capability`, `evidence-gap` |
 | canonical vocabulary and grammar | S7 | `canonical-ast-document`, `ast-node` |
 | minimal network kernel and reductions | S8.1 | `kernel-network`, `child-observation`, `reduction`, `derivation` |
-| self-hosted standard goal algebra | S8.2–S8.3 | `function-definition`, `kernel-network`, `execution-result` |
+| self-hosted standard goal algebra | S8.2–S8.3 | `meta-type`, `derived-form-shape`, `network-shape`, `function-definition`, `kernel-network`, `execution-result` |
 | composition of contracts/policy/budgets/preferences | S8.4 | `clause`, `budget`, `preference`, graph rules |
 | persistent retention/freshness | S8.5 | `state-cell`, `state-node`, `state-transition` |
 | profiles and fixed preamble | S9.1 | `syntax-document`, `profile-document`, `syntax-mapping` |

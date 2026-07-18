@@ -193,6 +193,7 @@ pub enum BhcpType {
     Primitive(&'static str),
     ExactNumber(&'static str),
     Record(Vec<FieldType>),
+    Option(Box<BhcpType>),
     Evidence(Vec<String>),
     Verdict(Box<BhcpType>),
     ExecutionResult(Box<BhcpType>),
@@ -232,6 +233,9 @@ impl BhcpType {
                         .collect(),
                 ),
             ]),
+            Self::Option(value) => {
+                Value::Array(vec![Value::Text("option".to_owned()), value.to_value()])
+            }
             Self::Evidence(classes) => Value::Array(vec![
                 Value::Text("evidence".to_owned()),
                 Value::Array(classes.iter().cloned().map(Value::Text).collect()),
@@ -589,6 +593,12 @@ impl SemanticIrDocument {
             for parameter in &function.parameters {
                 add_id(&parameter.id, &mut ids)?;
             }
+            if function.definition.value_type != function.result {
+                return Err(Diagnostic::plain(
+                    "BHCP4001",
+                    "function definition type does not match its result type",
+                ));
+            }
             function.definition.validate(&mut ids, &mut references)?;
         }
         for goal in &self.goals {
@@ -673,6 +683,42 @@ impl SemanticIrDocument {
                 "BHCP4001",
                 "kernel reducer does not resolve to a function",
             ));
+        }
+        for parent in &self.goals {
+            let Some(network) = &parent.body else {
+                continue;
+            };
+            let reducer = self
+                .functions
+                .iter()
+                .find(|function| function.symbol == network.reducer)
+                .expect("reducer resolution was checked above");
+            let mut observation_fields = Vec::with_capacity(network.children.len());
+            for child in &network.children {
+                let child_goal = self
+                    .goals
+                    .iter()
+                    .find(|goal| goal.id == child.goal)
+                    .expect("child goal resolution was checked above");
+                observation_fields.push(FieldType {
+                    name: child.tag.clone(),
+                    value_type: BhcpType::Option(Box::new(BhcpType::ExecutionResult(Box::new(
+                        child_goal.output.clone(),
+                    )))),
+                });
+            }
+            observation_fields.sort_by(|left, right| left.name.cmp(&right.name));
+            let expected_observations = BhcpType::Record(observation_fields);
+            let valid_parameters = reducer.parameters.len() == 2
+                && reducer.parameters[0].value_type == parent.input
+                && reducer.parameters[1].value_type == expected_observations;
+            let expected_result = BhcpType::Reduction(Box::new(parent.output.clone()));
+            if !valid_parameters || reducer.result != expected_result {
+                return Err(Diagnostic::plain(
+                    "BHCP4001",
+                    "kernel reducer signature must be (parent input, monomorphized observations) -> Reduction<parent output>",
+                ));
+            }
         }
         if let Some(hash) = &self.semantic_id {
             hash.validate()?;
