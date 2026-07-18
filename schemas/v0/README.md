@@ -84,7 +84,7 @@ compatibility boundary is resolved is the next schema-tooling step.
 Run from the repository root:
 
 ```sh
-./scripts/validate-schemas
+cargo test --test schema_fixtures
 ```
 
 Schema shape validation is not a substitute for the cross-field and behavioral
