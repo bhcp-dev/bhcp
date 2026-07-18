@@ -130,6 +130,7 @@ fn elaborate(
     let entrypoints = goals.iter().map(|goal| goal.id.clone()).collect();
     Ok(SemanticIrDocument {
         features: features_for(algorithm),
+        functions: vec![],
         goals,
         entrypoints,
         semantic_id: None,
@@ -248,6 +249,7 @@ fn lower_goal(
         output,
         evidence: BhcpType::Evidence(vec![evidence.to_owned()]),
         clauses,
+        body: None,
     })
 }
 

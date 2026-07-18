@@ -6,7 +6,7 @@ evidence bundle. Until the complete parser, checker, planner, and runtime exist,
 unimplemented cases remain the stable acceptance contract rather than executable
 tests in this repository.
 
-Each positive case must check canonical AST, semantic IR, graph, outcome, and
+Each positive case must check canonical AST, semantic IR, graph, execution result, and
 deterministic bytes where those stages apply. Each negative case must check a stable
 diagnostic code and must not emit a misleading later-stage artifact.
 
@@ -28,8 +28,8 @@ support.
 | SYN-03 | Custom source has a malformed or non-first preamble. | Parse rejection before profile rules run. |
 | ID-01 | Only whitespace, comments, labels, source spans, or formatting change. | Semantic ID unchanged; artifact ID changes when complete artifact metadata changes. |
 | ID-02 | An observable output field, branch tag, effect, preference, policy, or native extension changes. | Semantic ID changes. |
-| ID-03 | Alpha-equivalent local binders and permuted unobservable `all` branches normalize. | Identical canonical semantic bytes. |
-| ID-04 | `chain` branches are permuted. | Different canonical bytes and semantic ID. |
+| ID-03 | Alpha-equivalent local binders and permuted unobservable derived `all` branches lower and normalize. | Identical kernel-network bytes and semantic ID. |
+| ID-04 | Derived `chain` branches are permuted. | Different lowered network bytes and semantic ID. |
 | CBOR-01 | Each root diagnostic fixture is encoded, decoded, and encoded again. | Deterministic bytes are identical and validate against `root-document`. |
 | CBOR-02 | A content reference has `bhcp.hash/sha3-512@0` and another registered digest. | Both tags survive; understood digests verify; the default digest is 64 bytes. |
 | CBOR-03 | A map uses duplicate keys, an indefinite length, or non-shortest integer encoding. | Canonical-wire rejection. |
@@ -52,32 +52,41 @@ support.
 | OWN-01 | Read borrows overlap. | Accepted when lifetimes fit. |
 | OWN-02 | A write borrow overlaps any other borrow. | Borrow-conflict rejection. |
 | OWN-03 | An owned affine value is moved then reused. | Use-after-move rejection on every branch. |
-| OWN-04 | A latch attempts to retain an expiring borrow. | Rejected; ownership or approved persistent sharing is required. |
+| OWN-04 | A derived retention goal attempts to persist an expiring borrow. | Rejected; ownership or approved persistent sharing is required. |
 | EFF-01 | A pure goal calls an effectful child. | Effect propagates or the call is rejected; it is never hidden. |
 | EFF-02 | Unsafe/foreign execution is allowed by policy. | Capability is visible and an evidence gap is emitted. |
 | EFF-03 | A child allowance exceeds a parent prohibition. | Denied; parent ceiling and deny-wins are preserved. |
 
-## Goal algebra, state, and planning
+## Kernel, derived goal algebra, state, and planning
 
-For each of `all`, `any`, `none`, `chain`, `gate`, and `latch`, scenarios `ALG-x-S`,
-`ALG-x-R`, `ALG-x-I`, and `ALG-x-F` cover satisfied, refuted, indeterminate, and
-faulted children according to the S8 propagation tables.
+For each standard derived behavior, scenarios `ALG-x-S`, `ALG-x-R`, `ALG-x-U`, and
+`ALG-x-F` cover completed satisfied, refuted, and unresolved verdicts plus faulted
+executions according to S8. Hand-written core networks and their derived surface
+forms MUST lower to the same meaning.
 
 | ID | Scenario | Expected result |
 | --- | --- | --- |
-| ALG-ALL | Products, empty identity, fault-vs-indeterminate precedence, and refutation despite unrelated fault. | Named product and evidence from every success; decisive refutation wins. |
+| KRN-01 | Reducer receives no observations and returns `Pending` with multiple known children. | Children are eligible together subject to effect/ownership/policy analysis. |
+| KRN-02 | A pending reduction names an unknown, duplicate, or already observed child, or names no children. | Stable kernel rejection; no execution result is emitted. |
+| KRN-03 | A reducer returns `Concluded` with a forged token or invalid derivation. | Proof-check rejection and visible operational fault. |
+| KRN-04 | Equivalent standard-prelude syntax and hand-written `§compose` source fully lower. | Byte-identical normalized kernel networks and semantic IDs. |
+| KRN-05 | Reducer state names are inspected. | Only adjectival `pending` and `concluded` states occur. |
+| KRN-06 | A premise-free reducer proves an empty logical identity. | The checker seals the valid derivation; its structural ID supplies the verdict's evidence or counter-evidence token. |
+| RES-01 | A run completes without proof either way. | `Completed(Unresolved(...))`; it is neither refuted nor faulted. |
+| RES-02 | Execution violates its operational contract. | `Faulted(...)` outside the semantic verdict; it is not counter-evidence. |
+| ALG-ALL | Products, empty identity, fault-vs-unresolved precedence, and refutation despite unrelated fault. | Named product and evidence from every success; decisive refutation wins. |
 | ALG-ANY | Tagged winner, empty identity, precedence, and success despite unrelated fault. | Stable winning branch tag; decisive satisfaction wins. |
 | ALG-NONE | Counter-evidence for every child, empty identity, and a satisfying child despite unrelated fault. | `Unit` only with all counter-evidence; failed attempt/timeout never proves NOR. |
 | ALG-CHAIN | Typed dependent outputs and causal stopping. | Source order preserved; later steps do not run after a non-satisfied step. |
-| ALG-GATE | False, true, indeterminate, and faulted conditions. | False yields `Skipped`; true yields `Completed<T>`; condition I/F propagates. |
-| ALG-LATCH | Empty read, capture, retain after R/I/F, and successful replacement. | Explicit state; only accepted success atomically replaces the captured tuple. |
-| STA-01 | Two latch writers race with the same prior version. | One atomic commit; the other retries or reports a compare-and-swap conflict. |
-| STA-02 | Captured evidence exceeds freshness. | `Indeterminate(stale-evidence, ...)` unless stricter policy requires fault. |
+| ALG-GATE | Unary gate condition is false, true, unresolved, or faulted. | False yields `Excluded`; true requests exactly one child and yields `Included<T>`; unresolution/fault propagates. |
+| RET-01 | Derived retention reads empty state, captures satisfaction, and retains after refutation, unresolution, or fault. | Only completed satisfaction atomically replaces the captured tuple. |
+| STA-01 | Two derived retention writers race with the same prior version. | One atomic commit; the other retries or reports a compare-and-swap conflict. |
+| STA-02 | Captured evidence exceeds freshness. | `Completed(Unresolved(stale-evidence, ...))` unless stricter policy requires a fault. |
 | REC-01 | Recursive goal has a static bound. | Accepted and bound appears in IR/graph. |
 | REC-02 | Recursive goal has a decreasing well-founded measure. | Accepted with checker evidence. |
 | REC-03 | Recursive goal has neither. | Static rejection. |
-| PLN-01 | `all` children have no dependency, borrow, state, or effect conflicts. | Marked parallel-eligible. |
-| PLN-02 | `all` children share write state or exclusive borrows. | Marked non-parallel with stable reasons. |
+| PLN-01 | A derived `all` reducer returns one pending set whose children have no dependency, borrow, state, or effect conflicts. | Marked parallel-eligible. |
+| PLN-02 | One pending set contains children sharing write state or exclusive borrows. | Marked non-parallel with stable reasons. |
 | PLN-03 | A chain connects incompatible output/input types. | Checker rejection before planning. |
 | PLN-04 | Children consume an unallocated shared budget including retries. | Total accounting remains within parent limit or planning refuses. |
 | PLN-05 | Requirements lack parent facts, invariants, or prior guarantees. | Explicit obligations are emitted; never assumed discharged. |
@@ -90,7 +99,7 @@ faulted children according to the S8 propagation tables.
 | POL-02 | A local layer widens authority, loosens a limit, weakens evidence, or relaxes type mode. | Rejected without a waiver. |
 | WAV-01 | Exact scoped weakening has an authorized issuer, audit reference, active interval, and expiry. | Accepted only inside scope and time. |
 | WAV-02 | Waiver is expired, premature, overbroad, unauthorized, or targets a non-waivable rule. | Rejected, not ignored. |
-| EXT-01 | A derived extension fully lowers to core IR. | Extension presentation disappears; core meaning is checked and hashed. |
+| EXT-01 | A derived extension names a total pure BHCP lowering function and fully lowers to core IR. | Extension presentation disappears; core meaning is checked and hashed. |
 | EXT-02 | A supported native extension is present. | Must-understand node, rules, and identity remain in semantic IR. |
 | EXT-03 | An unsupported native extension is present. | Artifact rejected before planning. |
 | EXT-04 | An extension attempts to override core meaning or policy. | Descriptor/program rejected. |

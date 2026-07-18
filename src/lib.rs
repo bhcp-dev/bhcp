@@ -1,6 +1,7 @@
 pub mod cbor;
 pub mod diagnostic;
 pub mod hash;
+pub mod kernel;
 pub mod manifest;
 pub mod model;
 pub mod parser;

@@ -10,7 +10,7 @@ capability-graph.diag capability-graph
 state-graph.diag state-graph
 execution-graph.diag execution-graph
 evidence-bundle.diag evidence-bundle
-runtime-outcome.diag runtime-outcome
+execution-result.diag execution-result
 planner-request.diag planner-request
 planner-result.diag planner-result
 feature-manifest.diag feature-manifest

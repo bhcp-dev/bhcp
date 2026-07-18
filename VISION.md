@@ -62,7 +62,7 @@ Goals compose without turning plans into source:
             policy = CheckPolicy(patch = borrow patch);
         };
         approved = §gate when request.risk == High {
-            HumanApproval(report = checked);
+            approval = HumanApproval(report = checked);
         };
         release = Publish(patch = move patch, approval = approved);
     };
@@ -84,8 +84,8 @@ BHCP keeps three often-confused layers separate:
 - **Canonical AST** is the lossless, profile-independent result of parsing canonical
   tokens. It retains source-oriented structure and spans for diagnostics.
 - **Semantic IR** is elaborated meaning: resolved symbols, inferred canonical types,
-  effects, policy, obligations, and composition. It excludes spelling, formatting,
-  delimiters, sigils, and source spans.
+  effects, policy, obligations, minimal kernel networks, and their versioned reducer
+  functions. It excludes spelling, formatting, delimiters, sigils, and source spans.
 
 The complete platform pipeline is:
 
@@ -118,10 +118,12 @@ layers compose monotonically: local layers may strengthen obligations, limits,
 strictness, evidence rules, and prohibitions. A weakening requires an authorized,
 scoped, expiring, auditable waiver.
 
-A run produces one of four outcomes: satisfied with output and evidence; refuted
-with counter-evidence; indeterminate with a reason and partial evidence; or faulted
-with an error and trace. Evidence may be formal, static, empirical, statistical,
-model-judged, human-approved, or unresolved. A plausible output is not success.
+A run either completes with a semantic verdict or faults operationally. Completed
+verdicts are satisfied with output and evidence, refuted with counter-evidence, or
+unresolved with a reason and partial evidence. A fault carries an error and trace but
+makes no truth claim about the goal. Evidence may be formal, static, empirical,
+statistical, model-judged, human-approved, or unresolved. A plausible output is not
+success.
 
 ## Version zero
 
@@ -133,11 +135,12 @@ system. Its required end-to-end scope includes:
   nominal and structural identities; option, result, dynamic, never, goal, effect,
   evidence, resource, ownership, borrowing, and lifetime types;
 - a small total pure expression calculus plus finite or verifier-backed
-  quantification and namespaced, versioned domain predicates;
+  quantification and namespaced, versioned functions and domain predicates;
 - goals, contracts, authority, budgets, preferences, verifiers, cases, recursive
   references, profiles, policies, waivers, and extensions;
-- all six core combinators—`§all`, `§any`, `§none`, `§chain`, `§gate`, and
-  `§latch`—including their output, state, evidence, and four-outcome behavior;
+- a minimal outcome-aware network kernel and proof checker, with `§all`, `§any`,
+  `§none`, `§chain`, `§gate`, persistent retention, and future orchestration behavior
+  defined by a versioned self-hosted BHCP prelude;
 - a parser, formatter, type/effect/policy checker, semantic lowering pipeline,
   obligation and capability analysis, planner, runtime, evidence graph, Rust SDK,
   and CLI; and
@@ -152,7 +155,7 @@ authoring is common.
 
 Full theorem proving, unrestricted macros and grammar plugins, comprehensive
 temporal/reactive logic, and universal workflow synthesis are outside v0. They must
-not be used to defer any core type or combinator semantics.
+not be used to defer the kernel, proof rules, or standard prelude semantics.
 
 ## Direction
 

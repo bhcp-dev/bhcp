@@ -34,30 +34,45 @@ IR reference ID.
 
 Full theorem proving, unrestricted macros or grammar plugins, comprehensive
 temporal/reactive logic, and universal workflow synthesis are outside v0. The full
-v0 type system and all six core combinators are not optional.
+v0 type system, minimal network kernel, proof checker, and standard derived prelude
+are not optional.
 
 Schema anchors: `feature-manifest-document`, `canonical-ast-document`,
 `semantic-ir-document`, and all graph documents.
 
-## S2. Goals and run outcomes
+## S2. Goals, verdicts, and execution results
 
 `Goal<I, O>` is a typed relation, not necessarily a mathematical function. Given an
 input of `I`, it relates zero or more acceptable outputs of `O` to allowed state
 transitions, an effect row, and evidence sufficient to discharge its obligations.
 It does not require termination, determinism, uniqueness, or a particular plan.
 
-A completed run has exactly one outcome:
+A run has an operational result. A normally completed run contains exactly one
+semantic verdict:
 
-| Outcome | Meaning |
+| Verdict | Meaning |
 | --- | --- |
 | `Satisfied(output, evidence)` | The output has type `O`; all obligations are discharged by accepted, fresh evidence. |
 | `Refuted(counterEvidence)` | Accepted counter-evidence proves that the goal cannot be satisfied for this run/input under the stated interpretation. |
-| `Indeterminate(reason, partialEvidence)` | Neither satisfaction nor refutation is established; this includes exhaustion, missing evidence, and timeout. |
-| `Faulted(error, trace)` | Evaluation or infrastructure violated its operational contract; the fault is not evidence of the goal's truth or falsity. |
+| `Unresolved(reason, partialEvidence)` | Neither satisfaction nor refutation is established; this includes exhaustion, missing evidence, and timeout. |
 
-Cancellation is an indeterminate reason unless cancellation itself causes a declared
-fault. A timeout, crash, failed attempt, or absent verifier result MUST NOT be treated
-as counter-evidence. Runtime outcomes conform to `runtime-outcome-document`.
+The operational result is `Completed(verdict)` or `Faulted(fault)`. A fault means
+evaluation or infrastructure violated its operational contract; it is outside the
+verdict because it says nothing about the goal's truth or falsity. The state names
+within each category are adjectival and MUST remain distinct: execution is
+`Completed | Faulted`, and a completed verdict is
+`Satisfied | Refuted | Unresolved`.
+
+Variant tags within one categorical family MUST use one grammatical role. The v0
+state families use adjectives, including participial adjectives; noun payloads such
+as `verdict`, `fault`, `reason`, and `derivation` are not state tags. New states MUST
+follow the family convention instead of importing control-flow verbs.
+
+Cancellation is an unresolved reason unless cancellation itself causes a declared
+operational fault. A timeout, crash, failed attempt, or absent verifier result MUST
+NOT be treated as counter-evidence. Implementations MUST NOT collapse refutation,
+an unresolved verdict, and operational fault into a generic failure. Execution results
+conform to `execution-result-document`.
 
 ## S3. Symbols, identities, labels, and references
 
@@ -69,7 +84,7 @@ both exist, disagreement is a verifier fault and MUST be visible.
 Source clauses MAY have human labels. Labels are lexical references and diagnostics;
 they MUST NOT affect semantic identity. A label does affect meaning when it is also
 an observable record field, variant tag, branch tag, or output name. Lowering MUST
-assign every definition, clause, expression, type, and composition node a unique
+assign every definition, clause, expression, type, and kernel network a unique
 structural `ref-id`. References use those IDs; CBOR cycles are forbidden.
 
 Alpha-renaming of non-observable local binders is semantic-identity preserving.
@@ -153,7 +168,7 @@ An owned handle may be moved, ending the old binding. A shared handle cannot gra
 write access. A read borrow may coexist with read borrows; a write borrow is
 exclusive. No borrow may outlive its region or cross a goal boundary unless the goal
 type declares the lifetime. Linear and affine obligations MUST be checked across all
-outcomes and composition branches. Latch storage captures an owned value or a
+outcomes and network children. Persistent storage captures an owned value or a
 policy-approved persistent share; it MUST NOT retain an expired borrow.
 
 Omitted source qualifiers elaborate deterministically: `owned` means
@@ -166,7 +181,7 @@ omitted usage mode is `unrestricted`. Semantic IR always carries every qualifier
 | Familiar concept | Core lowering |
 | --- | --- |
 | nullable / missing | `Option<T>` or an explicit foreign-absence variant |
-| exceptions | `Result<T,E>` for expected failure; `Faulted` for operational contract failure |
+| exceptions | `Result<T,E>` for expected failure; `Faulted` execution for operational contract failure |
 | Rust-like ownership | owned/shared/borrowed resource handles and lifetime constraints |
 | garbage-collected object | shared resource identity; immutable records for pure values |
 | object/class | nominal record plus namespaced predicates/goals; no implicit mutable fields |
@@ -179,7 +194,7 @@ omitted usage mode is `unrestricted`. Semantic IR always carries every qualifier
 Schema anchors: `type-definition`, `type`, `exact-number`, `machine-float-value`,
 `value`, `resource-type`, `handle-type`, and `type-mode`.
 
-## S5. Expressions and predicates
+## S5. Expressions, functions, and predicates
 
 The expression calculus is small, deterministic, total, and pure. It includes:
 
@@ -199,13 +214,15 @@ recursion, I/O, mutation, nondeterminism, foreign execution, unsafe operation, o
 hidden divergence inside an expression. Well-founded recursion belongs to goal
 composition (S8).
 
-Predicate purity is determined from an empty effect row, not from a `pure` assertion.
-An optional canonical predicate definition is an expression. A verifier binding
-names an evidence producer with typed input/output and trust requirements; it does
-not redefine the predicate.
+Functions and predicates are total pure definitions in the expression calculus. A
+function may return any declared type. A predicate returns `Bool` and MAY bind a
+verifier. Purity is determined from an empty effect row, not from a `pure` assertion.
+A verifier binding names an evidence producer with typed input/output and trust
+requirements; it does not redefine the predicate. Kernel reducers are functions,
+not privileged runtime callbacks.
 
-Schema anchors: `expression`, `pattern`, `predicate-definition`, and
-`verifier-binding`.
+Schema anchors: `expression`, `pattern`, `function-definition`,
+`predicate-definition`, and `verifier-binding`.
 
 ## S6. Effects and authority
 
@@ -234,12 +251,12 @@ UTF-8 NFC text, and flat typed clauses inside goals. The reserved vocabulary is:
 
 | Role | Keywords |
 | --- | --- |
-| definitions | `§type`, `§predicate`, `§goal`, `§use`, `§refines` |
+| definitions | `§type`, `§function`, `§predicate`, `§goal`, `§use`, `§refines` |
 | facts | `§input`, `§output`, `§resource`, `§state` |
 | contracts | `§requires`, `§ensures`, `§invariant`, `§limit` |
 | authority | `§allows`, `§forbids` |
 | optimization/evidence | `§prefer`, `§verify`, `§case` |
-| composition | `§all`, `§any`, `§none`, `§chain`, `§gate`, `§latch` |
+| kernel/derived composition | `§compose`, `§all`, `§any`, `§none`, `§chain`, `§gate` |
 | meta/policy | `§syntax`, `§profile`, `§policy`, `§waiver`, `§extension`, `§extends` |
 
 There is no generic `constraint` or `test` keyword. A precise contract clause lowers
@@ -254,11 +271,13 @@ whitespace and comments separate tokens but are otherwise insignificant.
 ```ebnf
 program         = { use-decl | definition } ;
 use-decl        = "§use" qualified-name [ "as" identifier ] ";" ;
-definition      = type-def | predicate-def | goal-def | syntax-def | profile-def
+definition      = type-def | function-def | predicate-def | goal-def | syntax-def | profile-def
                 | policy-def | waiver-def | extension-def | refines-decl ;
 type-def        = "§type" qualified-name [ type-params ] "=" type ";" ;
+function-def    = "§function" qualified-name [ type-params ] "(" [ parameters ] ")"
+                  ":" type "=" expression ";" ;
 predicate-def   = "§predicate" qualified-name [ type-params ] "(" [ parameters ] ")"
-                  ":" type [ "=" expression ] [ verifier-binding ] ";" ;
+                  ":" "Bool" [ "=" expression ] [ verifier-binding ] ";" ;
 goal-def        = "§goal" qualified-name [ type-params ] [ "§refines" type-ref ]
                   goal-block ;
 syntax-def      = "§syntax" qualified-name meta-block ;
@@ -280,22 +299,23 @@ authority-clause= ( "§allows" | "§forbids" ) [ label ] effect-list ";" ;
 prefer-clause   = "§prefer" [ integer ":" ] [ label ] expression ";" ;
 verify-clause   = "§verify" [ label ] verifier-binding ";" ;
 case-clause     = "§case" [ label ] "{" { binding | outcome-expectation } "}" ";" ;
-outcome-expectation = "expect" outcome-tag [ expression ] ";" ;
-composition     = all-expr ";" | any-expr ";" | none-expr ";" | chain-expr ";"
-                | gate-expr ";" | latch-expr ";" ;
+outcome-expectation = "expect" ( "completed" verdict-state | "faulted" )
+                      [ expression ] ";" ;
+composition     = compose-expr ";" | all-expr ";" | any-expr ";" | none-expr ";"
+                | chain-expr ";" | gate-expr ";" ;
 
+compose-expr    = "§compose" "using" qualified-name composition-block ;
 all-expr        = "§all" [ quantifier ] composition-block ;
 any-expr        = "§any" [ quantifier ] composition-block ;
 none-expr       = "§none" [ quantifier ] composition-block ;
 chain-expr      = "§chain" composition-block ;
-gate-expr       = "§gate" "when" expression composition-block ;
-latch-expr      = "§latch" identifier [ ":" type ] latch-options composition-block ;
+gate-expr       = "§gate" "when" expression unary-composition-block ;
 composition-block = "{" { branch } "}" ;
+unary-composition-block = "{" branch "}" ;
 branch          = identifier "=" ( goal-call | composition-no-term ) ";" ;
-composition-no-term = all-expr | any-expr | none-expr | chain-expr | gate-expr
-                | latch-expr ;
+composition-no-term = compose-expr | all-expr | any-expr | none-expr | chain-expr
+                | gate-expr ;
 quantifier      = ( "forall" | "exists" ) identifier "in" expression ;
-latch-options   = [ "fresh" expression ] [ "initial" expression ] ;
 goal-call-stmt  = [ identifier "=" ] goal-call ";" ;
 goal-call       = type-ref "(" [ arguments ] ")" ;
 arguments       = argument { "," argument } ;
@@ -399,73 +419,107 @@ non-exhaustive matches, and reserved-keyword misuse before IR emission.
 
 Schema anchors: `canonical-ast-document`, `ast-node`, and `token-span`.
 
-## S8. Goal algebra
+## S8. Minimal network kernel and derived goal algebra
 
-### S8.1 Core nodes
+### S8.1 Kernel network
 
-Every composition node is a first-class semantic IR form.
+The only privileged composition form in semantic IR is a finite `kernel-network`.
+It contains statically typed child goal invocations and the symbol of one total pure
+BHCP reducer function. It contains no behavioral `kind`, implicit guard, implicit
+dependency, or built-in choice rule.
 
-A goal containing only flat clauses is declarative and has no composition node. Its
-semantic IR omits `body`; its input and output types are derived from its fact
-clauses. An implementation MUST NOT synthesize an empty `chain` for such a goal,
-because the empty-chain identity has output `Unit`.
+The runtime invokes the reducer with the parent input and the sealed observations
+already produced by children. A child observation contains its structural child ID
+and an `execution-result`. The reducer returns exactly one reduction state:
 
-| Node | Result type and proof rule |
+| Reduction | Meaning |
 | --- | --- |
-| `§all` | Conjunction. Output is a record/product keyed by branch names. Satisfaction requires evidence from every child. |
-| `§any` | Constructive choice. Output is a tagged union keyed by branch names. Satisfaction names and proves one winning branch. |
-| `§none` | Constructive NOR. Output is `Unit`. Satisfaction requires counter-evidence refuting every child. |
-| `§chain` | Ordered dependent composition. Earlier named outputs bind later inputs; the output is the last observable binding (or an explicit record). |
-| `§gate` | Implication controlled by a pure Boolean. Closed output is `Skipped`; open output is `Completed<T>`. |
-| `§latch` | Atomic persistent state, explicitly `Empty` or `Captured<T>`, retaining the last accepted value, evidence, provenance, and freshness. |
+| `Pending(requiredChildren)` | The listed unique, known, unobserved children are exactly those whose results may next affect a conclusion. |
+| `Concluded(result, derivation)` | The network has a terminal execution result justified by a kernel-checkable derivation. |
 
-`§all`, `§any`, and `§none` support finite quantified families. The domain MUST be
-statically finite or verifier-backed with a finite witnessed enumeration. Recursive
-goal references MUST carry a static bound or a checker-accepted well-founded
-decreasing measure. Unbounded recursion is rejected.
+`Pending` and `Concluded` are adjectival states; neither is a run verdict. A pending
+set MUST be non-empty. Its members MAY execute in any order or in parallel only when
+their effects, ownership, state, policy, and budgets permit. On each new observation
+the reducer runs again. A concluded reduction is terminal. Requesting an unknown or
+already observed child, returning an invalid derivation, or evaluating a non-total
+reducer is an operational fault.
 
-### S8.2 Identities and normalization
+Child observations and evidence tokens are sealed. Reducers MAY inspect verdicts,
+outputs, reasons, and traces, and MAY reference accepted premise tokens. They MUST
+NOT manufacture evidence, counter-evidence, or operational traces. The proof checker
+validates every derivation against the reducer's declared result and seals a valid
+derivation under its structural ID. A concluded satisfied verdict MUST include that
+ID in `evidence`; a concluded refuted verdict MUST include it in `counterEvidence`.
+The derivation can therefore prove a premise-free logical identity without synthetic
+child evidence.
 
-- `all {}` is satisfied with `{}`; `any {}` is refuted; `none {}` is satisfied with
-  `unit`; and an empty `chain` is satisfied with `unit`.
-- Nested `all` and `any` nodes of the same kind MAY flatten only when doing so
-  preserves observable output and branch tags. `none`, `chain`, `gate`, and `latch`
-  never flatten across their boundary; NOR is not associative.
-- Logical conjunction/disjunction are associative. Branch order in `all`, `any`, and
-  `none` is commutative after dependency/effect analysis, while branch names and tags
-  remain observable. Named products, tagged unions, `chain` order, state,
-  preferences, evidence policy, and effect order where observable are not
-  commutative.
-- Every `any` winner and every child outcome in evidence uses the stable branch ID.
-  A planner MUST NOT invent or erase tags.
+A goal containing only flat clauses is declarative and has no network. Its semantic
+IR omits `body`; its input and output types are derived from its fact clauses. Empty
+networks are permitted because a reducer can immediately conclude a logical identity
+without requesting a child.
 
-### S8.3 Four-outcome propagation
+Finite quantified families lower to statically described or verifier-witnessed
+children. Recursive goal references MUST carry a static bound or a checker-accepted
+well-founded decreasing measure. Unbounded recursion is rejected.
 
-Children may finish in any order. The following tables give the decisive rule after
-all still-relevant work has completed or been safely cancelled. `F` means faulted and
-`I` indeterminate. When both remain relevant and no truth/counter-proof decides the
-composite, `F` takes precedence over `I`.
+### S8.2 Semantic self-hosting
 
-| Node | Satisfied | Refuted | Otherwise |
+Named orchestration behavior is defined by versioned BHCP functions and derived
+extensions in the standard prelude. `all`, `any`, `none`, `chain`, and `gate` are not
+kernel node kinds. Their surface forms deterministically lower to kernel networks
+whose reducers are ordinary total pure BHCP definitions.
+
+Derived lowering is restricted metaprogramming: it is typed, total, deterministic,
+structurally recursive over a finite typed goal shape, has no I/O or ambient state,
+and can only construct core IR. It cannot parse source text, introduce native
+semantics, loosen policy, or bypass checking. Each instantiation is monomorphized to
+its exact child record and output type before semantic hashing. The extension's
+presentation disappears; equivalent fully lowered networks have the same semantic
+identity.
+
+The standard prelude defines these behaviors:
+
+| Derived behavior | Network reduction |
+| --- | --- |
+| `all` | Initially requests every child. It concludes satisfied with a named product when all are satisfied, or refuted when any is refuted. |
+| `any` | Initially requests every child. It concludes satisfied with a stable tagged winner when any is satisfied, or refuted when all are refuted. |
+| `none` | Initially requests every child. It concludes satisfied with `Unit` when all are refuted, or refuted when any is satisfied. |
+| `chain` | Requests one child at a time; only satisfaction enables the next child and binds its output. |
+| `gate` | Is unary. A false pure condition concludes satisfied with `Excluded`; a true condition requests its one child and maps satisfaction to `Included<T>`. |
+
+No block implicitly means `all` or `any`. A gate has exactly one child; multiple
+guarded children require an explicit derived composition inside it.
+
+The empty identities are: `all {}` is satisfied with `{}`; `any {}` is refuted;
+`none {}` is satisfied with `Unit`; and `chain {}` is satisfied with `Unit`. Nested
+derived forms MAY normalize only when their prelude definition proves the rewrite
+preserves output shape, observable tags, evidence, effects, and ordering.
+
+### S8.3 Standard verdict laws
+
+The standard reducers obey these laws after all still-relevant work has completed or
+been safely cancelled:
+
+| Behavior | Satisfied verdict | Refuted verdict | Otherwise |
 | --- | --- | --- | --- |
-| `all` | every child S | any child R | F if any F; else I |
-| `any` | any child S | every child R | F if any F; else I |
-| `none` | every child R | any child S | F if any F; else I |
-| `chain` | each step S in order | a step R | first causally relevant F; else I; later steps do not run |
-| `gate` closed | `Satisfied(Skipped, condition evidence)` | never | condition I/F propagates |
-| `gate` open | child S as `Completed<T>` | child R | child I/F propagates |
-| `latch` update | atomic child S capture | child R, old value retained | child I/F, old value retained |
+| `all` | every relevant child completed satisfied | any child completed refuted | faulted if a relevant child faulted; otherwise completed unresolved |
+| `any` | any child completed satisfied | every relevant child completed refuted | faulted if a relevant child faulted; otherwise completed unresolved |
+| `none` | every relevant child completed refuted | any child completed satisfied | faulted if a relevant child faulted; otherwise completed unresolved |
+| `chain` | each requested child completed satisfied in order | first requested child completed refuted | first causally relevant fault; otherwise completed unresolved; later children are never requested |
+| `gate` closed | completed satisfied with `Excluded` | never | condition evaluation fault or unresolution propagates |
+| `gate` open | child satisfaction mapped to `Included<T>` | child refutation | child unresolution or fault propagates |
 
-Thus a refuted branch proves `all` refuted even if an unrelated branch faults, and a
-satisfied branch proves `any` satisfied despite unrelated faults. A satisfied branch
-refutes `none` despite unrelated faults. Implementations SHOULD cancel irrelevant
-work, but cancellation MUST be represented and MUST respect resource cleanup.
+Thus a refuted branch can conclude `all` despite an unrelated fault, and a satisfied
+branch can conclude `any` despite unrelated faults. A satisfied branch refutes
+`none` despite unrelated faults. Implementations SHOULD cancel children no longer
+listed by the reducer, but cancellation MUST be represented and MUST respect resource
+cleanup.
 
-### S8.4 Nonlogical composition
+### S8.4 Contracts, authority, and planning
 
-Composition also obeys these rules:
+Every network also obeys these rules:
 
-1. A child requirement MUST be discharged by a prior guarantee in `chain`, by a
+1. A child requirement MUST be discharged by a previously observed guarantee, by a
    parent fact/invariant, or emitted as an explicit parent obligation.
 2. Parent invariants hold before, during, and after every child transition.
 3. Child authority is intersected with the parent ceiling. Prohibitions accumulate;
@@ -473,27 +527,35 @@ Composition also obeys these rules:
 4. Limits are shared budgets by default. A child allocation MUST be explicit, fit
    within the remaining parent budget, and account for retries and parallel work.
 5. Preferences compare valid results lexicographically in ascending integer-priority
-   order (smaller integers first). Within a priority, objectives are Pareto-combined
-   unless policy supplies a deterministic aggregation function.
-6. `all` is parallel-eligible only when data dependencies, mutable state, exclusive
-   borrows, linear use, and effects do not conflict. A graph records the decision and
-   reasons.
-7. `chain` order is semantic. Retries, speculative races, and fallback order are
-   planner strategies unless the source makes them observable through state,
-   effects, budgets, outputs, or evidence.
+   order. Within a priority, objectives are Pareto-combined unless policy supplies a
+   deterministic aggregation function.
+6. A multi-child pending set is parallel-eligible only when data dependencies,
+   mutable state, exclusive borrows, linear use, and effects do not conflict. The
+   analysis graph records the decision and reasons.
+7. A reducer-requested order is semantic. Retries, speculative races, and fallback
+   order are planner strategies only when state, effects, budgets, outputs, evidence,
+   and reducer observations make them unobservable.
 
-### S8.5 Latch state
+### S8.5 Persistent retention
 
-A latch key identifies one atomic persistent cell. `Empty` is explicit and is not a
-missing field. On a satisfied update, value, accepted evidence, provenance, capture
-time, and freshness rule commit atomically. A refuted, indeterminate, or faulted
-update retains the prior state. Reads beyond the freshness rule are
-`Indeterminate(stale-evidence, partialEvidence)` unless policy requires a fault.
-Concurrent writers serialize or use compare-and-swap over the prior state ID; lost
-updates are forbidden.
+Persistent retention is not composition syntax. The kernel exposes capability-
+controlled atomic state-read and compare-and-swap goals. A versioned prelude
+definition may derive a `retain` or last-known-good behavior from those goals and a
+normal kernel network.
 
-Schema anchors: `composition-node`, `composition-kind`, `budget`, `preference`,
-`state-cell`, and `state-graph-document`.
+A retained key identifies one atomic persistent cell. `Empty` is explicit and is not
+a missing field. On a completed satisfied candidate, value, accepted evidence,
+provenance, capture time, freshness rule, and prior state ID commit atomically. A
+completed refuted or unresolved candidate, or a faulted candidate execution, retains
+the prior state. Reads beyond the freshness rule complete unresolved with a
+stale-evidence reason unless policy requires an operational fault. Concurrent writers
+serialize or use compare-and-swap over the prior state ID; lost updates are
+forbidden. Storage captures an owned value or a policy-approved persistent share and
+MUST NOT retain an expired borrow.
+
+Schema anchors: `kernel-network`, `child-observation`, `reduction`, `derivation`,
+`execution-result`, `budget`, `preference`, `state-cell`, and
+`state-graph-document`.
 
 ## S9. Profiles, policies, waivers, and extensions
 
@@ -538,11 +600,14 @@ Invalid, expired, overbroad, or unauthorized waivers are rejected, not ignored.
 
 ### S9.3 Extensions
 
-A derived extension has a namespaced/versioned identity and deterministically lowers
-completely to core IR before checking and hashing. A native extension is a
-namespaced/versioned, must-understand IR node with declared type, effect, policy,
-normalization, hashing, and evidence behavior. Unsupported native extensions cause
-rejection. Extensions MUST NOT override core meanings or loosen enclosing policy.
+A derived extension has a namespaced/versioned identity and names a total pure BHCP
+lowering function satisfying S8.2. It deterministically lowers completely to core IR
+before checking and hashing. A content reference MAY retain its canonical source for
+audit, but an opaque implementation callback is not a conforming derived lowering. A
+native extension is a namespaced/versioned, must-understand IR node with declared
+type, effect, policy, normalization, hashing, and evidence behavior. Unsupported
+native extensions cause rejection. Extensions MUST NOT override core meanings or
+loosen enclosing policy.
 
 Schema anchors: `syntax-document`, `profile-document`, `policy-document`,
 `waiver-document`, and `extension-descriptor-document`.
@@ -556,11 +621,11 @@ Lowering emits three analysis graphs with stable node and edge IDs:
 - the capability graph relates requested effects, resources, grants, denials, policy
   sources, and decisions; and
 - the state graph relates cells/resources, ownership, borrows, transitions,
-  invariants, latch operations, and freshness.
+  invariants, retained-value operations, and freshness.
 
 A planner request includes the semantic IR reference, input, graph references,
 budgets, policy, available executors, and required features. A planner result is
-either a typed execution graph or an explained refusal/indeterminate result. Planning
+either a typed execution graph or an explained refused/unresolved result. Planning
 does not grant authority.
 
 Every execution node declares its typed inputs/outputs, effects, capability decision,
@@ -576,7 +641,7 @@ accepts their verifier class; cases never create obligations.
 
 Schema anchors: all `*-graph-document`, `planner-request-document`,
 `planner-result-document`, `evidence-bundle-document`, and
-`runtime-outcome-document`.
+`execution-result-document`.
 
 ## S11. Wire encoding, normalization, and identity
 
@@ -592,13 +657,14 @@ no duplicates. References replace cyclic structures.
 Before semantic hashing, an implementation MUST:
 
 1. resolve all symbols and profile aliases;
-2. infer and materialize canonical types/effect rows;
-3. alpha-normalize non-observable binders;
-4. flatten and sort associative, unordered logical nodes when S8 permits;
-5. normalize union/intersection members and policy clauses;
-6. preserve `chain` order, observable names/tags, effects, preferences, policy,
-   ownership/state semantics, and native extension nodes; and
-7. remove source/profile presentation and provenance metadata.
+2. execute every derived lowering and monomorphize it to `kernel-network` IR;
+3. infer and materialize canonical types/effect rows;
+4. alpha-normalize non-observable binders;
+5. apply only prelude-proved network rewrites and deterministic child ordering;
+6. normalize union/intersection members and policy clauses;
+7. preserve reducer-requested order, observable names/tags, effects, preferences,
+   policy, ownership/state semantics, and native extension nodes; and
+8. remove source/profile presentation and provenance metadata.
 
 There are two distinct identities:
 
@@ -629,10 +695,14 @@ A complete v0 suite MUST include scenarios for:
   typing;
 - read/write borrow conflicts, ownership transfer, state mutation, pure/effectful
   boundaries, linear/affine paths, and unsafe evidence gaps;
-- satisfaction, refutation, indeterminacy, and fault for every combinator;
-- gate skipping and latch empty/capture/retain, atomic update, and stale evidence;
+- completed satisfied, refuted, and unresolved verdicts plus operational faults for
+  kernel networks and every standard derived behavior;
+- pending/concluded reducer validation, sealed evidence, invalid derivations,
+  deterministic derived lowering, and equivalence with hand-written core networks;
+- unary gate skipping, retained-value empty/capture/retain, atomic update, and stale
+  evidence;
 - chain type mismatch, bounded/well-founded recursion, budget allocation, effect
-  conflict, and `all` parallel eligibility;
+  conflict, and multi-child pending-set parallel eligibility;
 - monotonic policies, forbidden weakening, valid/invalid waivers, and supported,
   unsupported, derived, and native extensions; and
 - stable deterministic bytes, semantic-versus-artifact identity, and multiple
@@ -664,7 +734,7 @@ These examples supplement the grammar and rules; they do not weaken them.
 }
 ```
 
-### A.2 Every combinator
+### A.2 Derived prelude behavior
 
 ```text
 §all { build = Build(); docs = BuildDocs(); };
@@ -672,13 +742,23 @@ These examples supplement the grammar and rules; they do not weaken them.
 §none { malware = DetectMalware(); policyViolation = DetectViolation(); };
 §chain { patch = Edit(); checked = Check(patch = borrow patch); saved = Save(patch = move patch); };
 §gate when change.risk == High { approval = Approve(change = change); };
-§latch lastGreen: Build fresh duration "PT24H" { candidate = Test(build = build); };
+```
+
+The first form is equivalent after lowering to explicit core source:
+
+```text
+§compose using bhcp/prelude.all-reducer@0 {
+    build = Build();
+    docs = BuildDocs();
+};
 ```
 
 The `all` output is `{build: BuildOutput, docs: DocsOutput}`. The `any` output is
 `cache(CacheOutput) | source(BuildOutput)`. The `none` output is `Unit`. The gate is
-`Skipped | Completed<Approval>`. The latch is `Empty | Captured<Build>` with evidence,
-provenance, and freshness.
+`Excluded | Included<Approval>`. Each form lowers to a `kernel-network` using its
+versioned standard-prelude reducer. Persistent retention is expressed by calling a
+prelude goal backed by state-read and compare-and-swap capabilities, not by a
+composition keyword.
 
 ### A.3 Refinement and result
 
@@ -723,14 +803,15 @@ provenance, and freshness.
 
 | v0 commitment | Normative section | Principal CDDL rule(s) |
 | --- | --- | --- |
-| goal relation and four outcomes | S2 | `goal-definition`, `runtime-outcome-document` |
+| goal relation, three verdicts, and factored operational fault | S2 | `goal-definition`, `verdict`, `execution-result-document` |
 | type modes and complete type system | S4 | `type-mode`, `type`, `value`, `handle-type` |
-| pure expression calculus and predicates | S5 | `expression`, `predicate-definition`, `verifier-binding` |
+| pure expression calculus, functions, and predicates | S5 | `expression`, `function-definition`, `predicate-definition`, `verifier-binding` |
 | effects, authority, unsafe gaps | S6 | `effect-row`, `authority-clause`, `capability`, `evidence-gap` |
 | canonical vocabulary and grammar | S7 | `canonical-ast-document`, `ast-node` |
-| six combinators and outcomes | S8 | `composition-node`, `composition-kind`, `runtime-outcome` |
+| minimal network kernel and reductions | S8.1 | `kernel-network`, `child-observation`, `reduction`, `derivation` |
+| self-hosted standard goal algebra | S8.2–S8.3 | `function-definition`, `kernel-network`, `execution-result` |
 | composition of contracts/policy/budgets/preferences | S8.4 | `clause`, `budget`, `preference`, graph rules |
-| latch persistence/freshness | S8.5 | `state-cell`, `state-node`, `state-transition` |
+| persistent retention/freshness | S8.5 | `state-cell`, `state-node`, `state-transition` |
 | profiles and fixed preamble | S9.1 | `syntax-document`, `profile-document`, `syntax-mapping` |
 | monotonic policy and waivers | S9.2 | `policy-document`, `waiver-document` |
 | derived/native extensions | S9.3 | `extension-descriptor-document`, `extension-node` |

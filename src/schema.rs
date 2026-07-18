@@ -41,6 +41,9 @@ pub fn validate_root(value: &Value, expected_kind: &str) -> Result<()> {
         }
     }
     validate_hashes(value)?;
+    if expected_kind == "execution-result" {
+        validate_execution_result(value)?;
+    }
     Ok(())
 }
 
@@ -63,11 +66,23 @@ pub fn validate_schema_inventory(schema: &str, expected_kinds: &[&str]) -> Resul
             ));
         }
     }
-    if !schema.contains("? \"body\": composition-node") {
+    if !schema.contains("? \"body\": kernel-network") {
         return Err(Diagnostic::plain(
             "BHCP5002",
-            "CDDL declarative-goal body rule is missing",
+            "CDDL declarative-goal kernel body rule is missing",
         ));
+    }
+    for rule in [
+        "reduction = pending-reduction / concluded-reduction",
+        "execution-result = completed-result / faulted-result",
+        "verdict = satisfied-verdict / refuted-verdict / unresolved-verdict",
+    ] {
+        if !schema.contains(rule) {
+            return Err(Diagnostic::plain(
+                "BHCP5002",
+                format!("CDDL kernel rule is missing: {rule}"),
+            ));
+        }
     }
     Ok(())
 }
@@ -78,6 +93,7 @@ fn required_fields(kind: &str) -> &'static [&'static str] {
         "semantic-ir" => &[
             "type_mode",
             "types",
+            "functions",
             "predicates",
             "goals",
             "extensions",
@@ -121,7 +137,7 @@ fn required_fields(kind: &str) -> &'static [&'static str] {
             "edges",
             "obligation_status",
         ],
-        "runtime-outcome" => &["goal", "outcome"],
+        "execution-result" => &["goal", "result"],
         "planner-request" => &[
             "semantic_ir",
             "entrypoint",
@@ -203,6 +219,109 @@ fn validate_hashes(value: &Value) -> Result<()> {
         _ => {}
     }
     Ok(())
+}
+
+fn validate_execution_result(document: &Value) -> Result<()> {
+    let Some(Value::Map(result)) = document.get("result") else {
+        return Err(Diagnostic::plain(
+            "BHCP5002",
+            "execution-result result must be a map",
+        ));
+    };
+    match map_text(result, "state") {
+        Some("completed") => {
+            let Some(Value::Map(verdict)) = map_get(result, "verdict") else {
+                return Err(Diagnostic::plain(
+                    "BHCP5002",
+                    "completed execution requires a verdict",
+                ));
+            };
+            match map_text(verdict, "state") {
+                Some("satisfied") => {
+                    require_present(verdict, "output", "satisfied verdict")?;
+                    require_nonempty_array(verdict, "evidence", "satisfied verdict")
+                }
+                Some("refuted") => {
+                    require_nonempty_array(verdict, "counter_evidence", "refuted verdict")
+                }
+                Some("unresolved") => {
+                    require_map(verdict, "reason", "unresolved verdict")?;
+                    require_array_in_map(verdict, "partial_evidence", "unresolved verdict")
+                }
+                _ => Err(Diagnostic::plain(
+                    "BHCP5002",
+                    "completed verdict state must be satisfied, refuted, or unresolved",
+                )),
+            }
+        }
+        Some("faulted") => {
+            let fault = require_map(result, "fault", "faulted execution")?;
+            require_map(fault, "error", "operational fault")?;
+            require_array_in_map(fault, "trace", "operational fault")
+        }
+        _ => Err(Diagnostic::plain(
+            "BHCP5002",
+            "execution state must be completed or faulted",
+        )),
+    }
+}
+
+fn map_get<'a>(entries: &'a [(String, Value)], field: &str) -> Option<&'a Value> {
+    entries
+        .iter()
+        .find_map(|(key, value)| (key == field).then_some(value))
+}
+
+fn map_text<'a>(entries: &'a [(String, Value)], field: &str) -> Option<&'a str> {
+    match map_get(entries, field) {
+        Some(Value::Text(value)) => Some(value),
+        _ => None,
+    }
+}
+
+fn require_present(entries: &[(String, Value)], field: &str, context: &str) -> Result<()> {
+    if map_get(entries, field).is_some() {
+        Ok(())
+    } else {
+        Err(Diagnostic::plain(
+            "BHCP5002",
+            format!("{context} requires {field}"),
+        ))
+    }
+}
+
+fn require_map<'a>(
+    entries: &'a [(String, Value)],
+    field: &str,
+    context: &str,
+) -> Result<&'a [(String, Value)]> {
+    match map_get(entries, field) {
+        Some(Value::Map(value)) => Ok(value),
+        _ => Err(Diagnostic::plain(
+            "BHCP5002",
+            format!("{context} requires map field {field}"),
+        )),
+    }
+}
+
+fn require_array_in_map(entries: &[(String, Value)], field: &str, context: &str) -> Result<()> {
+    match map_get(entries, field) {
+        Some(Value::Array(_)) => Ok(()),
+        _ => Err(Diagnostic::plain(
+            "BHCP5002",
+            format!("{context} requires array field {field}"),
+        )),
+    }
+}
+
+fn require_nonempty_array(entries: &[(String, Value)], field: &str, context: &str) -> Result<()> {
+    match map_get(entries, field) {
+        Some(Value::Array(values)) if !values.is_empty() => Ok(()),
+        _ => Err(Diagnostic::plain(
+            "BHCP5002",
+            format!("{context} requires non-empty array field {field}"),
+        )),
+    }
 }
 
 struct Parser<'a> {

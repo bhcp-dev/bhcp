@@ -13,7 +13,7 @@ root-document = canonical-ast-document
               / state-graph-document
               / execution-graph-document
               / evidence-bundle-document
-              / runtime-outcome-document
+              / execution-result-document
               / planner-request-document
               / planner-result-document
               / feature-manifest-document
@@ -99,6 +99,7 @@ type = primitive-type / exact-number-type / machine-number-type / record-type
      / parameter-type / application-type / refinement-type / nominal-type
      / structural-type / option-type / result-type / special-type / goal-type
      / effect-row-type / evidence-type / resource-type / handle-type
+     / verdict-type / execution-result-type / reduction-type
 
 primitive-type = ["primitive", "Bool" / "Text" / "Bytes" / "Unit"
                             / "Timestamp" / "Duration"]
@@ -122,6 +123,9 @@ option-type = ["option", type]
 result-type = ["result", type, type]
 special-type = ["special", "Dynamic" / "Never"]
 goal-type = ["goal", type, type, effect-row, evidence-type]
+verdict-type = ["verdict", type]
+execution-result-type = ["execution-result", type]
+reduction-type = ["reduction", type]
 effect-row-type = ["effect-row-type", effect-row]
 evidence-type = ["evidence", [* evidence-class]]
 evidence-class = "formal" / "static" / "empirical" / "statistical"
@@ -204,9 +208,17 @@ predicate-definition = {
   "id": ref-id,
   "symbol": symbol-id,
   "parameters": [* binding],
-  "result": type,
+  "result": ["primitive", "Bool"],
   ? "definition": expression,
   ? "verifier": verifier-binding
+}
+
+function-definition = {
+  "id": ref-id,
+  "symbol": symbol-id,
+  "parameters": [* binding],
+  "result": type,
+  "definition": expression
 }
 
 clause = fact-clause / contract-clause / authority-clause / preference / verify-clause
@@ -256,7 +268,7 @@ case-clause = {
   clause-common,
   "kind": "case",
   "inputs": { * tstr => value },
-  "expected": outcome-tag
+  "expected": execution-pattern
 }
 
 budget = {
@@ -266,22 +278,19 @@ budget = {
   ? "children": { * ref-id => exact-number }
 }
 
-composition-node = {
+kernel-network = {
   "id": ref-id,
-  "kind": composition-kind,
   "output": type,
-  "branches": [* composition-branch],
-  ? "condition": expression,
+  "children": [* kernel-child],
+  "reducer": symbol-id,
   ? "quantified": quantified-family,
   ? "recursion": recursion-bound,
-  ? "latch": latch-spec,
   ? "budgets": [* budget],
   ? "parallel_eligible": bool,
   ? "parallel_reasons": [* tstr]
 }
 
-composition-kind = "all" / "any" / "none" / "chain" / "gate" / "latch"
-composition-branch = {
+kernel-child = {
   "id": ref-id,
   "tag": tstr,
   "goal": ref-id,
@@ -299,12 +308,25 @@ quantified-family = {
 }
 recursion-bound = { "kind": "bounded", "maximum": uint }
                 / { "kind": "well-founded", "measure": expression }
-latch-spec = {
-  "key": tstr,
-  "value_type": type,
-  "capture": "owned" / "persistent-share",
-  ? "freshness": expression,
-  ? "initial": value
+
+child-observation = {
+  "child": ref-id,
+  "result": execution-result
+}
+derivation = {
+  "id": ref-id,
+  "rule": symbol-id,
+  "premises": [* ref-id]
+}
+reduction = pending-reduction / concluded-reduction
+pending-reduction = {
+  "state": "pending",
+  "required": [1* ref-id]
+}
+concluded-reduction = {
+  "state": "concluded",
+  "result": execution-result,
+  "derivation": derivation
 }
 
 goal-definition = {
@@ -316,7 +338,7 @@ goal-definition = {
   "effects": effect-row,
   "evidence": evidence-type,
   "clauses": [* clause],
-  ? "body": composition-node,
+  ? "body": kernel-network,
   ? "refines": symbol-id
 }
 
@@ -362,6 +384,7 @@ semantic-ir-document = {
   "kind": "semantic-ir",
   "type_mode": type-mode,
   "types": [* type-definition],
+  "functions": [* function-definition],
   "predicates": [* predicate-definition],
   "goals": [* goal-definition],
   "extensions": [* extension-node],
@@ -437,7 +460,7 @@ extension-descriptor-document = {
   "symbol": symbol-id,
   "extension_kind": "derived" / "native",
   "must_understand": bool,
-  ? "lowering": content-reference,
+  ? "lowering": symbol-id,
   ? "payload_schema": content-reference,
   "type_rule": content-reference,
   "effect_rule": content-reference,
@@ -455,7 +478,7 @@ obligation-node = {
   "kind": "requirement" / "guarantee" / "invariant" / "limit" / "verification"
         / "case" / "discharge",
   "clause": ref-id,
-  "status": "open" / "discharged" / "refuted" / "indeterminate",
+  "status": "open" / "discharged" / "refuted" / "unresolved",
   ? "evidence": [* ref-id]
 }
 obligation-graph-document = {
@@ -504,7 +527,7 @@ state-transition = {
   "cell": ref-id,
   "from_version": uint,
   "to_version": uint,
-  "outcome": outcome-tag,
+  "result": execution-result,
   "atomic": true
 }
 state-graph-document = {
@@ -572,7 +595,7 @@ planner-result-document = {
   document-header,
   "kind": "planner-result",
   "request": content-reference,
-  "status": "planned" / "refused" / "indeterminate" / "faulted",
+  "status": "planned" / "refused" / "unresolved" / "faulted",
   ? "execution_graph": content-reference,
   ? "reason": reason,
   ? "diagnostics": [* diagnostic]
@@ -580,40 +603,49 @@ planner-result-document = {
 
 ; ---------- Runtime and evidence ----------
 
-outcome-tag = "satisfied" / "refuted" / "indeterminate" / "faulted"
+execution-state = "completed" / "faulted"
+verdict-state = "satisfied" / "refuted" / "unresolved"
+execution-pattern = ["completed", verdict-state] / ["faulted"]
 reason = { "code": symbol-id, "message": tstr, ? "details": value }
 diagnostic = { "code": symbol-id, "severity": "error" / "warning" / "info",
                "message": tstr, ? "node": ref-id }
 trace-event = { "sequence": uint, "node": ref-id, "at": timestamp,
                 "kind": symbol-id, ? "payload": value }
 
-runtime-outcome = satisfied-outcome / refuted-outcome / indeterminate-outcome
-                / faulted-outcome
-satisfied-outcome = {
-  "status": "satisfied",
+verdict = satisfied-verdict / refuted-verdict / unresolved-verdict
+satisfied-verdict = {
+  "state": "satisfied",
   "output": value,
   "evidence": [1* ref-id]
 }
-refuted-outcome = {
-  "status": "refuted",
+refuted-verdict = {
+  "state": "refuted",
   "counter_evidence": [1* ref-id]
 }
-indeterminate-outcome = {
-  "status": "indeterminate",
+unresolved-verdict = {
+  "state": "unresolved",
   "reason": reason,
   "partial_evidence": [* ref-id]
 }
-faulted-outcome = {
-  "status": "faulted",
+operational-fault = {
   "error": reason,
   "trace": [* trace-event]
 }
+execution-result = completed-result / faulted-result
+completed-result = {
+  "state": "completed",
+  "verdict": verdict
+}
+faulted-result = {
+  "state": "faulted",
+  "fault": operational-fault
+}
 
-runtime-outcome-document = {
+execution-result-document = {
   document-header,
-  "kind": "runtime-outcome",
+  "kind": "execution-result",
   "goal": ref-id,
-  "outcome": runtime-outcome,
+  "result": execution-result,
   ? "execution_graph": content-reference
 }
 
@@ -659,7 +691,7 @@ evidence-bundle-document = {
   "items": [* evidence-item],
   "gaps": [* evidence-gap],
   "edges": [* evidence-edge],
-  "obligation_status": { * ref-id => "discharged" / "refuted" / "indeterminate" }
+  "obligation_status": { * ref-id => "discharged" / "refuted" / "unresolved" }
 }
 
 feature-support = {

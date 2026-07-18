@@ -4,6 +4,7 @@
   "kind": "semantic-ir",
   "type_mode": "infer-strict",
   "types": [],
+  "functions": [],
   "predicates": [],
   "goals": [],
   "extensions": [],

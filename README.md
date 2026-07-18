@@ -78,13 +78,18 @@ cargo build --release
 ```
 
 `cargo run --bin generate-fixtures` regenerates the checked-in AST and IR CBOR
-artifacts for the canonical simple-goal fixture. The next implementation boundary is
-type and predicate definitions plus goal calls and the first explicit composition
-node; it does not include a planner or execution runtime.
+artifacts for the canonical simple-goal fixture. The semantic model now defines the
+minimal `kernel-network`: total pure reducers return adjectival
+`Pending | Concluded` reduction states over factored execution results. Standard
+`all`, `any`, `none`, `chain`, `gate`, and persistent-retention behavior lowers from
+versioned BHCP prelude definitions rather than privileged IR kinds. This slice
+validates and encodes the kernel model but does not yet parse, lower, or execute
+network source. The next executable boundary is the total expression checker plus
+standard-prelude lowering to monomorphized networks.
 
 ## Status
 
 The executable slice is not a claim that the execution platform already exists. v0
 is complete only when the parser, checker, planner, runtime, evidence machinery,
-SDK, and CLI implement the complete type system and all six core combinators
-end-to-end.
+SDK, and CLI implement the complete type system, minimal kernel, proof checker, and
+standard self-hosted prelude end-to-end.
