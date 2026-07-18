@@ -6,5 +6,6 @@ pub mod manifest;
 pub mod model;
 pub mod parser;
 pub mod pipeline;
+pub mod prelude;
 pub mod schema;
 pub mod value;

@@ -15,9 +15,11 @@ ID-02, and deterministic emission for CBOR-01 using
 `fixtures/canonical-simple.bhcp`. The adjacent presentation fixture proves that
 comments, formatting, and diagnostic labels do not affect semantic identity. The
 checked-in `.ast.cbor` and `.ir.cbor` files are compiler output and are validated by
-the same Rust harness as the 17 root diagnostic fixtures. Unlisted
-scenarios remain normative acceptance requirements, not claimed implementation
-support.
+the same Rust harness as the 17 root diagnostic fixtures. The self-hosted `all`
+fixture additionally exercises executable portions of KRN-01 through KRN-09,
+KRN-12, and ALG-ALL, including source-defined precedence and generic reducer
+re-evaluation. Obligation-graph proof coverage and all unlisted scenarios remain
+normative acceptance requirements, not claimed implementation support.
 
 ## Syntax, identity, and encoding
 
@@ -66,12 +68,12 @@ forms MUST lower to the same meaning.
 
 | ID | Scenario | Expected result |
 | --- | --- | --- |
-| KRN-01 | Reducer receives no observations and returns `Pending` with multiple known children. | Children are eligible together subject to effect/ownership/policy analysis. |
-| KRN-02 | A pending reduction names an unknown, duplicate, or already observed child, or names no children. | Stable kernel rejection; no execution result is emitted. |
+| KRN-01 | Reducer receives no observations and returns `Pending` with multiple known child tags. | Tags resolve to children that are eligible together subject to effect/ownership/policy analysis. |
+| KRN-02 | A pending reduction names an unknown, duplicate, or already observed child tag, or names no tags. | Stable kernel rejection; no execution result is emitted. |
 | KRN-03 | A reducer returns `Concluded` with a forged token or invalid derivation. | Proof-check rejection and visible operational fault. |
 | KRN-04 | Equivalent standard-prelude syntax and hand-written `§compose` source fully lower. | Byte-identical normalized kernel networks and semantic IDs. |
 | KRN-05 | Reducer state names are inspected. | Only adjectival `pending` and `concluded` states occur. |
-| KRN-06 | A premise-free reducer proves an empty logical identity. | The checker seals the valid derivation; its structural ID supplies the verdict's evidence or counter-evidence token. |
+| KRN-06 | A premise-free reducer proves an empty logical identity. | The checker derives and seals the valid derivation ID from the network; that ID supplies the verdict's evidence or counter-evidence token. |
 | KRN-07 | Kernel IR is inspected for derived or planner metadata. | No behavior kind, quantifier family, guard, dependency, budget, scheduling order, or parallelism hint is present. |
 | KRN-08 | A concluded reduction is proof-checked. | The generic checker re-evaluates the referenced BHCP reducer and validates sealed premises; no behavior-specific proof-rule tag is accepted. |
 | KRN-09 | A network reducer omits the parent input, uses a non-monomorphized observation record, or returns the wrong reduction type. | Static rejection before IR acceptance or execution. |

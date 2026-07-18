@@ -2,11 +2,16 @@
 
 use std::collections::HashSet;
 
+use crate::cbor::encode_deterministic;
 use crate::diagnostic::{Diagnostic, Result};
-use crate::model::{BhcpType, Expression, is_symbol};
+use crate::hash::HashAlgorithm;
+use crate::model::{
+    BhcpType, Expression, ExpressionForm, FunctionDefinition, SemanticIrDocument, is_symbol,
+};
 use crate::value::Value;
 
 const INVALID_KERNEL: &str = "BHCP4101";
+const INVALID_DERIVATION: &str = "BHCP4102";
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Reason {
@@ -335,6 +340,13 @@ impl KernelNetwork {
             .map(|child| child.id.as_str())
             .collect()
     }
+
+    fn child_tags(&self) -> HashSet<&str> {
+        self.children
+            .iter()
+            .map(|child| child.tag.as_str())
+            .collect()
+    }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -367,9 +379,9 @@ impl Reduction {
         match self {
             Self::Pending { required } => {
                 if required.is_empty() {
-                    return Err(invalid("pending reduction requires at least one child"));
+                    return Err(invalid("pending reduction requires at least one child tag"));
                 }
-                let children = network.child_ids();
+                let children = network.child_tags();
                 let mut unique = HashSet::new();
                 for child in required {
                     if !children.contains(child.as_str())
@@ -377,7 +389,7 @@ impl Reduction {
                         || !unique.insert(child.as_str())
                     {
                         return Err(invalid(
-                            "pending reduction must name unique, known, unobserved children",
+                            "pending reduction must name unique, known, unobserved child tags",
                         ));
                     }
                 }
@@ -405,6 +417,523 @@ impl Reduction {
                 }
             }
         }
+    }
+}
+
+#[derive(Clone)]
+struct ObservationSlot {
+    tag: String,
+    result: Option<ExecutionResult>,
+}
+
+#[derive(Clone)]
+enum RuntimeValue {
+    Data(Value),
+    Observations(Vec<ObservationSlot>),
+    Bool(bool),
+    Texts(Vec<String>),
+    Reason(Reason),
+    Fault(OperationalFault),
+    Result(ExecutionResult),
+    Reduction(Reduction),
+}
+
+/// Executes and generically re-checks total pure reducer definitions retained in semantic IR.
+pub struct KernelRuntime<'a> {
+    ir: &'a SemanticIrDocument,
+}
+
+impl<'a> KernelRuntime<'a> {
+    pub fn new(ir: &'a SemanticIrDocument) -> Self {
+        Self { ir }
+    }
+
+    pub fn reduce(
+        &self,
+        network_id: &str,
+        parent: Value,
+        observations: &[ChildObservation],
+    ) -> Result<Reduction> {
+        self.ir.validate()?;
+        let (parent_goal, network, reducer) = self.resolve(network_id)?;
+        if !value_has_type(&parent, &parent_goal.input) {
+            return Err(invalid(
+                "reducer parent input does not match the goal input type",
+            ));
+        }
+        let slots = self.observation_slots(network, observations)?;
+        let derivation_id = derive_derivation_id(network, &parent, &slots)?;
+        let value = evaluate_expression(
+            &reducer.definition,
+            reducer,
+            &derivation_id,
+            parent,
+            slots.clone(),
+        )?;
+        let RuntimeValue::Reduction(reduction) = value else {
+            return Err(invalid("reducer did not return a reduction"));
+        };
+        let observed_tags = slots
+            .iter()
+            .filter_map(|slot| slot.result.as_ref().map(|_| slot.tag.clone()))
+            .collect();
+        reduction.validate(network, &observed_tags)?;
+        Ok(reduction)
+    }
+
+    pub fn verify(
+        &self,
+        network_id: &str,
+        parent: Value,
+        observations: &[ChildObservation],
+        claimed: &Reduction,
+    ) -> Result<()> {
+        let expected = self.reduce(network_id, parent, observations)?;
+        if &expected != claimed {
+            return Err(invalid_derivation(
+                "reducer result does not match re-evaluation",
+            ));
+        }
+        if let Reduction::Concluded { derivation, .. } = claimed {
+            let accepted = accepted_premises(observations);
+            if derivation
+                .premises
+                .iter()
+                .any(|premise| !accepted.contains(premise))
+            {
+                return Err(invalid_derivation(
+                    "derivation references an unaccepted premise",
+                ));
+            }
+        }
+        Ok(())
+    }
+
+    fn resolve(
+        &self,
+        network_id: &str,
+    ) -> Result<(
+        &crate::model::GoalDefinition,
+        &KernelNetwork,
+        &FunctionDefinition,
+    )> {
+        let (goal, network) = self
+            .ir
+            .goals
+            .iter()
+            .find_map(|goal| {
+                goal.body
+                    .as_ref()
+                    .filter(|network| network.id == network_id)
+                    .map(|network| (goal, network))
+            })
+            .ok_or_else(|| invalid("kernel network does not resolve"))?;
+        let reducer = self
+            .ir
+            .functions
+            .iter()
+            .find(|function| function.symbol == network.reducer)
+            .ok_or_else(|| invalid("kernel reducer does not resolve"))?;
+        Ok((goal, network, reducer))
+    }
+
+    fn observation_slots(
+        &self,
+        network: &KernelNetwork,
+        observations: &[ChildObservation],
+    ) -> Result<Vec<ObservationSlot>> {
+        let mut supplied = std::collections::HashMap::new();
+        for observation in observations {
+            observation.validate(network)?;
+            if supplied
+                .insert(observation.child.as_str(), &observation.result)
+                .is_some()
+            {
+                return Err(invalid("child observations must be unique"));
+            }
+        }
+        network
+            .children
+            .iter()
+            .map(|child| {
+                let result = supplied.get(child.id.as_str()).copied();
+                if let Some(ExecutionResult::Completed(Verdict::Satisfied { output, .. })) = result
+                {
+                    let child_goal = self
+                        .ir
+                        .goals
+                        .iter()
+                        .find(|goal| goal.id == child.goal)
+                        .expect("IR validation resolves child goals");
+                    if !value_has_type(output, &child_goal.output) {
+                        return Err(invalid(
+                            "child output does not match the declared goal output type",
+                        ));
+                    }
+                }
+                Ok(ObservationSlot {
+                    tag: child.tag.clone(),
+                    result: result.cloned(),
+                })
+            })
+            .collect()
+    }
+}
+
+fn evaluate_expression(
+    expression: &Expression,
+    function: &FunctionDefinition,
+    derivation_id: &str,
+    parent: Value,
+    observations: Vec<ObservationSlot>,
+) -> Result<RuntimeValue> {
+    match &expression.form {
+        ExpressionForm::Reference(reference) if reference == &function.parameters[0].id => {
+            Ok(RuntimeValue::Data(parent))
+        }
+        ExpressionForm::Reference(reference) if reference == &function.parameters[1].id => {
+            Ok(RuntimeValue::Observations(observations))
+        }
+        ExpressionForm::If(condition, consequent, alternative) => {
+            let condition = evaluate_expression(
+                condition,
+                function,
+                derivation_id,
+                parent.clone(),
+                observations.clone(),
+            )?;
+            match condition {
+                RuntimeValue::Bool(true) => {
+                    evaluate_expression(consequent, function, derivation_id, parent, observations)
+                }
+                RuntimeValue::Bool(false) => {
+                    evaluate_expression(alternative, function, derivation_id, parent, observations)
+                }
+                _ => Err(invalid("reducer condition did not evaluate to Bool")),
+            }
+        }
+        ExpressionForm::Call(symbol, arguments) => {
+            let mut values = Vec::with_capacity(arguments.len());
+            for argument in arguments {
+                values.push(evaluate_expression(
+                    argument,
+                    function,
+                    derivation_id,
+                    parent.clone(),
+                    observations.clone(),
+                )?);
+            }
+            evaluate_primitive(symbol, derivation_id, values)
+        }
+        _ => Err(invalid(
+            "reducer used an expression outside the executable total-pure slice",
+        )),
+    }
+}
+
+fn evaluate_primitive(
+    symbol: &str,
+    derivation_id: &str,
+    arguments: Vec<RuntimeValue>,
+) -> Result<RuntimeValue> {
+    match symbol {
+        "bhcp/kernel.has-refuted@0" => with_observations(arguments, |observations| {
+            RuntimeValue::Bool(observations.iter().any(|slot| {
+                matches!(
+                    &slot.result,
+                    Some(ExecutionResult::Completed(Verdict::Refuted { .. }))
+                )
+            }))
+        }),
+        "bhcp/kernel.has-missing@0" => with_observations(arguments, |observations| {
+            RuntimeValue::Bool(observations.iter().any(|slot| slot.result.is_none()))
+        }),
+        "bhcp/kernel.has-faulted@0" => with_observations(arguments, |observations| {
+            RuntimeValue::Bool(
+                observations
+                    .iter()
+                    .any(|slot| matches!(&slot.result, Some(ExecutionResult::Faulted(_)))),
+            )
+        }),
+        "bhcp/kernel.has-unresolved@0" => with_observations(arguments, |observations| {
+            RuntimeValue::Bool(observations.iter().any(|slot| {
+                matches!(
+                    &slot.result,
+                    Some(ExecutionResult::Completed(Verdict::Unresolved { .. }))
+                )
+            }))
+        }),
+        "bhcp/kernel.missing-tags@0" => with_observations(arguments, |observations| {
+            RuntimeValue::Texts(
+                observations
+                    .iter()
+                    .filter(|slot| slot.result.is_none())
+                    .map(|slot| slot.tag.clone())
+                    .collect(),
+            )
+        }),
+        "bhcp/kernel.first-counter-evidence@0" => {
+            let observations = take_observations(arguments)?;
+            let evidence = observations
+                .iter()
+                .find_map(|slot| match &slot.result {
+                    Some(ExecutionResult::Completed(Verdict::Refuted { counter_evidence })) => {
+                        Some(counter_evidence.clone())
+                    }
+                    _ => None,
+                })
+                .ok_or_else(|| invalid("no refuted observation supplies counter-evidence"))?;
+            Ok(RuntimeValue::Texts(evidence))
+        }
+        "bhcp/kernel.first-fault@0" => {
+            let observations = take_observations(arguments)?;
+            let fault = observations
+                .iter()
+                .find_map(|slot| match &slot.result {
+                    Some(ExecutionResult::Faulted(fault)) => Some(fault.clone()),
+                    _ => None,
+                })
+                .ok_or_else(|| invalid("no faulted observation supplies a fault"))?;
+            Ok(RuntimeValue::Fault(fault))
+        }
+        "bhcp/kernel.first-unresolved-reason@0" => {
+            let observations = take_observations(arguments)?;
+            let reason = observations
+                .iter()
+                .find_map(|slot| match &slot.result {
+                    Some(ExecutionResult::Completed(Verdict::Unresolved { reason, .. })) => {
+                        Some(reason.clone())
+                    }
+                    _ => None,
+                })
+                .ok_or_else(|| invalid("no unresolved observation supplies a reason"))?;
+            Ok(RuntimeValue::Reason(reason))
+        }
+        "bhcp/kernel.partial-evidence@0" => with_observations(arguments, |observations| {
+            RuntimeValue::Texts(unique_refs(observations.iter().flat_map(
+                |slot| match &slot.result {
+                    Some(ExecutionResult::Completed(Verdict::Satisfied { evidence, .. })) => {
+                        evidence.clone()
+                    }
+                    Some(ExecutionResult::Completed(Verdict::Unresolved {
+                        partial_evidence,
+                        ..
+                    })) => partial_evidence.clone(),
+                    _ => vec![],
+                },
+            )))
+        }),
+        "bhcp/kernel.satisfied-record@0" => {
+            let observations = take_observations(arguments)?;
+            let mut outputs = Vec::new();
+            for slot in observations {
+                let Some(ExecutionResult::Completed(Verdict::Satisfied { output, .. })) =
+                    slot.result
+                else {
+                    return Err(invalid(
+                        "satisfied-record requires every observation to be satisfied",
+                    ));
+                };
+                outputs.push((slot.tag, output));
+            }
+            Ok(RuntimeValue::Data(Value::owned_map(outputs)))
+        }
+        "bhcp/kernel.satisfied-evidence@0" => with_observations(arguments, |observations| {
+            RuntimeValue::Texts(unique_refs(observations.iter().flat_map(
+                |slot| match &slot.result {
+                    Some(ExecutionResult::Completed(Verdict::Satisfied { evidence, .. })) => {
+                        evidence.clone()
+                    }
+                    _ => vec![],
+                },
+            )))
+        }),
+        "bhcp/kernel.pending@0" => match arguments.as_slice() {
+            [RuntimeValue::Texts(tags)] if !tags.is_empty() => {
+                Ok(RuntimeValue::Reduction(Reduction::Pending {
+                    required: tags.clone(),
+                }))
+            }
+            _ => Err(invalid("pending requires a non-empty list of child tags")),
+        },
+        "bhcp/kernel.refuted@0" => match arguments.as_slice() {
+            [RuntimeValue::Texts(evidence)] if !evidence.is_empty() => Ok(RuntimeValue::Result(
+                ExecutionResult::Completed(Verdict::Refuted {
+                    counter_evidence: evidence.clone(),
+                }),
+            )),
+            _ => Err(invalid("refuted requires counter-evidence")),
+        },
+        "bhcp/kernel.faulted@0" => match arguments.as_slice() {
+            [RuntimeValue::Fault(fault)] => Ok(RuntimeValue::Result(ExecutionResult::Faulted(
+                fault.clone(),
+            ))),
+            _ => Err(invalid("faulted requires an operational fault")),
+        },
+        "bhcp/kernel.unresolved@0" => match arguments.as_slice() {
+            [RuntimeValue::Reason(reason), RuntimeValue::Texts(evidence)] => Ok(
+                RuntimeValue::Result(ExecutionResult::Completed(Verdict::Unresolved {
+                    reason: reason.clone(),
+                    partial_evidence: evidence.clone(),
+                })),
+            ),
+            _ => Err(invalid("unresolved requires a reason and partial evidence")),
+        },
+        "bhcp/kernel.satisfied@0" => match arguments.as_slice() {
+            [RuntimeValue::Data(output), RuntimeValue::Texts(evidence)] => Ok(
+                RuntimeValue::Result(ExecutionResult::Completed(Verdict::Satisfied {
+                    output: output.clone(),
+                    evidence: evidence.clone(),
+                })),
+            ),
+            _ => Err(invalid("satisfied requires an output and evidence")),
+        },
+        "bhcp/kernel.conclude@0" => match arguments.as_slice() {
+            [RuntimeValue::Result(result)] => {
+                let mut result = result.clone();
+                let premises = match &result {
+                    ExecutionResult::Completed(Verdict::Satisfied { evidence, .. }) => {
+                        evidence.clone()
+                    }
+                    ExecutionResult::Completed(Verdict::Refuted { counter_evidence }) => {
+                        counter_evidence.clone()
+                    }
+                    ExecutionResult::Completed(Verdict::Unresolved {
+                        partial_evidence, ..
+                    }) => partial_evidence.clone(),
+                    ExecutionResult::Faulted(_) => vec![],
+                };
+                let derivation = Derivation {
+                    id: derivation_id.to_owned(),
+                    premises: unique_refs(premises),
+                };
+                match &mut result {
+                    ExecutionResult::Completed(Verdict::Satisfied { evidence, .. }) => {
+                        evidence.push(derivation.id.clone());
+                    }
+                    ExecutionResult::Completed(Verdict::Refuted { counter_evidence }) => {
+                        counter_evidence.push(derivation.id.clone());
+                    }
+                    _ => {}
+                }
+                Ok(RuntimeValue::Reduction(Reduction::Concluded {
+                    result,
+                    derivation,
+                }))
+            }
+            _ => Err(invalid("conclude requires one execution result")),
+        },
+        _ => Err(invalid(format!("unknown kernel primitive {symbol}"))),
+    }
+}
+
+fn with_observations(
+    arguments: Vec<RuntimeValue>,
+    operation: impl FnOnce(&[ObservationSlot]) -> RuntimeValue,
+) -> Result<RuntimeValue> {
+    let observations = take_observations(arguments)?;
+    Ok(operation(&observations))
+}
+
+fn take_observations(arguments: Vec<RuntimeValue>) -> Result<Vec<ObservationSlot>> {
+    let mut arguments = arguments.into_iter();
+    match (arguments.next(), arguments.next()) {
+        (Some(RuntimeValue::Observations(observations)), None) => Ok(observations),
+        _ => Err(invalid(
+            "observation operation requires one sealed observation record",
+        )),
+    }
+}
+
+fn derive_derivation_id(
+    network: &KernelNetwork,
+    parent: &Value,
+    observations: &[ObservationSlot],
+) -> Result<String> {
+    let value = Value::Array(vec![
+        network.to_value(),
+        parent.clone(),
+        Value::Array(
+            observations
+                .iter()
+                .map(|slot| {
+                    Value::Array(vec![
+                        Value::Text(slot.tag.clone()),
+                        slot.result
+                            .as_ref()
+                            .map(ExecutionResult::to_value)
+                            .unwrap_or(Value::Null),
+                    ])
+                })
+                .collect(),
+        ),
+    ]);
+    let bytes = encode_deterministic(&value)?;
+    let digest = HashAlgorithm::default().hash(&bytes).digest;
+    let suffix: String = digest[..32]
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect();
+    Ok(format!("derivation-{suffix}"))
+}
+
+fn unique_refs(values: impl IntoIterator<Item = String>) -> Vec<String> {
+    let mut seen = HashSet::new();
+    values
+        .into_iter()
+        .filter(|value| seen.insert(value.clone()))
+        .collect()
+}
+
+fn accepted_premises(observations: &[ChildObservation]) -> HashSet<String> {
+    observations
+        .iter()
+        .flat_map(|observation| match &observation.result {
+            ExecutionResult::Completed(Verdict::Satisfied { evidence, .. }) => evidence.clone(),
+            ExecutionResult::Completed(Verdict::Refuted { counter_evidence }) => {
+                counter_evidence.clone()
+            }
+            ExecutionResult::Completed(Verdict::Unresolved {
+                partial_evidence, ..
+            }) => partial_evidence.clone(),
+            ExecutionResult::Faulted(_) => vec![],
+        })
+        .collect()
+}
+
+fn value_has_type(value: &Value, value_type: &BhcpType) -> bool {
+    match (value, value_type) {
+        (Value::Bool(_), BhcpType::Primitive("Bool"))
+        | (Value::Text(_), BhcpType::Primitive("Text" | "Timestamp" | "Duration"))
+        | (Value::Bytes(_), BhcpType::Primitive("Bytes")) => true,
+        (Value::Array(value), BhcpType::Primitive("Unit")) => {
+            value == &[Value::Text("unit".to_owned())]
+        }
+        (Value::Array(value), BhcpType::ExactNumber("Integer")) => matches!(
+            value.as_slice(),
+            [Value::Text(kind), Value::Integer(_)] if kind == "integer"
+        ),
+        (Value::Array(value), BhcpType::ExactNumber("Rational")) => matches!(
+            value.as_slice(),
+            [Value::Text(kind), Value::Integer(_), Value::Integer(denominator)]
+                if kind == "rational" && *denominator > 0
+        ),
+        (Value::Array(value), BhcpType::ExactNumber("Decimal")) => matches!(
+            value.as_slice(),
+            [Value::Text(kind), Value::Integer(_), Value::Integer(_)] if kind == "decimal"
+        ),
+        (Value::Array(values), BhcpType::List(element)) => {
+            values.iter().all(|value| value_has_type(value, element))
+        }
+        (Value::Map(entries), BhcpType::Record(fields)) => {
+            entries.len() == fields.len()
+                && fields.iter().all(|field| {
+                    entries.iter().any(|(name, value)| {
+                        name == &field.name && value_has_type(value, &field.value_type)
+                    })
+                })
+        }
+        _ => false,
     }
 }
 
@@ -440,4 +969,8 @@ fn validate_ref(reference: &str) -> Result<()> {
 
 fn invalid(message: impl Into<String>) -> Diagnostic {
     Diagnostic::plain(INVALID_KERNEL, message)
+}
+
+fn invalid_derivation(message: impl Into<String>) -> Diagnostic {
+    Diagnostic::plain(INVALID_DERIVATION, message)
 }

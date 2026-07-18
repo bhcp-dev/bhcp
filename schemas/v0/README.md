@@ -18,7 +18,9 @@ members. Exact and machine numeric values never depend on a host number model.
 
 The v0 semantic kernel uses `kernel-network`, not a closed enumeration of behavioral
 composition kinds. Total pure BHCP reducer functions consume sealed
-`child-observation` values and emit `reduction` values. Reduction states are the
+`child-observation` values and emit `reduction` values. Pending reductions name stable
+child tags; the runtime resolves those tags to child structural IDs through the
+enclosing network. Reduction states are the
 adjectives `pending | concluded`; execution states are `completed | faulted`; and
 completed verdict states are `satisfied | refuted | unresolved`. Operational faults
 therefore remain outside semantic verdicts.
@@ -27,15 +29,19 @@ A `kernel-network` contains only structural identity, output type, finite childr
 and a reducer symbol. Quantified derived forms must expand before IR, recursion
 bounds attach to recursive children, and budget/scheduling/parallel-eligibility
 analysis belongs to execution graphs rather than semantic IR. Derivations carry only
-an ID and sealed premise references: the generic checker re-evaluates the network's
-BHCP reducer, so no behavior-specific proof-rule registry is part of the kernel.
+an ID and sealed premise references: reducer source cannot select the ID, and the
+generic checker derives it from the network plus exact reducer inputs, re-evaluates
+the network's BHCP reducer, and seals accepted premises. No behavior-specific
+proof-rule registry is part of the kernel.
 Reducer validation requires exactly the parent input and a closed record containing
 one `Option<ExecutionResult<ChildOutput>>` field per child, and requires
 `Reduction<ParentOutput>` as the result.
 
 Self-hosted lowerers use compile-time-only `meta-type` values. A lowerer receives a
 typed `derived-form-shape` and returns an ID-free `network-shape`; both use
-source-independent resolved children and expressions. The elaborator validates the
+source-independent resolved children and expressions. Each derived child exposes its
+resolved output type to the lowerer; runtime network children continue to resolve
+their type through the referenced goal. The elaborator validates the
 shape, assigns structural IDs, and rejects all meta values that survive into runtime
 semantic IR.
 

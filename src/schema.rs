@@ -80,7 +80,9 @@ pub fn validate_schema_inventory(schema: &str, expected_kinds: &[&str]) -> Resul
         "verdict = satisfied-verdict / refuted-verdict / unresolved-verdict",
         "meta-type = [\"meta\", \"derived-form\" / \"network-shape\", type, type]",
         "derived-form-shape = {",
+        "derived-child-shape = {\n  lowering-child-shape,\n  \"output\": type\n}",
         "network-shape = {",
+        "\"required\": [1* tstr]",
     ] {
         if !schema.contains(rule) {
             return Err(Diagnostic::plain(

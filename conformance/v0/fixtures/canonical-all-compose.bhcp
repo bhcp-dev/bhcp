@@ -1,0 +1,17 @@
+§goal example/Build@0 {
+    §output artifact: Text;
+}
+
+§goal example/Document@0 {
+    §output page: Text;
+}
+
+§goal example/Release@0 {
+    §output build: { artifact: Text };
+    §output docs: { page: Text };
+
+    §compose using bhcp/prelude.all-reducer@0 {
+        build = example/Build@0();
+        docs = example/Document@0();
+    };
+}

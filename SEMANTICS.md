@@ -229,6 +229,14 @@ A verifier binding names an evidence producer with typed input/output and trust
 requirements; it does not redefine the predicate. Kernel reducers are functions,
 not privileged runtime callbacks.
 
+The evaluator MAY provide fixed, versioned, total pure primitive definitions at the
+bottom of expression evaluation for constructing and inspecting language values,
+including sealed kernel observations and checked result construction.
+Such primitives MUST be behavior-neutral, MUST NOT select an orchestration policy,
+and MUST NOT be extensible implementation callbacks. Every orchestration decision
+and precedence rule remains in an ordinary retained or compile-time-eliminated BHCP
+definition.
+
 Schema anchors: `expression`, `pattern`, `function-definition`,
 `predicate-definition`, and `verifier-binding`.
 
@@ -402,7 +410,8 @@ literal         = "true" | "false" | "unit" | integer | rational | decimal
 rational        = integer "/" positive-integer ;
 decimal         = integer ( "." digit { digit } ) "d" ;
 machine-float   = "float" ( "16" | "32" | "64" | "128" ) "(" hex-bytes ")" ;
-qualified-name  = identifier { ( "::" | "/" ) identifier } [ "@" version ] ;
+qualified-name  = semantic-component { ( "::" | "/" ) semantic-component } [ "@" version ] ;
+semantic-component = identifier { "." identifier } ;
 identifier      = letter { letter | digit | "_" | "-" } ;
 version         = digit { digit | "." | letter | "-" } ;
 integer         = [ "-" ] positive-integer | "0" ;
@@ -462,29 +471,34 @@ returns exactly one reduction state:
 
 | Reduction | Meaning |
 | --- | --- |
-| `Pending(requiredChildren)` | The listed unique, known, unobserved children are exactly those whose results may next affect a conclusion. |
+| `Pending(requiredTags)` | The listed unique, known, unobserved child tags are exactly those whose results may next affect a conclusion. |
 | `Concluded(result, derivation)` | The network has a terminal execution result justified by a kernel-checkable derivation. |
 
 `Pending` and `Concluded` are adjectival states; neither is a run verdict. A pending
-set MUST be non-empty. Its members MAY execute in any order or in parallel only when
-their effects, ownership, state, policy, and budgets permit. On each new observation
-the reducer runs again. A concluded reduction is terminal. Requesting an unknown or
-already observed child, returning an invalid derivation, or evaluating a non-total
-reducer is an operational fault.
+tag set MUST be non-empty. The runtime resolves every tag through the enclosing
+network's unique tag-to-child-ID mapping before scheduling; reducers never receive or
+manufacture child structural IDs. Its members MAY execute in any order or in parallel
+only when their effects, ownership, state, policy, and budgets permit. On each new
+observation the reducer runs again. A concluded reduction is terminal. Requesting an
+unknown or already observed tag, returning an invalid derivation, or evaluating a
+non-total reducer is an operational fault.
 
 Child observations and evidence tokens are sealed. Reducers MAY pattern-match
 execution/verdict states, inspect outputs and reasons, propagate an operational fault
 opaquely, and reference accepted premise tokens. Operational trace contents and
 timestamps are not reducer inputs to semantic choice: reducers MUST NOT branch on
-them, alter them, or manufacture evidence, counter-evidence, or traces. A derivation
-contains only its structural ID and sealed premise references; it has no
-behavior-specific rule tag. The generic proof checker re-evaluates the exact reducer
-with the same parent input and observations, checks that the reduction is identical,
-and verifies that the premises exist, are accepted, and cover the obligations the
-result claims to discharge. It then seals the derivation under its ID. A concluded
-satisfied verdict MUST include that ID in `evidence`; a concluded refuted verdict
-MUST include it in `counterEvidence`. The derivation can therefore prove a
-premise-free logical identity without synthetic child evidence.
+them, alter them, or manufacture evidence, counter-evidence, or traces. Reducer source
+constructs a conclusion from an execution result whose accepted evidence references
+become its proposed premises; it cannot select or inspect the derivation ID. The
+generic kernel deterministically derives that ID from the enclosing network plus the
+exact parent input and sealed observation record, re-evaluates the exact
+reducer with the same inputs, checks that the conclusion is identical, and verifies
+that the premises exist, are accepted, and cover the obligations the result claims to
+discharge. It then emits the checked `Concluded` reduction with a derivation containing
+only that ID and the sealed premise references; there is no behavior-specific rule
+tag. A concluded satisfied verdict MUST include that ID in `evidence`; a concluded
+refuted verdict MUST include it in `counterEvidence`. The derivation can therefore
+prove a premise-free logical identity without synthetic child evidence.
 
 A goal containing only flat clauses is declarative and has no network. Its semantic
 IR omits `body`; its input and output types are derived from its fact clauses. Empty
