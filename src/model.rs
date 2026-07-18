@@ -2,6 +2,7 @@ use std::collections::HashSet;
 
 use crate::diagnostic::{Diagnostic, Result};
 use crate::hash::SHA3_512;
+use crate::kernel::KernelNetwork;
 use crate::value::Value;
 
 pub const BASE_FEATURE: &str = "bhcp/feature.canonical-simple-goal@0";
@@ -193,6 +194,9 @@ pub enum BhcpType {
     ExactNumber(&'static str),
     Record(Vec<FieldType>),
     Evidence(Vec<String>),
+    Verdict(Box<BhcpType>),
+    ExecutionResult(Box<BhcpType>),
+    Reduction(Box<BhcpType>),
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -232,6 +236,16 @@ impl BhcpType {
                 Value::Text("evidence".to_owned()),
                 Value::Array(classes.iter().cloned().map(Value::Text).collect()),
             ]),
+            Self::Verdict(output) => {
+                Value::Array(vec![Value::Text("verdict".to_owned()), output.to_value()])
+            }
+            Self::ExecutionResult(output) => Value::Array(vec![
+                Value::Text("execution-result".to_owned()),
+                output.to_value(),
+            ]),
+            Self::Reduction(output) => {
+                Value::Array(vec![Value::Text("reduction".to_owned()), output.to_value()])
+            }
         }
     }
 }
@@ -269,7 +283,7 @@ pub enum ExpressionForm {
 }
 
 impl Expression {
-    fn to_value(&self) -> Value {
+    pub(crate) fn to_value(&self) -> Value {
         let form = match &self.form {
             ExpressionForm::Literal(value) => {
                 Value::Array(vec![Value::Text("literal".to_owned()), value.clone()])
@@ -432,20 +446,27 @@ pub struct GoalDefinition {
     pub output: BhcpType,
     pub evidence: BhcpType,
     pub clauses: Vec<Clause>,
+    pub body: Option<KernelNetwork>,
 }
 
 impl GoalDefinition {
     fn to_value(&self, include_labels: bool) -> Value {
-        Value::map([
-            ("id", Value::Text(self.id.clone())),
-            ("symbol", Value::Text(self.symbol.clone())),
-            ("type_mode", Value::Text("infer-strict".to_owned())),
-            ("input", self.input.to_value()),
-            ("output", self.output.to_value()),
-            ("effects", Value::map([("effects", Value::Array(vec![]))])),
-            ("evidence", self.evidence.to_value()),
+        let mut entries = vec![
+            ("id".to_owned(), Value::Text(self.id.clone())),
+            ("symbol".to_owned(), Value::Text(self.symbol.clone())),
             (
-                "clauses",
+                "type_mode".to_owned(),
+                Value::Text("infer-strict".to_owned()),
+            ),
+            ("input".to_owned(), self.input.to_value()),
+            ("output".to_owned(), self.output.to_value()),
+            (
+                "effects".to_owned(),
+                Value::map([("effects", Value::Array(vec![]))]),
+            ),
+            ("evidence".to_owned(), self.evidence.to_value()),
+            (
+                "clauses".to_owned(),
                 Value::Array(
                     self.clauses
                         .iter()
@@ -453,6 +474,34 @@ impl GoalDefinition {
                         .collect(),
                 ),
             ),
+        ];
+        if let Some(body) = &self.body {
+            entries.push(("body".to_owned(), body.to_value()));
+        }
+        Value::owned_map(entries)
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct FunctionDefinition {
+    pub id: String,
+    pub symbol: String,
+    pub parameters: Vec<Binding>,
+    pub result: BhcpType,
+    pub definition: Expression,
+}
+
+impl FunctionDefinition {
+    fn to_value(&self) -> Value {
+        Value::map([
+            ("id", Value::Text(self.id.clone())),
+            ("symbol", Value::Text(self.symbol.clone())),
+            (
+                "parameters",
+                Value::Array(self.parameters.iter().map(Binding::to_value).collect()),
+            ),
+            ("result", self.result.to_value()),
+            ("definition", self.definition.to_value()),
         ])
     }
 }
@@ -460,6 +509,7 @@ impl GoalDefinition {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct SemanticIrDocument {
     pub features: Vec<String>,
+    pub functions: Vec<FunctionDefinition>,
     pub goals: Vec<GoalDefinition>,
     pub entrypoints: Vec<String>,
     pub semantic_id: Option<HashId>,
@@ -487,6 +537,15 @@ impl SemanticIrDocument {
                 Value::Text("infer-strict".to_owned()),
             ),
             ("types".to_owned(), Value::Array(vec![])),
+            (
+                "functions".to_owned(),
+                Value::Array(
+                    self.functions
+                        .iter()
+                        .map(FunctionDefinition::to_value)
+                        .collect(),
+                ),
+            ),
             ("predicates".to_owned(), Value::Array(vec![])),
             (
                 "goals".to_owned(),
@@ -516,6 +575,22 @@ impl SemanticIrDocument {
         let mut ids = HashSet::new();
         let mut references = Vec::new();
         let mut goals = HashSet::new();
+        let mut child_goals = Vec::new();
+        let mut function_symbols = HashSet::new();
+        let mut reducers = Vec::new();
+        for function in &self.functions {
+            add_id(&function.id, &mut ids)?;
+            if !is_symbol(&function.symbol) || !function_symbols.insert(function.symbol.clone()) {
+                return Err(Diagnostic::plain(
+                    "BHCP4001",
+                    "function symbols must be unique symbol-ids",
+                ));
+            }
+            for parameter in &function.parameters {
+                add_id(&parameter.id, &mut ids)?;
+            }
+            function.definition.validate(&mut ids, &mut references)?;
+        }
         for goal in &self.goals {
             add_id(&goal.id, &mut ids)?;
             goals.insert(goal.id.clone());
@@ -558,6 +633,15 @@ impl SemanticIrDocument {
                     }
                 }
             }
+            if let Some(body) = &goal.body {
+                body.validate()?;
+                add_id(&body.id, &mut ids)?;
+                reducers.push(body.reducer.clone());
+                for child in &body.children {
+                    add_id(&child.id, &mut ids)?;
+                    child_goals.push(child.goal.clone());
+                }
+            }
         }
         if references.iter().any(|reference| !ids.contains(reference)) {
             return Err(Diagnostic::plain(
@@ -573,6 +657,21 @@ impl SemanticIrDocument {
             return Err(Diagnostic::plain(
                 "BHCP4001",
                 "entrypoint does not reference a goal",
+            ));
+        }
+        if child_goals.iter().any(|goal| !goals.contains(goal)) {
+            return Err(Diagnostic::plain(
+                "BHCP4001",
+                "kernel child does not reference a goal",
+            ));
+        }
+        if reducers
+            .iter()
+            .any(|reducer| !function_symbols.contains(reducer))
+        {
+            return Err(Diagnostic::plain(
+                "BHCP4001",
+                "kernel reducer does not resolve to a function",
             ));
         }
         if let Some(hash) = &self.semantic_id {

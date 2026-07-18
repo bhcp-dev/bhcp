@@ -6,7 +6,7 @@ rule, `root-document`, enumerates every platform artifact:
 1. canonical AST and semantic IR;
 2. syntax definitions, profiles, policies, waivers, and extension descriptors;
 3. obligation, capability, state, and execution graphs;
-4. evidence bundles and runtime outcomes;
+4. evidence bundles and execution results;
 5. planner requests and results;
 6. feature manifests; and
 7. standalone content references.
@@ -16,12 +16,19 @@ definite lengths, shortest integer encodings, deterministically ordered map keys
 UTF-8 NFC text, and no duplicate keys. Semantic sets are sorted arrays with unique
 members. Exact and machine numeric values never depend on a host number model.
 
+The v0 semantic kernel uses `kernel-network`, not a closed enumeration of behavioral
+composition kinds. Total pure BHCP reducer functions consume sealed
+`child-observation` values and emit `reduction` values. Reduction states are the
+adjectives `pending | concluded`; execution states are `completed | faulted`; and
+completed verdict states are `satisfied | refuted | unresolved`. Operational faults
+therefore remain outside semantic verdicts.
+
 The files in [`examples/`](examples/) use CBOR diagnostic notation and contain at
 least one instance of every root alternative. `examples/manifest.txt` binds each
 fixture to its expected root kind. The Rust validation harness:
 
 - parses the normative bundle with cddl-rs 0.10.6 and rejects malformed CDDL;
-- checks the CDDL root inventory and the declarative-goal rule;
+- checks the CDDL root inventory and the declarative-goal/kernel-network rule;
 - parses every diagnostic fixture and validates its v0 root contract;
 - confirms all root kinds are present exactly as declared by the fixture manifest;
 - checks every understood `bhcp.hash/sha3-512@0` digest length;

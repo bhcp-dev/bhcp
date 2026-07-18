@@ -1,0 +1,14 @@
+{
+  "version": "bhcp/v0",
+  "features": [],
+  "kind": "execution-result",
+  "goal": "goal-1",
+  "result": {
+    "state": "completed",
+    "verdict": {
+      "state": "unresolved",
+      "reason": {"code": "bhcp.reason/not-run@0", "message": "Example only"},
+      "partial_evidence": []
+    }
+  }
+}

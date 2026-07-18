@@ -18,7 +18,7 @@ const EXPECTED: [&str; 17] = [
     "state-graph",
     "execution-graph",
     "evidence-bundle",
-    "runtime-outcome",
+    "execution-result",
     "planner-request",
     "planner-result",
     "feature-manifest",
@@ -78,4 +78,24 @@ fn malformed_cddl_is_rejected_with_a_stable_diagnostic() {
             .message
             .starts_with("CDDL schema does not parse:")
     );
+}
+
+#[test]
+fn execution_results_reject_flat_or_mixed_category_states() {
+    for source in [
+        r#"{
+          "version": "bhcp/v0", "features": [], "kind": "execution-result",
+          "goal": "goal-1",
+          "result": {"state": "satisfied", "output": "x", "evidence": ["e-1"]}
+        }"#,
+        r#"{
+          "version": "bhcp/v0", "features": [], "kind": "execution-result",
+          "goal": "goal-1",
+          "result": {"state": "completed", "verdict": {"state": "faulted"}}
+        }"#,
+    ] {
+        let value = parse_diagnostic(source).unwrap();
+        let diagnostic = validate_root(&value, "execution-result").unwrap_err();
+        assert_eq!(diagnostic.code, "BHCP5002");
+    }
 }
