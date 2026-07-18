@@ -112,6 +112,21 @@ derivation premise is sealed evidence from an observed child. Full obligation-gr
 coverage remains part of the later analysis/evidence milestone; this runtime does not
 claim complete v0 proof checking yet.
 
+## Minimal coding-agent experiment
+
+[`experiments/minimal-coding-agent/`](experiments/minimal-coding-agent/) contains a
+pinned, dependency-free Rust repository for the first controlled coding-agent
+comparison. Its visible tests pass while an independent oracle rejects partial batch
+commits, conflicting idempotency replays, and overflow rollback. The Markdown task
+and canonical BHCP contract state the same requirements; the experiment isolates
+whether BHCP makes completion claims more precise and mechanically checkable, not
+whether hidden requirements can surprise an agent.
+
+The fixture documentation defines the two-arm protocol, verifier boundary, and the
+current limitation: the BHCP compiler validates and hashes the contract, while an
+external controller must still run its verifier bindings until evidence-bundle
+execution is implemented.
+
 The trusted composition boundary is deliberately narrow. A network carries its
 structural ID, output type, finite typed children, and reducer symbol—nothing else.
 It carries no behavior kind, quantifier family, guard, dependency list, budget,

@@ -1,0 +1,30 @@
+// Machine-checkable contract for atomic-idempotent-batch@0.
+§goal experiment/RepairBatchLedger@0 {
+    §input repository: Text;
+    §input task: Text;
+
+    §output patch: Text;
+    §output publicTestsPassed: Bool;
+    §output invariantOraclePassed: Bool;
+    §output policyCheckPassed: Bool;
+    §output changedFiles: Integer;
+
+    §requires "pinned subject": repository == "batch-ledger@0";
+    §requires "pinned task": task == "atomic-idempotent-batch@0";
+
+    §ensures "visible verification": publicTestsPassed;
+    §ensures "independent invariants": invariantOraclePassed;
+    §ensures "change policy": policyCheckPassed;
+
+    §allows "read the subject": bhcp-effect/fs-read@0;
+    §allows "edit the subject": bhcp-effect/fs-write@0;
+    §allows "run Rust checks": bhcp-effect/process@0;
+    §forbids "offline task": bhcp-effect/network@0;
+
+    §limit "one-file patch": changedFiles <= 1;
+    §prefer 1: "minimal change": changedFiles;
+
+    §verify "public Rust checks": with experiment/verifier/public-rust@0;
+    §verify "withheld invariant oracle": with experiment/verifier/ledger-invariants@0;
+    §verify "scope and dependency policy": with experiment/verifier/change-policy@0;
+}
