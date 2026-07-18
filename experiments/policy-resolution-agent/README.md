@@ -58,3 +58,6 @@ Only `src/lib.rs` may change. The first paired run should pin both arms to
   visible-test-passing but oracle-rejected priority-first patch; both BHCP arms
   preserved the canonical precedence ladder, and the merged skill again withheld
   an unverified success claim.
+- [`results/pilot-005/`](results/pilot-005/) — a forward-tested skill revision cut
+  input tokens by 26.6%, reduced its raw-BHCP premium to 9.6%, preserved 7/7 oracle
+  acceptance, and retained fail-closed evidence reporting.
