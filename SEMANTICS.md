@@ -775,7 +775,8 @@ Schema anchors: all `*-graph-document`, `planner-request-document`,
 
 All platform artifacts MUST validate against the CDDL bundle in `schemas/v0/`.
 Canonical wire bytes are deterministic CBOR under RFC 8949 §4.2. CDDL follows RFC
-8610. JSON and CBOR diagnostic notation are display formats, not identity inputs.
+8610. Human CLI inspection and CBOR diagnostic notation are display formats, not
+identity inputs.
 
 Maps use deterministic key ordering. Definite lengths are required. Text is valid
 UTF-8 NFC. Duplicate map keys are forbidden. Integers use the shortest encoding.

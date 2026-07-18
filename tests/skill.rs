@@ -13,7 +13,16 @@ fn interpretation_skill_is_explicit_dependency_free_and_fail_closed() {
     assert!(instructions.starts_with("---\nname: interpret-bhcp-contract\n"));
     assert!(instructions.contains("description: Interpret and operationalize"));
     assert!(!instructions.contains("TODO"));
-    assert!(instructions.contains("Never stream the complete AST or IR"));
+    assert!(instructions.contains("Never stream raw AST or IR bytes"));
+    assert!(instructions.contains("Rust CLI"));
+    assert!(instructions.contains("existing artifact boundary"));
+    assert!(instructions.contains("pass the `.cbor` file back to `bhcp inspect`"));
+    assert!(instructions.contains("Do not run `lower` for routine contract interpretation"));
+    assert!(instructions.contains("not evidence that any"));
+    assert!(instructions.contains("verifier ran"));
+    assert!(instructions.contains("its own clause ID is not an obligation"));
+    assert!(instructions.contains("including during final reporting or adapter search"));
+    assert!(instructions.contains("do not search for alternate toolchain installs"));
     assert!(instructions.contains("Implementation state | Evidence state"));
     assert!(instructions.contains("mark its obligations unresolved"));
 

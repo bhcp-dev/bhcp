@@ -46,11 +46,20 @@ Install the pinned Rust toolchain, then run the CLI through Cargo:
 
 ```sh
 mise install
-cargo run -- parse conformance/v0/fixtures/canonical-simple.bhcp
-cargo run -- lower conformance/v0/fixtures/canonical-simple.bhcp
+cargo run -- parse conformance/v0/fixtures/canonical-simple.bhcp > /tmp/canonical-simple.ast.cbor
+cargo run -- lower conformance/v0/fixtures/canonical-simple.bhcp > /tmp/canonical-simple.ir.cbor
 cargo run -- inspect conformance/v0/fixtures/canonical-simple.bhcp
+cargo run -- inspect /tmp/canonical-simple.ir.cbor
 cargo run -- hash conformance/v0/fixtures/canonical-simple.bhcp
 ```
+
+`parse` and `lower` emit deterministic CBOR conforming to the existing CDDL
+`canonical-ast` and `semantic-ir` roots. `inspect` accepts either canonical source
+or one of those `.cbor` artifacts, validates the artifact boundary, and renders a
+concise Rust-owned outline of typed goal interfaces, structural clause IDs, lowered
+conditions and effects, preferences, and expanded verifier targets. That outline is
+presentation only and does not participate in semantic identity. `hash` emits the
+single algorithm-tagged semantic identity as text.
 
 The implemented source boundary supports namespaced/versioned goals;
 typed `§input` and `§output` facts; `§requires`, `§ensures`, and `§limit` Boolean
@@ -65,7 +74,7 @@ functions, and every other reserved construct outside the slice are rejected wit
 stable diagnostic rather than erased.
 
 `bhcp.hash/sha3-512@0` is the default and only currently registered identity
-algorithm, implemented in repository-owned Rust. It provides a roughly 256-bit
+algorithm, implemented through the pinned pure-Rust `sha3` crate. It provides a roughly 256-bit
 post-quantum preimage margin. [`bhcp-project.toml`](bhcp-project.toml) is the explicit
 algorithm-agility boundary: projects may select another algorithm once the Rust
 implementation registers it; unknown selections fail before parsing.
