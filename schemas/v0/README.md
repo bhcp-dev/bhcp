@@ -65,6 +65,13 @@ fixture to its expected root kind. The Rust validation harness:
 - validates the checked-in compiler-emitted canonical AST and semantic IR CBOR
   artifacts under [`conformance/v0/fixtures/`](../../conformance/v0/fixtures/).
 
+The Rust implementation also has a strongly typed `evidence-bundle-document` model
+for the registered verifier slice. It validates claim/item/gap references,
+per-obligation status justification, evidence classes, verifier and trust symbols,
+content references, deterministic artifact identity, and canonical timestamp tags
+before emission. This does not claim the still-deferred general obligation/execution
+graph builders or full CDDL instance evaluation.
+
 The cddl-rs CBOR validator is not used for instances yet: version 0.10.6 misvalidates
 repeated references to controlled aliases used by this schema, including
 `[* feature-id]` where `feature-id` ultimately carries `.regexp`. The normative

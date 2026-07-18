@@ -1,0 +1,48 @@
+// Canonical intent for tenant-policy-resolution@0.
+§goal experiment/ResolveTenantPolicy@0 {
+    §input repository: Text;
+    §input task: Text;
+
+    §output patch: Text;
+    §output publicTestsPassed: Bool;
+    §output tenantIsolationPassed: Bool;
+    §output defaultDenyPassed: Bool;
+    §output specificityDominatesPriorityPassed: Bool;
+    §output priorityBreaksSpecificityTiesPassed: Bool;
+    §output denyBreaksPolicyTiesPassed: Bool;
+    §output ruleIdBreaksRemainingTiesPassed: Bool;
+    §output insertionOrderIndependentPassed: Bool;
+    §output policyCheckPassed: Bool;
+    §output changedFiles: Integer;
+
+    §requires "pinned subject": repository == "tenant-policy@0";
+    §requires "pinned ticket": task == "tenant-policy-resolution@0";
+
+    §ensures "visible verification": publicTestsPassed;
+    §ensures "rules remain tenant-local": tenantIsolationPassed;
+    §ensures "no match is denied": defaultDenyPassed;
+    §ensures "specificity dominates priority": specificityDominatesPriorityPassed;
+    §ensures "priority breaks specificity ties": priorityBreaksSpecificityTiesPassed;
+    §ensures "deny breaks equal policy ties": denyBreaksPolicyTiesPassed;
+    §ensures "smaller rule ID breaks remaining ties": ruleIdBreaksRemainingTiesPassed;
+    §ensures "insertion order has no meaning": insertionOrderIndependentPassed;
+    §ensures "change policy": policyCheckPassed;
+
+    §allows "read the subject": bhcp-effect/fs-read@0;
+    §allows "edit the subject": bhcp-effect/fs-write@0;
+    §allows "run Rust checks": bhcp-effect/process@0;
+    §forbids "offline task": bhcp-effect/network@0;
+
+    §limit "one-file patch": changedFiles <= 1;
+    §prefer 1: "minimal change": changedFiles;
+
+    §verify "public Rust checks": with experiment/verifier/public-rust@0
+        for "visible verification";
+    §verify "withheld policy oracle": with experiment/verifier/policy-resolution@0
+        for "rules remain tenant-local", "no match is denied",
+            "specificity dominates priority", "priority breaks specificity ties",
+            "deny breaks equal policy ties", "smaller rule ID breaks remaining ties",
+            "insertion order has no meaning";
+    §verify "scope and dependency policy": with experiment/verifier/change-policy@0
+        for "change policy", "one-file patch";
+}

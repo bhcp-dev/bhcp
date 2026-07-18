@@ -7,7 +7,7 @@ use bhcp::model::ClauseKind;
 use bhcp::pipeline::compile_source;
 
 fn experiment() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("experiments/minimal-coding-agent")
+    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("experiments/policy-resolution-agent")
 }
 
 fn cargo_test(manifest: &Path, target_name: &str) -> Output {
@@ -21,7 +21,7 @@ fn cargo_test(manifest: &Path, target_name: &str) -> Output {
         .env(
             "CARGO_TARGET_DIR",
             PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-                .join("target/experiment-fixtures")
+                .join("target/policy-resolution-fixtures")
                 .join(target_name),
         )
         .output()
@@ -37,13 +37,13 @@ fn output_text(output: &Output) -> String {
 }
 
 #[test]
-fn contract_compiles_to_the_expected_verifier_boundary() {
+fn canonical_contract_pins_the_precedence_ladder_and_verifier_targets() {
     let path = experiment().join("contract.bhcp");
     let source = fs::read_to_string(&path).unwrap();
     let compiled = compile_source(&source, path.to_str().unwrap()).unwrap();
     let goal = &compiled.ir.goals[0];
 
-    assert_eq!(goal.symbol, "experiment/RepairBatchLedger@0");
+    assert_eq!(goal.symbol, "experiment/ResolveTenantPolicy@0");
     assert_eq!(
         format_hash(&compiled.semantic_hash),
         fs::read_to_string(experiment().join("contract.semantic-id"))
@@ -66,37 +66,53 @@ fn contract_compiles_to_the_expected_verifier_boundary() {
         [
             (
                 "experiment/verifier/public-rust@0",
-                vec!["clause-10".to_owned()]
+                vec!["clause-16".to_owned()]
             ),
             (
-                "experiment/verifier/ledger-invariants@0",
-                vec!["clause-11".to_owned()]
+                "experiment/verifier/policy-resolution@0",
+                (17..=23).map(|id| format!("clause-{id}")).collect()
             ),
             (
                 "experiment/verifier/change-policy@0",
-                vec!["clause-12".to_owned(), "clause-17".to_owned()]
+                vec!["clause-24".to_owned(), "clause-29".to_owned()]
             ),
         ]
     );
 }
 
 #[test]
-fn pinned_subject_passes_public_tests_while_invariant_oracle_rejects_it() {
+fn prose_remains_ambiguous_where_the_contract_is_normative() {
+    let task = fs::read_to_string(experiment().join("TASK.md")).unwrap();
+
+    for canonical_detail in [
+        "specificity dominates priority",
+        "lexicographically smaller",
+        "more exact patterns",
+    ] {
+        assert!(
+            !task.contains(canonical_detail),
+            "ticket accidentally disclosed canonical detail: {canonical_detail}"
+        );
+    }
+}
+
+#[test]
+fn pinned_subject_passes_public_tests_while_policy_oracle_rejects_it() {
     let public = cargo_test(&experiment().join("subject/Cargo.toml"), "subject");
     assert!(public.status.success(), "{}", output_text(&public));
 
     let oracle = cargo_test(&experiment().join("oracle/Cargo.toml"), "oracle");
     assert!(
         !oracle.status.success(),
-        "buggy subject unexpectedly passed"
+        "buggy policy subject unexpectedly passed"
     );
     let output = output_text(&oracle);
     for invariant in [
-        "later_failure_must_not_commit_earlier_transfers",
-        "destination_overflow_must_not_debit_the_source",
-        "aggregate_overflow_must_roll_back_the_entire_batch",
-        "a_request_id_reused_with_a_different_payload_must_conflict",
-        "a_failed_request_id_can_retry_against_the_original_state",
+        "a_rule_from_another_tenant_is_never_eligible",
+        "specificity_dominates_numeric_priority",
+        "deny_breaks_an_equal_specificity_and_priority_tie",
+        "lexicographically_smaller_id_breaks_a_remaining_tie",
+        "insertion_order_does_not_change_the_decision",
     ] {
         let failed = format!("test {invariant} ... FAILED");
         assert!(
@@ -105,8 +121,11 @@ fn pinned_subject_passes_public_tests_while_invariant_oracle_rejects_it() {
         );
     }
     assert!(
-        output
-            .contains("test successful_batches_conserve_balance_and_report_the_checked_sum ... ok"),
-        "oracle did not independently accept the successful-batch invariant:\n{output}"
+        output.contains("test higher_priority_breaks_an_equal_specificity_tie ... ok"),
+        "oracle did not independently accept the priority invariant:\n{output}"
+    );
+    assert!(
+        output.contains("test no_eligible_rule_is_denied_without_a_selected_rule ... ok"),
+        "oracle did not independently accept the default-deny invariant:\n{output}"
     );
 }

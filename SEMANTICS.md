@@ -92,6 +92,9 @@ they MUST NOT affect semantic identity. A label does affect meaning when it is a
 an observable record field, variant tag, branch tag, or output name. Lowering MUST
 assign every definition, clause, expression, type, and kernel network a unique
 structural `ref-id`. References use those IDs; CBOR cycles are forbidden.
+Clause labels within one goal MUST be unique so lexical references are unambiguous.
+Renaming a label and all of its references together remains semantic-identity
+preserving because lowering resolves those references to structural IDs.
 
 Alpha-renaming of non-observable local binders is semantic-identity preserving.
 Resolved symbol identities, observable names, and branch tags are not alpha-renamed.
@@ -229,6 +232,12 @@ A verifier binding names an evidence producer with typed input/output and trust
 requirements; it does not redefine the predicate. Kernel reducers are functions,
 not privileged runtime callbacks.
 
+A goal-level verifier receives the closed record `{ input: I, output: O }` for the
+candidate `Goal<I,O>` and returns its declared evidence type. An omitted evidence
+class or trust restriction MUST NOT be elaborated into a fabricated default. A
+registered verifier is an external evidence producer, not an expression primitive or
+kernel callback; registering one does not expand the trusted composition kernel.
+
 The evaluator MAY provide fixed, versioned, total pure primitive definitions at the
 bottom of expression evaluation for constructing and inspecting language values,
 including sealed kernel observations and checked result construction.
@@ -314,7 +323,8 @@ contract-clause = contract-key [ label ] expression ";" ;
 contract-key    = "§requires" | "§ensures" | "§invariant" | "§limit" ;
 authority-clause= ( "§allows" | "§forbids" ) [ label ] effect-list ";" ;
 prefer-clause   = "§prefer" [ integer ":" ] [ label ] expression ";" ;
-verify-clause   = "§verify" [ label ] verifier-binding ";" ;
+verify-clause   = "§verify" [ label ] verifier-binding
+                  [ "for" label-reference { "," label-reference } ] ";" ;
 case-clause     = "§case" [ label ] "{" { binding | execution-expectation } "}" ";" ;
 execution-expectation = "expect" ( "completed" verdict-state | "faulted" )
                       [ expression ] ";" ;
@@ -344,6 +354,7 @@ meta-block      = "{" { identifier [ label ] meta-value ";" } "}" ;
 meta-value      = literal | qualified-name | "[" [ meta-value { "," meta-value } ] "]"
                 | "{" [ identifier ":" meta-value { "," identifier ":" meta-value } ] "}" ;
 verifier-binding= "with" qualified-name [ "(" [ arguments ] ")" ] ;
+label-reference = string ;
 binding         = identifier "=" expression ";" ;
 label           = string ":" ;
 effect-list     = effect-expr { "," effect-expr } ;
@@ -739,6 +750,22 @@ version, subject/content references, provenance, freshness, trust classification
 gaps, and edges to discharged or refuted obligations. Evidence status is per
 obligation. `§case` results may appear as evidence only when an obligation explicitly
 accepts their verifier class; cases never create obligations.
+
+The optional `for` list on a goal-level `§verify` clause names contract-clause labels
+in the same goal. Lowering MUST resolve them to unique structural obligation IDs,
+deduplicate and deterministically order them, and reject unknown or non-contract
+labels. Target order and consistent label renaming do not affect semantic identity.
+Without `for`, the binding is goal-wide and may produce claims for every contract
+obligation; satisfaction still requires accepted coverage for each obligation.
+
+Total pure contract conditions are re-evaluated over the typed goal input and
+candidate output. Targeted external evidence is additional required coverage: a
+false condition or accepted refuting evidence refutes that candidate obligation; an
+absent, unsupported, stale, or inconclusive verifier leaves it unresolved; and a
+verifier operational-contract failure remains faulted rather than becoming
+counter-evidence. For a fixed timestamp, content references, candidate, registry,
+and verifier outputs, evidence-bundle bytes MUST be deterministic. Timestamps and
+provenance remain artifact identity inputs.
 
 Schema anchors: all `*-graph-document`, `planner-request-document`,
 `planner-result-document`, `evidence-bundle-document`, and

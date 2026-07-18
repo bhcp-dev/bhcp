@@ -24,7 +24,10 @@
     §limit "one-file patch": changedFiles <= 1;
     §prefer 1: "minimal change": changedFiles;
 
-    §verify "public Rust checks": with experiment/verifier/public-rust@0;
-    §verify "withheld invariant oracle": with experiment/verifier/ledger-invariants@0;
-    §verify "scope and dependency policy": with experiment/verifier/change-policy@0;
+    §verify "public Rust checks": with experiment/verifier/public-rust@0
+        for "visible verification";
+    §verify "withheld invariant oracle": with experiment/verifier/ledger-invariants@0
+        for "independent invariants";
+    §verify "scope and dependency policy": with experiment/verifier/change-policy@0
+        for "change policy", "one-file patch";
 }

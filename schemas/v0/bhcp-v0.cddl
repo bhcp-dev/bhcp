@@ -262,6 +262,8 @@ verify-clause = {
   clause-common,
   "kind": "verify",
   "binding": verifier-binding,
+  ; When present, obligations is a normalized unique set of contract-clause IDs.
+  ; A goal-level binding input is the closed {input: I, output: O} candidate record.
   ? "obligations": [* ref-id]
 }
 

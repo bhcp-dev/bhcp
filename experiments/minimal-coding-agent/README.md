@@ -69,10 +69,19 @@ For each trial, the controller should:
 An accepted result must satisfy every verifier. Passing public tests alone is not an
 accepted result.
 
+## Recorded trials
+
+- [`results/pilot-001/`](results/pilot-001/) — one paired prose-versus-BHCP run;
+  both candidates passed all checks, producing a correctness tie.
+- [`results/pilot-002/`](results/pilot-002/) — the same paired run pinned to
+  `gpt-5.4-mini` with reversed arm order; both candidates again passed all checks.
+
 ## Deliberate boundary
 
-The current BHCP executable slice compiles and hashes the contract but does not yet
-dispatch verifier bindings or construct an evidence bundle. Until that runtime
-boundary exists, the controller performs the verifier commands. This fixture is
-therefore the subject and oracle for the experiment, not a claim that the complete
-experiment runner already exists.
+The BHCP executable slice now compiles and hashes the contract, resolves each
+verifier's explicit obligation targets, dispatches host-registered verifiers, and
+constructs a deterministic evidence bundle. It does not yet provide the
+process-backed public-Rust, oracle, or change-policy adapters, nor the execution graph
+they reference. Until that adapter boundary exists, the controller performs those
+commands. This fixture is therefore the subject and oracle for the experiment, not a
+claim that the complete experiment runner already exists.

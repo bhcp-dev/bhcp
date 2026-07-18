@@ -246,6 +246,24 @@ fn lower_goal(
     functions: &mut Vec<FunctionDefinition>,
     ids: &mut Ids,
 ) -> Result<GoalDefinition> {
+    let clause_ids: Vec<_> = goal.clauses.iter().map(|_| ids.next("clause")).collect();
+    let mut labels = HashMap::new();
+    for (index, clause) in goal.clauses.iter().enumerate() {
+        let Some(label) = &clause.label else {
+            continue;
+        };
+        if labels
+            .insert(label.clone(), (clause_ids[index].clone(), index))
+            .is_some()
+        {
+            return Err(error(
+                "BHCP2002",
+                format!("duplicate clause label {label:?}"),
+                source_name,
+                &clause.at,
+            ));
+        }
+    }
     let mut environment = HashMap::new();
     let mut bindings = HashMap::new();
     let mut input_fields = Vec::new();
@@ -322,16 +340,59 @@ fn lower_goal(
                 priority: *priority,
                 objective: lower_expression(objective, &environment, source_name, ids)?,
             },
-            SurfaceClauseKind::Verify { verifier } => ClauseKind::Verify {
-                binding: VerifierBinding {
-                    verifier: verifier.clone(),
-                    input: input.clone(),
-                    output: BhcpType::Evidence(vec!["static".to_owned()]),
-                },
-            },
+            SurfaceClauseKind::Verify {
+                verifier,
+                obligation_labels,
+            } => {
+                let mut obligations = obligation_labels
+                    .iter()
+                    .map(|label| {
+                        let Some((id, target_index)) = labels.get(label) else {
+                            return Err(error(
+                                "BHCP2001",
+                                format!("unresolved obligation label {label:?}"),
+                                source_name,
+                                &surface.at,
+                            ));
+                        };
+                        if !matches!(
+                            goal.clauses[*target_index].kind,
+                            SurfaceClauseKind::Contract { .. }
+                        ) {
+                            return Err(error(
+                                "BHCP2003",
+                                format!("label {label:?} does not name a contract obligation"),
+                                source_name,
+                                &surface.at,
+                            ));
+                        }
+                        Ok(id.clone())
+                    })
+                    .collect::<Result<Vec<_>>>()?;
+                obligations.sort();
+                obligations.dedup();
+                ClauseKind::Verify {
+                    binding: VerifierBinding {
+                        verifier: verifier.clone(),
+                        input: BhcpType::Record(vec![
+                            FieldType {
+                                name: "input".to_owned(),
+                                value_type: input.clone(),
+                            },
+                            FieldType {
+                                name: "output".to_owned(),
+                                value_type: output.clone(),
+                            },
+                        ]),
+                        output: BhcpType::Evidence(vec![]),
+                        trust: vec![],
+                    },
+                    obligations,
+                }
+            }
         };
         clauses.push(Clause {
-            id: ids.next("clause"),
+            id: clause_ids[clause_index].clone(),
             label: surface.label.clone(),
             kind,
         });

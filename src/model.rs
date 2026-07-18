@@ -1,7 +1,7 @@
 use std::collections::HashSet;
 
 use crate::diagnostic::{Diagnostic, Result};
-use crate::hash::SHA3_512;
+use crate::hash::{HashAlgorithm, SHA3_512};
 use crate::kernel::KernelNetwork;
 use crate::value::Value;
 
@@ -56,6 +56,18 @@ pub struct ContentReference {
 }
 
 impl ContentReference {
+    pub fn from_bytes(
+        media_type: impl Into<String>,
+        bytes: &[u8],
+        algorithm: HashAlgorithm,
+    ) -> Self {
+        Self {
+            media_type: media_type.into(),
+            size: bytes.len(),
+            digests: vec![algorithm.hash(bytes)],
+        }
+    }
+
     pub fn to_value(&self) -> Value {
         Value::map([
             ("media_type", Value::Text(self.media_type.clone())),
@@ -262,6 +274,42 @@ impl BhcpType {
             }
         }
     }
+
+    pub fn accepts(&self, value: &Value) -> bool {
+        match (value, self) {
+            (Value::Bool(_), Self::Primitive("Bool"))
+            | (Value::Text(_), Self::Primitive("Text" | "Timestamp" | "Duration"))
+            | (Value::Bytes(_), Self::Primitive("Bytes")) => true,
+            (Value::Array(value), Self::Primitive("Unit")) => {
+                value == &[Value::Text("unit".to_owned())]
+            }
+            (Value::Array(value), Self::ExactNumber("Integer")) => matches!(
+                value.as_slice(),
+                [Value::Text(kind), Value::Integer(_)] if kind == "integer"
+            ),
+            (Value::Array(value), Self::ExactNumber("Rational")) => matches!(
+                value.as_slice(),
+                [Value::Text(kind), Value::Integer(_), Value::Integer(denominator)]
+                    if kind == "rational" && *denominator > 0
+            ),
+            (Value::Array(value), Self::ExactNumber("Decimal")) => matches!(
+                value.as_slice(),
+                [Value::Text(kind), Value::Integer(_), Value::Integer(_)] if kind == "decimal"
+            ),
+            (Value::Array(values), Self::List(element)) => {
+                values.iter().all(|value| element.accepts(value))
+            }
+            (Value::Map(entries), Self::Record(fields)) => {
+                entries.len() == fields.len()
+                    && fields.iter().all(|field| {
+                        entries.iter().any(|(name, value)| {
+                            name == &field.name && field.value_type.accepts(value)
+                        })
+                    })
+            }
+            _ => false,
+        }
+    }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -396,19 +444,23 @@ pub struct VerifierBinding {
     pub verifier: String,
     pub input: BhcpType,
     pub output: BhcpType,
+    pub trust: Vec<String>,
 }
 
 impl VerifierBinding {
     fn to_value(&self) -> Value {
-        Value::map([
-            ("verifier", Value::Text(self.verifier.clone())),
-            ("input", self.input.to_value()),
-            ("output", self.output.to_value()),
-            (
-                "trust",
-                Value::Array(vec![Value::Text("static".to_owned())]),
-            ),
-        ])
+        let mut entries = vec![
+            ("verifier".to_owned(), Value::Text(self.verifier.clone())),
+            ("input".to_owned(), self.input.to_value()),
+            ("output".to_owned(), self.output.to_value()),
+        ];
+        if !self.trust.is_empty() {
+            entries.push((
+                "trust".to_owned(),
+                Value::Array(self.trust.iter().cloned().map(Value::Text).collect()),
+            ));
+        }
+        Value::owned_map(entries)
     }
 }
 
@@ -439,6 +491,7 @@ pub enum ClauseKind {
     },
     Verify {
         binding: VerifierBinding,
+        obligations: Vec<String>,
     },
 }
 
@@ -472,9 +525,18 @@ impl Clause {
                 entries.push(("priority".to_owned(), Value::Integer(*priority)));
                 entries.push(("objective".to_owned(), objective.to_value()));
             }
-            ClauseKind::Verify { binding } => {
+            ClauseKind::Verify {
+                binding,
+                obligations,
+            } => {
                 entries.push(("kind".to_owned(), Value::Text("verify".to_owned())));
                 entries.push(("binding".to_owned(), binding.to_value()));
+                if !obligations.is_empty() {
+                    entries.push((
+                        "obligations".to_owned(),
+                        Value::Array(obligations.iter().cloned().map(Value::Text).collect()),
+                    ));
+                }
             }
         }
         Value::owned_map(entries)
@@ -649,6 +711,13 @@ impl SemanticIrDocument {
                     "goal symbol is not a symbol-id",
                 ));
             }
+            let contract_ids: HashSet<_> = goal
+                .clauses
+                .iter()
+                .filter_map(|clause| {
+                    matches!(clause.kind, ClauseKind::Contract { .. }).then_some(clause.id.clone())
+                })
+                .collect();
             for clause in &goal.clauses {
                 add_id(&clause.id, &mut ids)?;
                 match &clause.kind {
@@ -672,13 +741,41 @@ impl SemanticIrDocument {
                     ClauseKind::Preference { objective, .. } => {
                         objective.validate(&mut ids, &mut references)?
                     }
-                    ClauseKind::Verify { binding } => {
+                    ClauseKind::Verify {
+                        binding,
+                        obligations,
+                    } => {
                         if !is_symbol(&binding.verifier) {
                             return Err(Diagnostic::plain(
                                 "BHCP4001",
                                 "verifier is not a symbol-id",
                             ));
                         }
+                        let expected_input = BhcpType::Record(vec![
+                            FieldType {
+                                name: "input".to_owned(),
+                                value_type: goal.input.clone(),
+                            },
+                            FieldType {
+                                name: "output".to_owned(),
+                                value_type: goal.output.clone(),
+                            },
+                        ]);
+                        if binding.input != expected_input
+                            || !matches!(binding.output, BhcpType::Evidence(_))
+                            || binding.trust.iter().any(|class| !is_evidence_class(class))
+                            || !is_normalized(&binding.trust)
+                            || obligations
+                                .iter()
+                                .any(|obligation| !contract_ids.contains(obligation))
+                            || !is_normalized(obligations)
+                        {
+                            return Err(Diagnostic::plain(
+                                "BHCP4001",
+                                "goal verifier binding has an invalid typed interface",
+                            ));
+                        }
+                        references.extend(obligations.iter().cloned());
                     }
                 }
             }
@@ -806,6 +903,23 @@ pub fn is_symbol(value: &str) -> bool {
         && path.split('/').count() >= 2
         && path.split('/').all(valid_symbol_component)
         && valid_symbol_component(version)
+}
+
+fn is_evidence_class(value: &str) -> bool {
+    matches!(
+        value,
+        "formal"
+            | "static"
+            | "empirical"
+            | "statistical"
+            | "model-judged"
+            | "human-approved"
+            | "unresolved"
+    ) || is_symbol(value)
+}
+
+fn is_normalized(values: &[String]) -> bool {
+    values.windows(2).all(|pair| pair[0] < pair[1])
 }
 
 fn valid_symbol_component(value: &str) -> bool {
