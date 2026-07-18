@@ -47,8 +47,9 @@ cargo test --offline --manifest-path subject/Cargo.toml
 cargo test --offline --manifest-path oracle/Cargo.toml
 ```
 
-The first command must pass. The second must fail in the unfixed fixture. The BHCP
-repository test suite locks both expectations so an accidental fixture repair or
+The first command must pass. The second must report five defect-revealing failures
+and one independent successful-batch invariant in the unfixed fixture. The BHCP
+repository test suite locks those expectations so an accidental fixture repair or
 oracle weakening is visible.
 
 ## Trial protocol

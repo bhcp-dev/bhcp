@@ -92,4 +92,9 @@ fn pinned_subject_passes_public_tests_while_invariant_oracle_rejects_it() {
             "pinned subject did not fail {invariant}:\n{output}"
         );
     }
+    assert!(
+        output
+            .contains("test successful_batches_conserve_balance_and_report_the_checked_sum ... ok"),
+        "oracle did not independently accept the successful-batch invariant:\n{output}"
+    );
 }

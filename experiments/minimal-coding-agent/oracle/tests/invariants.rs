@@ -1,4 +1,4 @@
-use batch_ledger::{ApplyError, Ledger, Transfer};
+use batch_ledger::{ApplyError, Ledger, Receipt, Transfer};
 
 fn standard_ledger() -> Ledger {
     Ledger::new([("alice", 100), ("bob", 20), ("carol", 5)])
@@ -92,4 +92,37 @@ fn a_failed_request_id_can_retry_against_the_original_state() {
     assert!(ledger.apply_batch("retryable", &corrected).is_ok());
     assert_eq!(ledger.balance("alice"), Some(0));
     assert_eq!(ledger.balance("bob"), Some(120));
+}
+
+#[test]
+fn successful_batches_conserve_balance_and_report_the_checked_sum() {
+    let mut ledger = Ledger::new([("alice", 50), ("bob", 20), ("carol", 30)]);
+    let transfers = [
+        Transfer::new("alice", "bob", 17),
+        Transfer::new("bob", "carol", 11),
+        Transfer::new("carol", "alice", 7),
+    ];
+
+    let receipt = ledger.apply_batch("successful-cycle", &transfers).unwrap();
+
+    assert_eq!(
+        receipt,
+        Receipt {
+            request_id: "successful-cycle".to_owned(),
+            transfer_count: 3,
+            total_moved: 35,
+        }
+    );
+    assert_eq!(
+        balances(&ledger, &["alice", "bob", "carol"]),
+        [Some(40), Some(26), Some(34),]
+    );
+    assert_eq!(
+        balances(&ledger, &["alice", "bob", "carol"])
+            .into_iter()
+            .flatten()
+            .map(u128::from)
+            .sum::<u128>(),
+        100
+    );
 }
