@@ -405,6 +405,11 @@ Schema anchors: `canonical-ast-document`, `ast-node`, and `token-span`.
 
 Every composition node is a first-class semantic IR form.
 
+A goal containing only flat clauses is declarative and has no composition node. Its
+semantic IR omits `body`; its input and output types are derived from its fact
+clauses. An implementation MUST NOT synthesize an empty `chain` for such a goal,
+because the empty-chain identity has output `Unit`.
+
 | Node | Result type and proof rule |
 | --- | --- |
 | `§all` | Conjunction. Output is a record/product keyed by branch names. Satisfaction requires evidence from every child. |
@@ -604,10 +609,13 @@ There are two distinct identities:
   authorization material, except the artifact ID field itself.
 
 Both hash normalized deterministic-CBOR bytes through an algorithm-tagged registry.
-`sha2-256` is mandatory and uses a 32-byte digest. Content references MAY carry
-additional registered digests. Unknown algorithms are retained but MUST NOT be
-treated as verified. A content reference includes media type, size, and one or more
-digests; it is valid only if every claimed understood digest verifies.
+The default and only algorithm registered by the first executable foundation is
+`bhcp.hash/sha3-512@0`, with a 64-byte digest. A project manifest MAY select another
+registered algorithm; non-default algorithms are discouraged, and an implementation
+MUST reject a selected algorithm it does not implement. Content references MAY carry
+additional registered digests. Unknown algorithms in received artifacts are retained
+but MUST NOT be treated as verified. A content reference includes media type, size,
+and one or more digests; it is valid only if every claimed understood digest verifies.
 
 Schema anchors: `semantic-id`, `artifact-id`, `digest`, `content-reference`, and every
 document header.
@@ -630,9 +638,12 @@ A complete v0 suite MUST include scenarios for:
 - stable deterministic bytes, semantic-versus-artifact identity, and multiple
   algorithm-tagged digests.
 
-Schema validation MUST use the repository-pinned `cddl` tool, generate or maintain at
-least one valid instance of every root document type, and round-trip representative
-diagnostic instances through deterministic CBOR without changing canonical bytes.
+Schema validation MUST use the repository-owned Rust harness, generate or maintain
+at least one valid instance of every root document type, and round-trip
+representative diagnostic instances through deterministic CBOR without changing
+canonical bytes. Until the Rust harness implements general RFC 8610 evaluation, its
+declared validation scope MUST remain explicit and implemented artifacts MUST also
+pass their strongly typed boundary validators.
 
 ## Appendix A. Canonical examples
 
@@ -649,7 +660,7 @@ These examples supplement the grammar and rules; they do not weaken them.
     §output greeting: Text;
     §requires "name": bhcp.example/nonEmpty@0(name);
     §ensures "prefix": greeting == "Hello, " + name;
-    §verify "exact" with bhcp.verifier/expression@0;
+    §verify "exact": with bhcp.verifier/expression@0;
 }
 ```
 

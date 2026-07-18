@@ -2,7 +2,7 @@
   "version": "bhcp/v0",
   "features": [],
   "kind": "execution-graph",
-  "semantic_ir": {"media_type": "application/cbor", "size": 0, "digests": [{"algorithm": "sha2-256", "digest": h'0000000000000000000000000000000000000000000000000000000000000000'}]},
+  "semantic_ir": {"media_type": "application/cbor", "size": 0, "digests": [{"algorithm": "bhcp.hash/sha3-512@0", "digest": h'00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000'}]},
   "nodes": [],
   "edges": [],
   "entrypoints": []

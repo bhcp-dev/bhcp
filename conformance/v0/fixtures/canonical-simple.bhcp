@@ -1,0 +1,13 @@
+§goal example/Greet@0 {
+    §input name: Text;
+    §input attempts: Integer;
+    §output greeting: Text;
+
+    §requires "non-empty name": name != "";
+    §ensures "exact greeting": greeting == "Hello, " + name;
+    §allows "read authority": bhcp-effect/fs-read@0;
+    §forbids "offline": bhcp-effect/network@0;
+    §limit "attempt ceiling": attempts <= 3;
+    §prefer 1: "short greeting": greeting;
+    §verify "expression proof": with bhcp-verifier/expression@0;
+}

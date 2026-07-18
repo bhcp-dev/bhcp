@@ -1,0 +1,24 @@
+[package]
+name = "bhcp"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.96"
+default-run = "bhcp"
+license = "Apache-2.0"
+description = "Executable foundation for BHCP canonical source and v0 artifacts"
+
+[lib]
+path = "src/lib.rs"
+
+[[bin]]
+name = "bhcp"
+path = "src/main.rs"
+
+[[bin]]
+name = "generate-fixtures"
+path = "src/bin/generate_fixtures.rs"
+
+[dependencies]
+
+[lints.rust]
+unsafe_code = "forbid"

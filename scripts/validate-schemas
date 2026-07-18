@@ -2,21 +2,14 @@
 set -eu
 
 repo_dir=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
-bundle_path="$repo_dir/vendor/bundle"
 
 if command -v mise >/dev/null 2>&1; then
-  if ! BUNDLE_PATH="$bundle_path" mise exec -- bundle check >/dev/null 2>&1; then
-    BUNDLE_PATH="$bundle_path" mise exec -- bundle install
-  fi
-  exec env BUNDLE_PATH="$bundle_path" mise exec -- bundle exec ruby "$repo_dir/scripts/validate_schemas.rb"
+  exec mise exec -- cargo test --manifest-path "$repo_dir/Cargo.toml" --test schema_fixtures
 fi
 
-if ! command -v bundle >/dev/null 2>&1; then
-  echo "error: Ruby 3.4.5 and Bundler are required (install mise for the pinned toolchain)" >&2
+if ! command -v cargo >/dev/null 2>&1; then
+  echo "error: Rust 1.96.0 is required (install mise for the pinned toolchain)" >&2
   exit 1
 fi
 
-if ! BUNDLE_PATH="$bundle_path" bundle check >/dev/null 2>&1; then
-  BUNDLE_PATH="$bundle_path" bundle install
-fi
-BUNDLE_PATH="$bundle_path" exec bundle exec ruby "$repo_dir/scripts/validate_schemas.rb"
+exec cargo test --manifest-path "$repo_dir/Cargo.toml" --test schema_fixtures

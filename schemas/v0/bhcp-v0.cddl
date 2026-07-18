@@ -40,9 +40,6 @@ timestamp = #6.0(tstr)
 semantic-id = hash-id
 artifact-id = hash-id
 hash-id = {
-  "algorithm": "sha2-256",
-  "digest": bstr .size 32
-} / {
   "algorithm": symbol-id,
   "digest": bstr
 }
@@ -319,7 +316,7 @@ goal-definition = {
   "effects": effect-row,
   "evidence": evidence-type,
   "clauses": [* clause],
-  "body": composition-node,
+  ? "body": composition-node,
   ? "refines": symbol-id
 }
 
