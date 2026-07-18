@@ -65,9 +65,10 @@ algorithm-agility boundary: projects may select another algorithm once the Rust
 implementation registers it; unknown selections fail before parsing.
 
 The crate uses the `cddl` 0.10.6 parser from cddl-rs to reject malformed RFC 8610
-schemas. The BHCP compiler, deterministic CBOR codec, SHA3-512 implementation, and
-fixture validator remain repository-owned safe Rust; the repository contains no
-project-owned C, Ruby, or Node.js tooling. Run every local acceptance check with:
+schemas and the pure-Rust RustCrypto `sha3` 0.12.0 crate for SHA3-512. The BHCP
+compiler, deterministic CBOR codec, and fixture validator remain repository-owned
+safe Rust; the repository contains no project-owned C, Ruby, or Node.js tooling. Run
+every local acceptance check with:
 
 ```sh
 cargo fmt --check

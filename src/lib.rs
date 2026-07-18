@@ -7,5 +7,4 @@ pub mod model;
 pub mod parser;
 pub mod pipeline;
 pub mod schema;
-pub mod sha3;
 pub mod value;
