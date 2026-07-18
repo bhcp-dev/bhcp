@@ -28,7 +28,7 @@ support.
 | SYN-03 | Custom source has a malformed or non-first preamble. | Parse rejection before profile rules run. |
 | ID-01 | Only whitespace, comments, labels, source spans, or formatting change. | Semantic ID unchanged; artifact ID changes when complete artifact metadata changes. |
 | ID-02 | An observable output field, branch tag, effect, preference, policy, or native extension changes. | Semantic ID changes. |
-| ID-03 | Alpha-equivalent local binders and permuted unobservable derived `all` branches lower and normalize. | Identical kernel-network bytes and semantic ID. |
+| ID-03 | Alpha-equivalent local binders and the same tagged derived `all` branches in a different source order lower where effects make order unobservable. | Identical normalized kernel-network bytes and semantic ID. |
 | ID-04 | Derived `chain` branches are permuted. | Different lowered network bytes and semantic ID. |
 | CBOR-01 | Each root diagnostic fixture is encoded, decoded, and encoded again. | Deterministic bytes are identical and validate against `root-document`. |
 | CBOR-02 | A content reference has `bhcp.hash/sha3-512@0` and another registered digest. | Both tags survive; understood digests verify; the default digest is 64 bytes. |
@@ -72,21 +72,27 @@ forms MUST lower to the same meaning.
 | KRN-04 | Equivalent standard-prelude syntax and hand-written `§compose` source fully lower. | Byte-identical normalized kernel networks and semantic IDs. |
 | KRN-05 | Reducer state names are inspected. | Only adjectival `pending` and `concluded` states occur. |
 | KRN-06 | A premise-free reducer proves an empty logical identity. | The checker seals the valid derivation; its structural ID supplies the verdict's evidence or counter-evidence token. |
+| KRN-07 | Kernel IR is inspected for derived or planner metadata. | No behavior kind, quantifier family, guard, dependency, budget, scheduling order, or parallelism hint is present. |
+| KRN-08 | A concluded reduction is proof-checked. | The generic checker re-evaluates the referenced BHCP reducer and validates sealed premises; no behavior-specific proof-rule tag is accepted. |
+| KRN-09 | A network reducer omits the parent input, uses a non-monomorphized observation record, or returns the wrong reduction type. | Static rejection before IR acceptance or execution. |
+| KRN-10 | A reducer branches on an operational trace event, timestamp, or payload. | Static rejection; faults may be discriminated and propagated, but trace contents remain opaque to semantic choice. |
+| KRN-11 | A composition quantifier has a statically finite domain, then a verifier-backed or runtime-only domain. | The static domain expands to explicit children before IR; the other domains are rejected and require bounded/well-founded recursive goals. |
+| KRN-12 | A standard or extension lowerer consumes canonical typed shape data. | It receives `Meta<DerivedForm,I,O>`, returns `Meta<NetworkShape,I,O>`, cannot observe presentation or allocate network/child IDs, and leaves no meta value in runtime semantic IR. |
 | RES-01 | A run completes without proof either way. | `Completed(Unresolved(...))`; it is neither refuted nor faulted. |
 | RES-02 | Execution violates its operational contract. | `Faulted(...)` outside the semantic verdict; it is not counter-evidence. |
 | ALG-ALL | Products, empty identity, fault-vs-unresolved precedence, and refutation despite unrelated fault. | Named product and evidence from every success; decisive refutation wins. |
 | ALG-ANY | Tagged winner, empty identity, precedence, and success despite unrelated fault. | Stable winning branch tag; decisive satisfaction wins. |
 | ALG-NONE | Counter-evidence for every child, empty identity, and a satisfying child despite unrelated fault. | `Unit` only with all counter-evidence; failed attempt/timeout never proves NOR. |
 | ALG-CHAIN | Typed dependent outputs and causal stopping. | Source order preserved; later steps do not run after a non-satisfied step. |
-| ALG-GATE | Unary gate condition is false, true, unresolved, or faulted. | False yields `Excluded`; true requests exactly one child and yields `Included<T>`; unresolution/fault propagates. |
+| ALG-GATE | A unary gate's total pure condition is false, true, or faults; when true, its child may produce any execution result. | False yields `Excluded`; true requests exactly one child and yields `Included<T>` on satisfaction; child unresolution/fault propagates. An evidence-dependent condition must be an explicit child. |
 | RET-01 | Derived retention reads empty state, captures satisfaction, and retains after refutation, unresolution, or fault. | Only completed satisfaction atomically replaces the captured tuple. |
 | STA-01 | Two derived retention writers race with the same prior version. | One atomic commit; the other retries or reports a compare-and-swap conflict. |
 | STA-02 | Captured evidence exceeds freshness. | `Completed(Unresolved(stale-evidence, ...))` unless stricter policy requires a fault. |
 | REC-01 | Recursive goal has a static bound. | Accepted and bound appears in IR/graph. |
 | REC-02 | Recursive goal has a decreasing well-founded measure. | Accepted with checker evidence. |
 | REC-03 | Recursive goal has neither. | Static rejection. |
-| PLN-01 | A derived `all` reducer returns one pending set whose children have no dependency, borrow, state, or effect conflicts. | Marked parallel-eligible. |
-| PLN-02 | One pending set contains children sharing write state or exclusive borrows. | Marked non-parallel with stable reasons. |
+| PLN-01 | A derived `all` reducer returns one pending set whose children have no dependency, borrow, state, or effect conflicts. | The execution graph permits concurrent scheduling without adding a hint to semantic IR. |
+| PLN-02 | One pending set contains children sharing write state or exclusive borrows. | Execution-graph conflict edges prevent concurrency and planner diagnostics report stable reasons. |
 | PLN-03 | A chain connects incompatible output/input types. | Checker rejection before planning. |
 | PLN-04 | Children consume an unallocated shared budget including retries. | Total accounting remains within parent limit or planning refuses. |
 | PLN-05 | Requirements lack parent facts, invariants, or prior guarantees. | Explicit obligations are emitted; never assumed discharged. |
@@ -99,7 +105,7 @@ forms MUST lower to the same meaning.
 | POL-02 | A local layer widens authority, loosens a limit, weakens evidence, or relaxes type mode. | Rejected without a waiver. |
 | WAV-01 | Exact scoped weakening has an authorized issuer, audit reference, active interval, and expiry. | Accepted only inside scope and time. |
 | WAV-02 | Waiver is expired, premature, overbroad, unauthorized, or targets a non-waivable rule. | Rejected, not ignored. |
-| EXT-01 | A derived extension names a total pure BHCP lowering function and fully lowers to core IR. | Extension presentation disappears; core meaning is checked and hashed. |
-| EXT-02 | A supported native extension is present. | Must-understand node, rules, and identity remain in semantic IR. |
+| EXT-01 | A derived extension names a total pure BHCP lowering function, declares no native payload schema, and fully lowers to core IR. | Extension presentation disappears; core meaning is checked and hashed. Missing or invalid lowering is rejected. |
+| EXT-02 | A supported native extension with a payload schema is present. | Must-understand node, rules, and identity remain in semantic IR; a native descriptor cannot provide a derived lowering. |
 | EXT-03 | An unsupported native extension is present. | Artifact rejected before planning. |
 | EXT-04 | An extension attempts to override core meaning or policy. | Descriptor/program rejected. |

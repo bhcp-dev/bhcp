@@ -87,6 +87,16 @@ validates and encodes the kernel model but does not yet parse, lower, or execute
 network source. The next executable boundary is the total expression checker plus
 standard-prelude lowering to monomorphized networks.
 
+The trusted composition boundary is deliberately narrow. A network carries its
+structural ID, output type, finite typed children, and reducer symbol—nothing else.
+It carries no behavior kind, quantifier family, guard, dependency list, budget,
+scheduling order, or parallelism hint. Quantifiers expand to finite children before
+IR; recursive bounds belong to the recursive child call; and budget/concurrency
+decisions live in execution graphs. The complete v0 boundary requires checked-in
+canonical BHCP prelude functions over the compile-time derived-form/network-shape
+metamodel to supply all named orchestration behavior; implementing those definitions
+is the next executable slice, not a claim of the current clause-only compiler.
+
 ## Status
 
 The executable slice is not a claim that the execution platform already exists. v0
