@@ -38,8 +38,8 @@ function or a unique result.
     §limit changedFiles <= 12;
     §prefer 1: minimalDiff(patch);
 
-    §verify "tests" with ExistingTests;
-    §verify "types" with TypeChecker;
+    §verify "tests": with ExistingTests;
+    §verify "types": with TypeChecker;
 }
 ```
 
@@ -139,8 +139,8 @@ system. Its required end-to-end scope includes:
 - all six core combinators—`§all`, `§any`, `§none`, `§chain`, `§gate`, and
   `§latch`—including their output, state, evidence, and four-outcome behavior;
 - a parser, formatter, type/effect/policy checker, semantic lowering pipeline,
-  obligation and capability analysis, planner, runtime, evidence graph, TypeScript
-  SDK, and CLI; and
+  obligation and capability analysis, planner, runtime, evidence graph, Rust SDK,
+  and CLI; and
 - deterministic CBOR artifacts, semantic and artifact identities, conformance
   scenarios, and human-auditable diagnostics.
 

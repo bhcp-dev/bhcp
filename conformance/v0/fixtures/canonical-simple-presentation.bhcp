@@ -1,0 +1,13 @@
+// Same meaning as canonical-simple.bhcp with different presentation and labels.
+§goal example/Greet@0 {
+  §input name: Text; /* the name */ §input attempts: Integer;
+  §output greeting: Text;
+
+  §requires "input present": name != "";
+  §ensures "output format": greeting == "Hello, " + name;
+  §allows "filesystem": bhcp-effect/fs-read@0;
+  §forbids "no network": bhcp-effect/network@0;
+  §limit "three tries": attempts <= 3;
+  §prefer 1: "concise": greeting;
+  §verify "static": with bhcp-verifier/expression@0;
+}

@@ -2,12 +2,22 @@
 
 This catalog is normative. A complete v0 implementation MUST provide executable
 fixtures for every scenario ID and publish its result in a feature manifest and
-evidence bundle. Until the parser, checker, planner, and runtime exist, these cases
-are the stable acceptance contract rather than executable tests in this repository.
+evidence bundle. Until the complete parser, checker, planner, and runtime exist,
+unimplemented cases remain the stable acceptance contract rather than executable
+tests in this repository.
 
 Each positive case must check canonical AST, semantic IR, graph, outcome, and
 deterministic bytes where those stages apply. Each negative case must check a stable
 diagnostic code and must not emit a misleading later-stage artifact.
+
+The first executable slice covers the source-to-IR portions of SYN-02, ID-01,
+ID-02, and deterministic emission for CBOR-01 using
+`fixtures/canonical-simple.bhcp`. The adjacent presentation fixture proves that
+comments, formatting, and diagnostic labels do not affect semantic identity. The
+checked-in `.ast.cbor` and `.ir.cbor` files are compiler output and are validated by
+the same Rust harness as the 17 root diagnostic fixtures. Unlisted
+scenarios remain normative acceptance requirements, not claimed implementation
+support.
 
 ## Syntax, identity, and encoding
 
@@ -21,7 +31,7 @@ diagnostic code and must not emit a misleading later-stage artifact.
 | ID-03 | Alpha-equivalent local binders and permuted unobservable `all` branches normalize. | Identical canonical semantic bytes. |
 | ID-04 | `chain` branches are permuted. | Different canonical bytes and semantic ID. |
 | CBOR-01 | Each root diagnostic fixture is encoded, decoded, and encoded again. | Deterministic bytes are identical and validate against `root-document`. |
-| CBOR-02 | A content reference has `sha2-256` and another registered digest. | Both tags survive; understood digests verify; baseline digest is 32 bytes. |
+| CBOR-02 | A content reference has `bhcp.hash/sha3-512@0` and another registered digest. | Both tags survive; understood digests verify; the default digest is 64 bytes. |
 | CBOR-03 | A map uses duplicate keys, an indefinite length, or non-shortest integer encoding. | Canonical-wire rejection. |
 
 ## Types, expressions, ownership, and effects

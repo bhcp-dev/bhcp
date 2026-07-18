@@ -1,0 +1,3 @@
+# SHA3-512 is the BHCP default. Projects may select another algorithm registered
+# by the implementation; unsupported algorithms fail before parsing.
+identity_algorithm = "bhcp.hash/sha3-512@0"

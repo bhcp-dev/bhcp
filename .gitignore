@@ -48,9 +48,8 @@ rubber.cache
 # latexrun
 latex.out/
 
-## Local Ruby schema-validation dependencies
-.bundle/
-vendor/bundle/
+## Rust workspace
+target/
 
 ## Auxiliary and intermediate files from other packages:
 # algorithms
