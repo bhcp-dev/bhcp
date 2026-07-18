@@ -1,0 +1,2 @@
+# Preserve byte-exact experiment patches without treating their payload as repository whitespace.
+experiments/**/results/**/*.patch -whitespace

@@ -456,7 +456,7 @@ impl<'a> KernelRuntime<'a> {
     ) -> Result<Reduction> {
         self.ir.validate()?;
         let (parent_goal, network, reducer) = self.resolve(network_id)?;
-        if !value_has_type(&parent, &parent_goal.input) {
+        if !parent_goal.input.accepts(&parent) {
             return Err(invalid(
                 "reducer parent input does not match the goal input type",
             ));
@@ -565,7 +565,7 @@ impl<'a> KernelRuntime<'a> {
                         .iter()
                         .find(|goal| goal.id == child.goal)
                         .expect("IR validation resolves child goals");
-                    if !value_has_type(output, &child_goal.output) {
+                    if !child_goal.output.accepts(output) {
                         return Err(invalid(
                             "child output does not match the declared goal output type",
                         ));
@@ -899,42 +899,6 @@ fn accepted_premises(observations: &[ChildObservation]) -> HashSet<String> {
             ExecutionResult::Faulted(_) => vec![],
         })
         .collect()
-}
-
-fn value_has_type(value: &Value, value_type: &BhcpType) -> bool {
-    match (value, value_type) {
-        (Value::Bool(_), BhcpType::Primitive("Bool"))
-        | (Value::Text(_), BhcpType::Primitive("Text" | "Timestamp" | "Duration"))
-        | (Value::Bytes(_), BhcpType::Primitive("Bytes")) => true,
-        (Value::Array(value), BhcpType::Primitive("Unit")) => {
-            value == &[Value::Text("unit".to_owned())]
-        }
-        (Value::Array(value), BhcpType::ExactNumber("Integer")) => matches!(
-            value.as_slice(),
-            [Value::Text(kind), Value::Integer(_)] if kind == "integer"
-        ),
-        (Value::Array(value), BhcpType::ExactNumber("Rational")) => matches!(
-            value.as_slice(),
-            [Value::Text(kind), Value::Integer(_), Value::Integer(denominator)]
-                if kind == "rational" && *denominator > 0
-        ),
-        (Value::Array(value), BhcpType::ExactNumber("Decimal")) => matches!(
-            value.as_slice(),
-            [Value::Text(kind), Value::Integer(_), Value::Integer(_)] if kind == "decimal"
-        ),
-        (Value::Array(values), BhcpType::List(element)) => {
-            values.iter().all(|value| value_has_type(value, element))
-        }
-        (Value::Map(entries), BhcpType::Record(fields)) => {
-            entries.len() == fields.len()
-                && fields.iter().all(|field| {
-                    entries.iter().any(|(name, value)| {
-                        name == &field.name && value_has_type(value, &field.value_type)
-                    })
-                })
-        }
-        _ => false,
-    }
 }
 
 fn refs_value(refs: &[String]) -> Value {

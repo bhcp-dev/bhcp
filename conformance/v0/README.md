@@ -21,6 +21,11 @@ KRN-12, and ALG-ALL, including source-defined precedence and generic reducer
 re-evaluation. Obligation-graph proof coverage and all unlisted scenarios remain
 normative acceptance requirements, not claimed implementation support.
 
+The registered verifier slice additionally executes EVD-01 through EVD-04 for flat
+contract clauses. It does not yet claim general obligation-graph construction,
+process-backed project adapters, freshness windows, signatures, or full proof
+coverage.
+
 ## Syntax, identity, and encoding
 
 | ID | Scenario | Expected result |
@@ -58,6 +63,15 @@ normative acceptance requirements, not claimed implementation support.
 | EFF-01 | A pure goal calls an effectful child. | Effect propagates or the call is rejected; it is never hidden. |
 | EFF-02 | Unsafe/foreign execution is allowed by policy. | Capability is visible and an evidence gap is emitted. |
 | EFF-03 | A child allowance exceeds a parent prohibition. | Denied; parent ceiling and deny-wins are preserved. |
+
+## Verification and evidence
+
+| ID | Scenario | Expected result |
+| --- | --- | --- |
+| EVD-01 | Explicit verifier targets are reordered, then their labels and references are consistently renamed. | Targets resolve to normalized structural obligation IDs; semantic identity is unchanged while AST artifact identity changes. |
+| EVD-02 | Registered verifiers accept, return accepted counter-evidence, remain inconclusive, or violate their operational contract. | Candidate decisions remain `Accepted | Rejected | Unresolved`; verifier faults remain operationally `Faulted` with partial evidence. |
+| EVD-03 | A required verifier symbol is not registered. | No callback or command is inferred; a required `unsupported` evidence gap leaves its obligations unresolved. |
+| EVD-04 | The same typed candidate, content references, timestamp, registry, and verifier outputs are checked twice. | Strongly validated evidence bundles, payload references, deterministic CBOR bytes, and artifact IDs are identical. |
 
 ## Kernel, derived goal algebra, state, and planning
 

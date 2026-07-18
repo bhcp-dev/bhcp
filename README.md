@@ -4,12 +4,12 @@ Beyond Human-Centric Programming (BHCP) is a semantic programming model in which
 people declare outcomes, authority, limits, and required evidence while machines
 discover acceptable executions.
 
-This repository defines the normative v0 foundation and a focused first executable
-slice. The Rust implementation accepts canonical clause goals and the focused
-self-hosted `all` composition slice, emits a validated canonical AST and semantic IR,
-encodes both as deterministic CBOR, and computes algorithm-tagged semantic and
-artifact identities. It is not yet a complete v0 parser, checker, planner, runtime,
-or SDK.
+This repository defines the normative v0 foundation and focused executable slices.
+The Rust implementation accepts canonical clause goals and self-hosted `all`, emits
+validated canonical AST and semantic IR, dispatches registered verifier bindings,
+and emits deterministic evidence bundles. Canonical artifacts use deterministic
+CBOR and algorithm-tagged semantic or artifact identities. It is not yet a complete
+v0 parser, checker, planner, runtime, or SDK.
 
 ## Start here
 
@@ -55,7 +55,8 @@ cargo run -- hash conformance/v0/fixtures/canonical-simple.bhcp
 The implemented source boundary supports namespaced/versioned goals;
 typed `§input` and `§output` facts; `§requires`, `§ensures`, and `§limit` Boolean
 expressions; `§allows` and `§forbids` effect atoms; ranked `§prefer`; and `§verify`
-bindings. Scalar literals, binding references, parentheses, unary `!`/`-`, and the
+bindings with optional explicit contract-label targets. Scalar literals, binding
+references, parentheses, unary `!`/`-`, and the
 checked Boolean, comparison, and `+` operators form the clause-expression subset.
 Closed record field types, one top-level `§all` body, and equivalent explicit
 `§compose using bhcp/prelude.all-reducer@0` source are also executable. Composition
@@ -112,7 +113,21 @@ derivation premise is sealed evidence from an observed child. Full obligation-gr
 coverage remains part of the later analysis/evidence milestone; this runtime does not
 claim complete v0 proof checking yet.
 
-## Minimal coding-agent experiment
+The registered verification foundation resolves explicit `§verify ... for "label"`
+targets to structural obligation IDs, re-evaluates total contract expressions over
+typed input/output values, dispatches only host-registered evidence producers, and
+emits strongly validated deterministic evidence-bundle CBOR. Accepted, rejected,
+unresolved, and operationally faulted verifier outcomes remain distinct. Missing
+registrations produce required unresolved gaps; arbitrary project commands are not
+silently executed. Evidence timestamps are injected, and the implemented boundary
+accepts canonical UTC timestamps at second precision.
+
+This library boundary does not yet build obligation or execution graphs, load
+verifier commands from a project manifest, or run the coding-agent experiment's Rust
+and policy adapters. Those adapters remain the next vertical slice; they will consume
+the generic registry instead of becoming kernel primitives.
+
+## Coding-agent experiments
 
 [`experiments/minimal-coding-agent/`](experiments/minimal-coding-agent/) contains a
 pinned, dependency-free Rust repository for the first controlled coding-agent
@@ -122,10 +137,26 @@ and canonical BHCP contract state the same requirements; the experiment isolates
 whether BHCP makes completion claims more precise and mechanically checkable, not
 whether hidden requirements can surprise an agent.
 
-The fixture documentation defines the two-arm protocol, verifier boundary, and the
-current limitation: the BHCP compiler validates and hashes the contract, while an
-external controller must still run its verifier bindings until evidence-bundle
-execution is implemented.
+The fixture documentation defines the two-arm protocol and verifier boundary. The
+generic dispatcher and evidence-bundle model are now executable; an external
+controller must still register and run the experiment-specific Rust, oracle, and
+change-policy adapters and provide the execution-graph reference.
+
+The explicitly invoked repo skill at
+[`.codex/skills/interpret-bhcp-contract/`](.codex/skills/interpret-bhcp-contract/)
+turns lowered contracts into implementation and evidence matrices without becoming
+a second semantic authority. It verifies the pinned identity, keeps implementation
+state separate from verifier acceptance, and fails closed on unsupported or
+unresolved contract boundaries.
+
+[`experiments/policy-resolution-agent/`](experiments/policy-resolution-agent/)
+adds a deliberately ambiguous authorization ticket. Its canonical contract pins
+tenant isolation and a specificity → priority → deny → rule-ID precedence ladder
+that the prose describes only as "most applicable," "conservative," and
+"deterministic." This second fixture measures intent disambiguation rather than an
+equal-information syntax comparison, and its checked oracle exposes five distinct
+reasonable-but-policy-invalid implementations while retaining two passing control
+invariants.
 
 The trusted composition boundary is deliberately narrow. A network carries its
 structural ID, output type, finite typed children, and reducer symbol—nothing else.

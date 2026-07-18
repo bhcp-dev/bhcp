@@ -1,5 +1,5 @@
 {
-  "semantic_id": "bhcp.hash/sha3-512@0:72ffc90f3c4c8e36335f6a54bdb3b058c70f5c43d204c2a429cd7160c316572467099af2dc0cd5753a31b8a098f8fa90994b8efa76db3a1cf91ad2d02ae8d1ff",
+  "semantic_id": "bhcp.hash/sha3-512@0:74f00c65f409a9180329aa2080d2df80088a7e4e55c37c5b9a8927d708e77e65dc0a4ba39d6f22cf93041841f6987c58fc13f7e52ca10670ff852d05ff21f72a",
   "ast_bytes": 4444,
-  "ir_bytes": 2163
+  "ir_bytes": 2206
 }

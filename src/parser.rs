@@ -139,6 +139,7 @@ pub enum SurfaceClauseKind {
     },
     Verify {
         verifier: String,
+        obligation_labels: Vec<String>,
     },
 }
 
@@ -827,11 +828,47 @@ impl Parser<'_> {
             "§verify" => {
                 self.expect("with")?;
                 let (verifier, _) = self.qualified_name()?;
+                let mut obligation_labels = Vec::new();
+                if self.matches("for") {
+                    self.consume();
+                    loop {
+                        let target = self.consume();
+                        let Some(TokenValue::Text(label)) = target.value else {
+                            return Err(at(
+                                "BHCP1001",
+                                "expected quoted obligation label after for",
+                                self.source_name,
+                                &target.start,
+                            ));
+                        };
+                        if target.kind != TokenKind::String {
+                            return Err(at(
+                                "BHCP1001",
+                                "expected quoted obligation label after for",
+                                self.source_name,
+                                &target.start,
+                            ));
+                        }
+                        obligation_labels.push(label);
+                        if !self.matches(",") {
+                            break;
+                        }
+                        self.consume();
+                    }
+                }
+                let mut attributes = vec![("verifier".to_owned(), Value::Text(verifier.clone()))];
+                if !obligation_labels.is_empty() {
+                    attributes.push((
+                        "obligations".to_owned(),
+                        Value::Array(obligation_labels.iter().cloned().map(Value::Text).collect()),
+                    ));
+                }
                 (
                     SurfaceClauseKind::Verify {
                         verifier: verifier.clone(),
+                        obligation_labels,
                     },
-                    vec![("verifier".to_owned(), Value::Text(verifier))],
+                    attributes,
                 )
             }
             _ => {

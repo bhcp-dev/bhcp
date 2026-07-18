@@ -1,0 +1,46 @@
+diff --git a/src/lib.rs b/src/lib.rs
+index f84499b..5f45125 100644
+--- a/src/lib.rs
++++ b/src/lib.rs
+@@ -65,17 +65,24 @@ impl Policy {
+     }
+ 
+     pub fn decide(&self, tenant: &str, subject: &str, action: &str, resource: &str) -> Decision {
+-        let _requested_tenant = tenant;
+         let selected = self
+             .rules
+             .iter()
+             .filter(|rule| {
+                 rule.enabled
++                    && rule.tenant == tenant
+                     && pattern_matches(&rule.subject, subject)
+                     && pattern_matches(&rule.action, action)
+                     && pattern_matches(&rule.resource, resource)
+             })
+-            .max_by_key(|rule| rule.priority);
++            .max_by_key(|rule| {
++                (
++                    specificity(rule),
++                    rule.priority,
++                    rule.effect == Effect::Deny,
++                    std::cmp::Reverse(rule.id.as_str()),
++                )
++            });
+ 
+         match selected {
+             Some(rule) => Decision {
+@@ -93,3 +100,14 @@ impl Policy {
+ fn pattern_matches(pattern: &str, value: &str) -> bool {
+     pattern == "*" || pattern == value
+ }
++
++fn specificity(rule: &Rule) -> u8 {
++    [
++        rule.subject.as_str(),
++        rule.action.as_str(),
++        rule.resource.as_str(),
++    ]
++    .into_iter()
++    .filter(|pattern| *pattern != "*")
++    .count() as u8
++}

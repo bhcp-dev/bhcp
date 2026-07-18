@@ -9,3 +9,4 @@ pub mod pipeline;
 pub mod prelude;
 pub mod schema;
 pub mod value;
+pub mod verification;

@@ -1,0 +1,105 @@
+{
+  "schema": "bhcp.experiment/policy-resolution-result@0",
+  "trial": "pilot-003",
+  "date": "2026-07-18",
+  "run_order": [
+    "prose",
+    "bhcp",
+    "skill"
+  ],
+  "subject_src_lib_git_blob": "f84499b07f4e01f009ecb9bba4be3798a31e3f73",
+  "contract_semantic_id": "bhcp.hash/sha3-512@0:d10ead1268ed05db2bfbc018756555804360fc6aa3369ea96a71adf0750850460d0d834160c6c617da1a4347c928885b5a5a3b29b93d5ab29252dbd9e3156880",
+  "agent": {
+    "cli": "codex-cli 0.142.4",
+    "model": "gpt-5.4-mini",
+    "reasoning_effort": "medium",
+    "rust_toolchain": "1.97.1",
+    "ephemeral": true,
+    "ignore_user_config": true,
+    "sandbox": "workspace-write"
+  },
+  "evaluated_skill": {
+    "name": "interpret-bhcp-contract",
+    "skill_md_git_blob": "39f4c88528d5c7256aef1427279abcae5f261e77",
+    "openai_yaml_git_blob": "33cd39fa1c97be5715db5fba61d61a142c73a409"
+  },
+  "arms": {
+    "prose": {
+      "claimed_success": true,
+      "accepted": true,
+      "completed_shell_commands_observed": 18,
+      "event_stream_truncated": false,
+      "tokens": {
+        "input": 176668,
+        "cached_input": 158848,
+        "output": 6580,
+        "reasoning_output": 4164
+      },
+      "approximate_wall_time_seconds": 107.799,
+      "patch": {
+        "insertions": 29,
+        "deletions": 2,
+        "result_src_lib_git_blob": "afcb64516c40a0332ee82294acb958ed986c8691"
+      },
+      "checks": {
+        "public_tests_passed": 4,
+        "oracle_tests_passed": 7,
+        "format": true,
+        "clippy_warnings_denied": true,
+        "change_policy": true
+      }
+    },
+    "bhcp": {
+      "claimed_success": true,
+      "accepted": true,
+      "completed_shell_commands_observed": 16,
+      "event_stream_truncated": false,
+      "tokens": {
+        "input": 115220,
+        "cached_input": 99328,
+        "output": 4114,
+        "reasoning_output": 2280
+      },
+      "approximate_wall_time_seconds": 66.472,
+      "patch": {
+        "insertions": 20,
+        "deletions": 2,
+        "result_src_lib_git_blob": "5f45125656e04c507f62c2ff5fe8d49a2691389b"
+      },
+      "checks": {
+        "public_tests_passed": 4,
+        "oracle_tests_passed": 7,
+        "format": true,
+        "clippy_warnings_denied": true,
+        "change_policy": true
+      }
+    },
+    "skill": {
+      "claimed_success": false,
+      "accepted": true,
+      "completed_shell_commands_observed": 17,
+      "observed_command_count_is_lower_bound": true,
+      "event_stream_truncated": true,
+      "tokens": {
+        "input": 188791,
+        "cached_input": 159232,
+        "output": 5155,
+        "reasoning_output": 2904
+      },
+      "approximate_wall_time_seconds": 86.04,
+      "patch": {
+        "insertions": 31,
+        "deletions": 2,
+        "result_src_lib_git_blob": "518c62615c5532115569dbc1d6e9233b16216afa"
+      },
+      "checks": {
+        "public_tests_passed": 4,
+        "oracle_tests_passed": 7,
+        "format": true,
+        "clippy_warnings_denied": true,
+        "change_policy": true
+      }
+    }
+  },
+  "verdict": "correctness_tie_with_claim_calibration_difference"
+}

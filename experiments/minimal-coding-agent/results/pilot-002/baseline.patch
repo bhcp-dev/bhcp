@@ -1,0 +1,70 @@
+diff --git a/src/lib.rs b/src/lib.rs
+index 3f5de25..3fb213a 100644
+--- a/src/lib.rs
++++ b/src/lib.rs
+@@ -79,13 +79,19 @@ impl Ledger {
+             return Err(ApplyError::EmptyRequestId);
+         }
+         if let Some(applied) = self.processed.get(request_id) {
+-            let _payload_matches = applied.transfers == transfers;
+-            return Ok(applied.receipt.clone());
++            return if applied.transfers == transfers {
++                Ok(applied.receipt.clone())
++            } else {
++                Err(ApplyError::RequestConflict {
++                    request_id: request_id.to_owned(),
++                })
++            };
+         }
+         if transfers.is_empty() {
+             return Err(ApplyError::EmptyBatch);
+         }
+ 
++        let mut updated_balances = self.balances.clone();
+         let mut total_moved = 0_u64;
+         for (index, transfer) in transfers.iter().enumerate() {
+             if transfer.amount == 0 {
+@@ -95,13 +101,14 @@ impl Ledger {
+                 return Err(ApplyError::SameAccount { index });
+             }
+ 
+-            let source = self.balances.get(&transfer.from).copied().ok_or_else(|| {
+-                ApplyError::MissingAccount {
++            let source = updated_balances
++                .get(&transfer.from)
++                .copied()
++                .ok_or_else(|| ApplyError::MissingAccount {
+                     index,
+                     account: transfer.from.clone(),
+-                }
+-            })?;
+-            let destination = self.balances.get(&transfer.to).copied().ok_or_else(|| {
++                })?;
++            let destination = updated_balances.get(&transfer.to).copied().ok_or_else(|| {
+                 ApplyError::MissingAccount {
+                     index,
+                     account: transfer.to.clone(),
+@@ -114,20 +121,20 @@ impl Ledger {
+                 });
+             }
+ 
+-            self.balances
+-                .insert(transfer.from.clone(), source - transfer.amount);
++            updated_balances.insert(transfer.from.clone(), source - transfer.amount);
+             let destination = destination.checked_add(transfer.amount).ok_or_else(|| {
+                 ApplyError::BalanceOverflow {
+                     index,
+                     account: transfer.to.clone(),
+                 }
+             })?;
+-            self.balances.insert(transfer.to.clone(), destination);
++            updated_balances.insert(transfer.to.clone(), destination);
+             total_moved = total_moved
+                 .checked_add(transfer.amount)
+                 .ok_or(ApplyError::TotalOverflow)?;
+         }
+ 
++        self.balances = updated_balances;
+         let receipt = Receipt {
+             request_id: request_id.to_owned(),
+             transfer_count: transfers.len(),
