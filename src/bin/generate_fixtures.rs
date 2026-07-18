@@ -1,7 +1,6 @@
 use std::fs;
 use std::path::PathBuf;
 
-use bhcp::hash::format_hash;
 use bhcp::pipeline::compile_source;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -17,15 +16,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         fs::write(
             directory.join(format!("{name}.ir.cbor")),
             &compiled.ir_bytes,
-        )?;
-        fs::write(
-            directory.join(format!("{name}.expected.json")),
-            format!(
-                "{{\n  \"semantic_id\": {:?},\n  \"ast_bytes\": {},\n  \"ir_bytes\": {}\n}}\n",
-                format_hash(&compiled.semantic_hash),
-                compiled.ast_bytes.len(),
-                compiled.ir_bytes.len(),
-            ),
         )?;
     }
     Ok(())

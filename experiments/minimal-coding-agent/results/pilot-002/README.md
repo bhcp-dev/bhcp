@@ -42,7 +42,7 @@ Each accepted session was launched with Codex CLI `0.142.4` and:
 ```
 
 The model was therefore explicit at the request boundary rather than inferred from
-a default. The JSON event stream still did not echo the resolved model name.
+a default. The structured event stream still did not echo the resolved model name.
 
 The oracle was absent until both agents stopped. A preliminary BHCP launch received
 an empty prompt because of a controller shell-variable mistake, made no changes,

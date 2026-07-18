@@ -1,10 +1,15 @@
 use std::env;
 use std::fs;
+use std::io::{self, Write};
+use std::path::Path;
 use std::process::ExitCode;
 
+use bhcp::cbor::{decode_deterministic, encode_deterministic};
 use bhcp::hash::format_hash;
+use bhcp::inspection::render_artifact;
 use bhcp::manifest::ProjectManifest;
 use bhcp::pipeline::{compile_source_with_algorithm, parse_source_with_algorithm};
+use bhcp::schema::validate_root;
 
 fn main() -> ExitCode {
     match run() {
@@ -26,44 +31,60 @@ fn run() -> Result<(), (u8, String)> {
     {
         return Err((
             2,
-            "usage: bhcp <parse|lower|inspect|hash> <file>".to_owned(),
+            "usage: bhcp <parse|lower|inspect|hash> <source-or-cbor-file>".to_owned(),
         ));
     }
     let command = &arguments[0];
     let file = &arguments[1];
+
+    if command == "inspect"
+        && Path::new(file)
+            .extension()
+            .is_some_and(|value| value == "cbor")
+    {
+        let bytes = fs::read(file).map_err(|error| (1, format!("{file}: {error}")))?;
+        let artifact = decode_deterministic(&bytes).map_err(|error| (1, error.to_string()))?;
+        let kind = artifact
+            .kind()
+            .ok_or_else(|| (1, "BHCP5002: artifact has no root kind".to_owned()))?;
+        validate_root(&artifact, kind).map_err(|error| (1, error.to_string()))?;
+        print!("{}", render_artifact(&artifact, Some(file)));
+        return Ok(());
+    }
+
     let source = fs::read_to_string(file).map_err(|error| (1, format!("{file}: {error}")))?;
-    let manifest = ProjectManifest::discover(std::path::Path::new(file))
-        .map_err(|error| (1, error.to_string()))?;
+    let manifest =
+        ProjectManifest::discover(Path::new(file)).map_err(|error| (1, error.to_string()))?;
     if command == "parse" {
         let ast = parse_source_with_algorithm(&source, file, manifest.identity_algorithm)
             .map_err(|error| (1, error.to_string()))?;
-        println!("{}", ast.to_value(true).to_json_pretty());
-        return Ok(());
+        let value = ast.to_value(true);
+        validate_root(&value, "canonical-ast").map_err(|error| (1, error.to_string()))?;
+        let bytes = encode_deterministic(&value).map_err(|error| (1, error.to_string()))?;
+        return write_stdout(&bytes);
     }
+
     let compiled = compile_source_with_algorithm(&source, file, manifest.identity_algorithm)
         .map_err(|error| (1, error.to_string()))?;
     if command == "lower" {
-        println!("{}", compiled.ir.to_value(true).to_json_pretty());
+        validate_root(&compiled.ir.to_value(true), "semantic-ir")
+            .map_err(|error| (1, error.to_string()))?;
+        write_stdout(&compiled.ir_bytes)
     } else if command == "hash" {
         println!("{}", format_hash(&compiled.semantic_hash));
+        Ok(())
     } else {
-        println!("{{");
-        println!("  \"source\": {:?},", file);
-        println!("  \"profile\": \"bhcp/canonical@0\",");
-        println!("  \"goals\": {},", compiled.ir.goals.len());
-        println!("  \"type_mode\": \"infer-strict\",");
-        println!(
-            "  \"identity_algorithm\": {:?},",
-            manifest.identity_algorithm.id()
+        print!(
+            "{}",
+            render_artifact(&compiled.ir.to_value(true), Some(file))
         );
-        println!(
-            "  \"semantic_id\": {:?},",
-            format_hash(&compiled.semantic_hash)
-        );
-        println!("  \"artifact_id\": {:?},", format_hash(&compiled.ir_hash));
-        println!("  \"canonical_ast_bytes\": {},", compiled.ast_bytes.len());
-        println!("  \"semantic_ir_bytes\": {}", compiled.ir_bytes.len());
-        println!("}}");
+        Ok(())
     }
-    Ok(())
+}
+
+fn write_stdout(bytes: &[u8]) -> Result<(), (u8, String)> {
+    io::stdout()
+        .lock()
+        .write_all(bytes)
+        .map_err(|error| (1, format!("stdout: {error}")))
 }
