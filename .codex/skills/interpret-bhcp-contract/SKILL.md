@@ -12,11 +12,9 @@ list tests, query Cargo metadata, or read the same file twice unless blocked.
 ## Establish authority
 
 1. Locate the `.bhcp` source, pinned semantic-ID file, and task.
-2. Resolve the CLI once with `command -v bhcp`; otherwise use executable `./bhcp` or
-   `./bin/bhcp`. Only in the BHCP compiler checkout, use
-   `mise exec -- cargo run --quiet -- <command> <file>`. Never read an executable as
-   text. Do not probe `bhcp --help`. If `cargo` is absent but `mise` exists, use
-   `mise exec -- cargo ...`; do not search for alternate toolchain installs.
+2. Require `bhcp` on `PATH`. If `command -v bhcp` fails, stop and ask the user to
+   install it or make it available on `PATH`. Do not search for repository binaries,
+   wrappers, or toolchain fallbacks.
 3. Run `hash` once and compare it byte-for-byte with the pin. Stop on mismatch.
 4. Run `inspect` once on source or canonical `.cbor`. The Rust CLI validates the
    existing artifact boundary and renders structural clauses and verifier targets.
