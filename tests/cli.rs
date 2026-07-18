@@ -33,3 +33,24 @@ fn parse_lower_inspect_and_hash_commands_work() {
         }
     }
 }
+
+#[test]
+fn self_hosted_all_flows_through_the_existing_cli() {
+    let fixture = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("conformance/v0/fixtures/canonical-all.bhcp");
+    let lower = Command::new(env!("CARGO_BIN_EXE_bhcp"))
+        .arg("lower")
+        .arg(&fixture)
+        .output()
+        .unwrap();
+    assert!(
+        lower.status.success(),
+        "{}",
+        String::from_utf8_lossy(&lower.stderr)
+    );
+    let stdout = String::from_utf8(lower.stdout).unwrap();
+    assert!(stdout.contains("bhcp/prelude.all-reducer-"));
+    assert!(stdout.contains("kernel.has-refuted@0"));
+    assert!(!stdout.contains("lower-all"));
+    assert!(!stdout.contains("derived-form"));
+}

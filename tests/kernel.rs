@@ -73,9 +73,9 @@ fn execution_result_factors_operational_and_semantic_states() {
 fn reduction_uses_consistent_adjectival_states() {
     let network = network();
     network.validate().unwrap();
-    let observed = HashSet::from(["child-a".to_owned()]);
+    let observed = HashSet::from(["a".to_owned()]);
     let pending = Reduction::Pending {
-        required: vec!["child-b".to_owned()],
+        required: vec!["b".to_owned()],
     };
     assert_eq!(
         pending.to_value().get("state"),
@@ -141,15 +141,11 @@ fn concluded_truth_claims_reference_their_checked_derivation() {
 }
 
 #[test]
-fn pending_reduction_requires_unobserved_known_children() {
+fn pending_reduction_requires_unobserved_known_child_tags() {
     let network = network();
-    let observed = HashSet::from(["child-a".to_owned()]);
+    let observed = HashSet::from(["a".to_owned()]);
 
-    for required in [
-        vec![],
-        vec!["missing".to_owned()],
-        vec!["child-a".to_owned()],
-    ] {
+    for required in [vec![], vec!["missing".to_owned()], vec!["a".to_owned()]] {
         let diagnostic = Reduction::Pending { required }
             .validate(&network, &observed)
             .unwrap_err();

@@ -32,6 +32,21 @@ enum TokenValue {
 pub enum SurfaceType {
     Primitive(&'static str),
     Exact(&'static str),
+    Record(Vec<SurfaceFieldType>),
+    Parameter(String),
+    Dynamic,
+    Reduction(Box<SurfaceType>),
+    Meta {
+        kind: &'static str,
+        input: Box<SurfaceType>,
+        output: Box<SurfaceType>,
+    },
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SurfaceFieldType {
+    pub name: String,
+    pub value_type: SurfaceType,
 }
 
 #[derive(Clone, Debug)]
@@ -55,6 +70,17 @@ pub enum SurfaceExpression {
         right: Box<SurfaceExpression>,
         at: Point,
     },
+    Call {
+        function: String,
+        arguments: Vec<SurfaceExpression>,
+        at: Point,
+    },
+    If {
+        condition: Box<SurfaceExpression>,
+        consequent: Box<SurfaceExpression>,
+        alternative: Box<SurfaceExpression>,
+        at: Point,
+    },
 }
 
 impl SurfaceExpression {
@@ -63,7 +89,9 @@ impl SurfaceExpression {
             Self::Literal { at, .. }
             | Self::Reference { at, .. }
             | Self::Unary { at, .. }
-            | Self::Binary { at, .. } => at,
+            | Self::Binary { at, .. }
+            | Self::Call { at, .. }
+            | Self::If { at, .. } => at,
         }
     }
 }
@@ -118,12 +146,67 @@ pub enum SurfaceClauseKind {
 pub struct SurfaceGoal {
     pub symbol: String,
     pub clauses: Vec<SurfaceClause>,
+    pub body: Option<SurfaceComposition>,
     pub at: Point,
     pub ast: AstNode,
 }
 
 #[derive(Clone, Debug)]
+pub enum SurfaceComposition {
+    DerivedAll {
+        branches: Vec<SurfaceBranch>,
+        at: Point,
+    },
+    Compose {
+        reducer: String,
+        branches: Vec<SurfaceBranch>,
+        at: Point,
+    },
+}
+
+impl SurfaceComposition {
+    pub fn branches(&self) -> &[SurfaceBranch] {
+        match self {
+            Self::DerivedAll { branches, .. } | Self::Compose { branches, .. } => branches,
+        }
+    }
+
+    pub fn at(&self) -> &Point {
+        match self {
+            Self::DerivedAll { at, .. } | Self::Compose { at, .. } => at,
+        }
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct SurfaceBranch {
+    pub tag: String,
+    pub goal: String,
+    pub at: Point,
+    pub ast: AstNode,
+}
+
+#[derive(Clone, Debug)]
+pub struct SurfaceFunction {
+    pub symbol: String,
+    pub type_parameters: Vec<String>,
+    pub parameters: Vec<SurfaceParameter>,
+    pub result: SurfaceType,
+    pub definition: SurfaceExpression,
+    pub at: Point,
+    pub ast: AstNode,
+}
+
+#[derive(Clone, Debug)]
+pub struct SurfaceParameter {
+    pub name: String,
+    pub value_type: SurfaceType,
+    pub at: Point,
+}
+
+#[derive(Clone, Debug)]
 pub struct ParsedProgram {
+    pub functions: Vec<SurfaceFunction>,
     pub goals: Vec<SurfaceGoal>,
     pub ast: AstNode,
 }
@@ -393,35 +476,118 @@ struct Parser<'a> {
 
 impl Parser<'_> {
     fn program(mut self) -> Result<ParsedProgram> {
+        let mut functions = Vec::new();
         let mut goals = Vec::new();
+        let mut definitions = Vec::new();
         while self.current().kind != TokenKind::Eof {
-            if self.current().text != "§goal" {
-                let code = if self.current().kind == TokenKind::Keyword {
-                    "BHCP1004"
-                } else {
-                    "BHCP1001"
-                };
-                return self.fail(
-                    code,
-                    format!(
-                        "top-level syntax {:?} is outside the implemented vertical slice",
-                        self.current().text
-                    ),
-                );
+            match self.current().text.as_str() {
+                "§function" => {
+                    let function = self.function()?;
+                    definitions.push(function.ast.clone());
+                    functions.push(function);
+                }
+                "§goal" => {
+                    let goal = self.goal()?;
+                    definitions.push(goal.ast.clone());
+                    goals.push(goal);
+                }
+                _ => {
+                    let code = if self.current().kind == TokenKind::Keyword {
+                        "BHCP1004"
+                    } else {
+                        "BHCP1001"
+                    };
+                    return self.fail(
+                        code,
+                        format!(
+                            "top-level syntax {:?} is outside the implemented vertical slice",
+                            self.current().text
+                        ),
+                    );
+                }
             }
-            goals.push(self.goal()?);
         }
-        if goals.is_empty() {
+        if definitions.is_empty() {
             return self.fail(
                 "BHCP1001",
-                "a canonical source file must contain at least one goal",
+                "a canonical source file must contain at least one definition",
             );
         }
-        let start = goals[0].ast.span.start.clone();
-        let end = goals.last().unwrap().ast.span.end.clone();
-        let children = goals.iter().map(|goal| goal.ast.clone()).collect();
-        let ast = self.ast("program", None, start, end, vec![], children);
-        Ok(ParsedProgram { goals, ast })
+        let start = definitions[0].span.start.clone();
+        let end = definitions.last().unwrap().span.end.clone();
+        let ast = self.ast("program", None, start, end, vec![], definitions);
+        Ok(ParsedProgram {
+            functions,
+            goals,
+            ast,
+        })
+    }
+
+    fn function(&mut self) -> Result<SurfaceFunction> {
+        let keyword = self.expect("§function")?;
+        let (symbol, _) = self.qualified_name()?;
+        let mut type_parameters = Vec::new();
+        if self.matches("<") {
+            self.consume();
+            loop {
+                let parameter = self.identifier("type parameter")?;
+                if type_parameters.contains(&parameter.text) {
+                    return Err(at(
+                        "BHCP1003",
+                        "duplicate type parameter",
+                        self.source_name,
+                        &parameter.start,
+                    ));
+                }
+                type_parameters.push(parameter.text);
+                if !self.matches(",") {
+                    break;
+                }
+                self.consume();
+            }
+            self.expect(">")?;
+        }
+        self.expect("(")?;
+        let mut parameters = Vec::new();
+        if !self.matches(")") {
+            loop {
+                let name = self.identifier("parameter name")?;
+                self.expect(":")?;
+                let value_type = self.value_type(&type_parameters)?;
+                parameters.push(SurfaceParameter {
+                    name: name.text,
+                    value_type,
+                    at: name.start,
+                });
+                if !self.matches(",") {
+                    break;
+                }
+                self.consume();
+            }
+        }
+        self.expect(")")?;
+        self.expect(":")?;
+        let result = self.value_type(&type_parameters)?;
+        self.expect("=")?;
+        let definition = self.expression(0)?;
+        let end = self.expect(";")?.end;
+        let ast = self.ast(
+            "function",
+            Some("§function"),
+            keyword.start.clone(),
+            end,
+            vec![("symbol".to_owned(), Value::Text(symbol.clone()))],
+            vec![],
+        );
+        Ok(SurfaceFunction {
+            symbol,
+            type_parameters,
+            parameters,
+            result,
+            definition,
+            at: keyword.start,
+            ast,
+        })
     }
 
     fn goal(&mut self) -> Result<SurfaceGoal> {
@@ -429,6 +595,8 @@ impl Parser<'_> {
         let (symbol, _) = self.qualified_name()?;
         self.expect("{")?;
         let mut clauses = Vec::new();
+        let mut body = None;
+        let mut children = Vec::new();
         while !self.matches("}") {
             if self.current().kind == TokenKind::Eof {
                 return Err(at(
@@ -438,10 +606,23 @@ impl Parser<'_> {
                     &keyword.start,
                 ));
             }
-            clauses.push(self.clause()?);
+            if self.matches("§all") || self.matches("§compose") {
+                if body.is_some() {
+                    return self.fail(
+                        "BHCP1004",
+                        "multiple composition bodies are outside the implemented vertical slice",
+                    );
+                }
+                let (composition, ast) = self.composition()?;
+                children.push(ast);
+                body = Some(composition);
+            } else {
+                let clause = self.clause()?;
+                children.push(clause.ast.clone());
+                clauses.push(clause);
+            }
         }
         let end = self.consume().end;
-        let children = clauses.iter().map(|clause| clause.ast.clone()).collect();
         let ast = self.ast(
             "goal",
             Some("§goal"),
@@ -453,9 +634,93 @@ impl Parser<'_> {
         Ok(SurfaceGoal {
             symbol,
             clauses,
+            body,
             at: keyword.start,
             ast,
         })
+    }
+
+    fn composition(&mut self) -> Result<(SurfaceComposition, AstNode)> {
+        let keyword = self.consume();
+        let reducer = if keyword.text == "§compose" {
+            self.expect("using")?;
+            Some(self.qualified_name()?.0)
+        } else {
+            None
+        };
+        self.expect("{")?;
+        let mut branches = Vec::new();
+        while !self.matches("}") {
+            if self.current().kind == TokenKind::Eof {
+                return Err(at(
+                    "BHCP1001",
+                    "unterminated composition block",
+                    self.source_name,
+                    &keyword.start,
+                ));
+            }
+            let tag = self.identifier("branch tag")?;
+            self.expect("=")?;
+            if self.current().kind == TokenKind::Keyword {
+                return self.fail(
+                    "BHCP1004",
+                    "nested composition is outside the implemented vertical slice",
+                );
+            }
+            let (goal, _) = self.qualified_name()?;
+            self.expect("(")?;
+            if !self.matches(")") {
+                return self.fail(
+                    "BHCP1004",
+                    "goal-call arguments are outside the implemented composition slice",
+                );
+            }
+            self.consume();
+            let branch_end = self.expect(";")?.end;
+            let branch_ast = self.ast(
+                "branch",
+                None,
+                tag.start.clone(),
+                branch_end,
+                vec![
+                    ("tag".to_owned(), Value::Text(tag.text.clone())),
+                    ("goal".to_owned(), Value::Text(goal.clone())),
+                ],
+                vec![],
+            );
+            branches.push(SurfaceBranch {
+                tag: tag.text,
+                goal,
+                at: tag.start,
+                ast: branch_ast,
+            });
+        }
+        self.consume();
+        let end = self.expect(";")?.end;
+        let ast = self.ast(
+            if reducer.is_some() { "compose" } else { "all" },
+            Some(&keyword.text),
+            keyword.start.clone(),
+            end,
+            reducer
+                .as_ref()
+                .map(|value| vec![("reducer".to_owned(), Value::Text(value.clone()))])
+                .unwrap_or_default(),
+            branches.iter().map(|branch| branch.ast.clone()).collect(),
+        );
+        let composition = if let Some(reducer) = reducer {
+            SurfaceComposition::Compose {
+                reducer,
+                branches,
+                at: keyword.start,
+            }
+        } else {
+            SurfaceComposition::DerivedAll {
+                branches,
+                at: keyword.start,
+            }
+        };
+        Ok((composition, ast))
     }
 
     fn clause(&mut self) -> Result<SurfaceClause> {
@@ -473,7 +738,7 @@ impl Parser<'_> {
             "§input" | "§output" => {
                 let name = self.identifier("binding name")?.text;
                 self.expect(":")?;
-                let value_type = self.value_type()?;
+                let value_type = self.value_type(&[])?;
                 let kind = if keyword.text == "§input" {
                     "input"
                 } else {
@@ -487,10 +752,7 @@ impl Parser<'_> {
                     },
                     vec![
                         ("name".to_owned(), Value::Text(name)),
-                        (
-                            "type".to_owned(),
-                            Value::Text(type_name(&value_type).to_owned()),
-                        ),
+                        ("type".to_owned(), Value::Text(type_name(&value_type))),
                     ],
                 )
             }
@@ -629,6 +891,20 @@ impl Parser<'_> {
     }
 
     fn expression(&mut self, minimum: u8) -> Result<SurfaceExpression> {
+        if minimum == 0 && self.matches("if") {
+            let keyword = self.consume();
+            let condition = self.expression(0)?;
+            self.expect("then")?;
+            let consequent = self.expression(0)?;
+            self.expect("else")?;
+            let alternative = self.expression(0)?;
+            return Ok(SurfaceExpression::If {
+                condition: Box::new(condition),
+                consequent: Box::new(consequent),
+                alternative: Box::new(alternative),
+                at: keyword.start,
+            });
+        }
         let mut left = self.unary()?;
         while let Some(precedence) = operator_precedence(&self.current().text) {
             if precedence < minimum {
@@ -656,72 +932,204 @@ impl Parser<'_> {
             });
         }
         let token = self.consume();
-        match (token.kind, token.value) {
-            (TokenKind::Number, Some(TokenValue::Integer(value))) => {
-                Ok(SurfaceExpression::Literal {
-                    value: SurfaceLiteral::Integer(value),
-                    at: token.start,
-                })
-            }
-            (TokenKind::String, Some(TokenValue::Text(value))) => Ok(SurfaceExpression::Literal {
+        let mut value = match (token.kind, token.value) {
+            (TokenKind::Number, Some(TokenValue::Integer(value))) => SurfaceExpression::Literal {
+                value: SurfaceLiteral::Integer(value),
+                at: token.start,
+            },
+            (TokenKind::String, Some(TokenValue::Text(value))) => SurfaceExpression::Literal {
                 value: SurfaceLiteral::Text(value),
                 at: token.start,
-            }),
+            },
             (TokenKind::Identifier, _) if token.text == "true" || token.text == "false" => {
-                Ok(SurfaceExpression::Literal {
+                SurfaceExpression::Literal {
                     value: SurfaceLiteral::Bool(token.text == "true"),
                     at: token.start,
-                })
+                }
             }
-            (TokenKind::Identifier, _) => Ok(SurfaceExpression::Reference {
-                name: token.text,
-                at: token.start,
-            }),
+            (TokenKind::Identifier, _) => {
+                let at = token.start.clone();
+                let mut name = token.text;
+                if self.semantic_name_suffix_follows() {
+                    while self.matches("/") || self.matches(".") {
+                        name.push_str(&self.consume().text);
+                        name.push_str(&self.identifier("name segment")?.text);
+                    }
+                    name.push_str(&self.consume().text);
+                    let version = self.consume();
+                    if !matches!(version.kind, TokenKind::Number | TokenKind::Identifier) {
+                        return self.fail("BHCP1001", "expected semantic-name version");
+                    }
+                    name.push_str(&version.text);
+                    while self.matches(".") {
+                        name.push_str(&self.consume().text);
+                        name.push_str(&self.consume().text);
+                    }
+                }
+                SurfaceExpression::Reference { name, at }
+            }
             (_, _) if token.text == "(" => {
                 let value = self.expression(0)?;
                 self.expect(")")?;
-                Ok(value)
+                value
             }
-            _ => Err(at(
-                "BHCP1001",
-                format!("expected expression, found {:?}", token.text),
-                self.source_name,
-                &token.start,
-            )),
+            _ => {
+                return Err(at(
+                    "BHCP1001",
+                    format!("expected expression, found {:?}", token.text),
+                    self.source_name,
+                    &token.start,
+                ));
+            }
+        };
+        loop {
+            if self.matches("(") {
+                let at = value.at().clone();
+                let SurfaceExpression::Reference { name: function, .. } = value else {
+                    return self.fail(
+                        "BHCP1004",
+                        "only named function calls are implemented in this expression slice",
+                    );
+                };
+                self.consume();
+                let mut arguments = Vec::new();
+                if !self.matches(")") {
+                    loop {
+                        arguments.push(self.expression(0)?);
+                        if !self.matches(",") {
+                            break;
+                        }
+                        self.consume();
+                    }
+                }
+                self.expect(")")?;
+                value = SurfaceExpression::Call {
+                    function,
+                    arguments,
+                    at,
+                };
+            } else {
+                break;
+            }
         }
+        Ok(value)
     }
 
-    fn value_type(&mut self) -> Result<SurfaceType> {
-        let token = self.identifier("type")?;
-        match token.text.as_str() {
-            "Bool" => Ok(SurfaceType::Primitive("Bool")),
-            "Text" => Ok(SurfaceType::Primitive("Text")),
-            "Bytes" => Ok(SurfaceType::Primitive("Bytes")),
-            "Unit" => Ok(SurfaceType::Primitive("Unit")),
-            "Timestamp" => Ok(SurfaceType::Primitive("Timestamp")),
-            "Duration" => Ok(SurfaceType::Primitive("Duration")),
-            "Integer" => Ok(SurfaceType::Exact("Integer")),
-            "Rational" => Ok(SurfaceType::Exact("Rational")),
-            "Decimal" => Ok(SurfaceType::Exact("Decimal")),
-            _ => Err(at(
-                "BHCP1004",
-                format!(
-                    "type syntax {:?} is outside the implemented vertical slice",
-                    token.text
-                ),
-                self.source_name,
-                &token.start,
-            )),
+    fn semantic_name_suffix_follows(&self) -> bool {
+        let mut cursor = self.cursor;
+        let mut has_path_separator = false;
+        while matches!(
+            self.tokens.get(cursor).map(|token| token.text.as_str()),
+            Some("/") | Some(".")
+        ) && matches!(
+            self.tokens.get(cursor + 1).map(|token| token.kind),
+            Some(TokenKind::Identifier)
+        ) {
+            has_path_separator = true;
+            cursor += 2;
         }
+        has_path_separator
+            && matches!(
+                self.tokens.get(cursor).map(|token| token.text.as_str()),
+                Some("@")
+            )
+    }
+
+    fn value_type(&mut self, parameters: &[String]) -> Result<SurfaceType> {
+        if self.matches("{") {
+            self.consume();
+            let mut fields = Vec::new();
+            while !self.matches("}") {
+                let name = self.identifier("field name")?;
+                self.expect(":")?;
+                fields.push(SurfaceFieldType {
+                    name: name.text,
+                    value_type: self.value_type(parameters)?,
+                });
+                if !self.matches(",") {
+                    break;
+                }
+                self.consume();
+            }
+            self.expect("}")?;
+            return Ok(SurfaceType::Record(fields));
+        }
+        let token = self.identifier("type")?;
+        let value = match token.text.as_str() {
+            "Bool" => SurfaceType::Primitive("Bool"),
+            "Text" => SurfaceType::Primitive("Text"),
+            "Bytes" => SurfaceType::Primitive("Bytes"),
+            "Unit" => SurfaceType::Primitive("Unit"),
+            "Timestamp" => SurfaceType::Primitive("Timestamp"),
+            "Duration" => SurfaceType::Primitive("Duration"),
+            "Integer" => SurfaceType::Exact("Integer"),
+            "Rational" => SurfaceType::Exact("Rational"),
+            "Decimal" => SurfaceType::Exact("Decimal"),
+            "Dynamic" => SurfaceType::Dynamic,
+            "Reduction" => {
+                self.expect("<")?;
+                let output = self.value_type(parameters)?;
+                self.expect(">")?;
+                SurfaceType::Reduction(Box::new(output))
+            }
+            "Meta" => {
+                self.expect("<")?;
+                let kind = self.identifier("meta kind")?;
+                let kind = match kind.text.as_str() {
+                    "DerivedForm" => "derived-form",
+                    "NetworkShape" => "network-shape",
+                    _ => {
+                        return Err(at(
+                            "BHCP1004",
+                            "unsupported meta type",
+                            self.source_name,
+                            &kind.start,
+                        ));
+                    }
+                };
+                self.expect(",")?;
+                let input = self.value_type(parameters)?;
+                self.expect(",")?;
+                let output = self.value_type(parameters)?;
+                self.expect(">")?;
+                SurfaceType::Meta {
+                    kind,
+                    input: Box::new(input),
+                    output: Box::new(output),
+                }
+            }
+            name if parameters.iter().any(|parameter| parameter == name) => {
+                SurfaceType::Parameter(name.to_owned())
+            }
+            _ => {
+                return Err(at(
+                    "BHCP1004",
+                    format!(
+                        "type syntax {:?} is outside the implemented vertical slice",
+                        token.text
+                    ),
+                    self.source_name,
+                    &token.start,
+                ));
+            }
+        };
+        Ok(value)
     }
 
     fn qualified_name(&mut self) -> Result<(String, Point)> {
         let first = self.identifier("qualified name")?;
         let at = first.start.clone();
         let mut segments = vec![first.text];
-        while self.matches("/") {
-            self.consume();
-            segments.push(self.identifier("name segment")?.text);
+        while self.matches("/") || self.matches(".") {
+            let separator = self.consume().text;
+            let component = self.identifier("name segment")?.text;
+            if separator == "/" {
+                segments.push(component);
+            } else {
+                let last = segments.last_mut().expect("qualified name has a component");
+                last.push('.');
+                last.push_str(&component);
+            }
         }
         if segments.len() < 2 || !self.matches("@") {
             return Err(crate::diagnostic::Diagnostic::new(
@@ -839,9 +1247,14 @@ fn identifier_start(character: char) -> bool {
 fn identifier_continue(character: char) -> bool {
     identifier_start(character) || character.is_ascii_digit() || character == '-'
 }
-fn type_name(value: &SurfaceType) -> &str {
+fn type_name(value: &SurfaceType) -> String {
     match value {
-        SurfaceType::Primitive(name) | SurfaceType::Exact(name) => name,
+        SurfaceType::Primitive(name) | SurfaceType::Exact(name) => (*name).to_owned(),
+        SurfaceType::Record(_) => "record".to_owned(),
+        SurfaceType::Parameter(name) => name.clone(),
+        SurfaceType::Dynamic => "Dynamic".to_owned(),
+        SurfaceType::Reduction(_) => "Reduction".to_owned(),
+        SurfaceType::Meta { kind, .. } => format!("Meta<{kind}>"),
     }
 }
 fn operator_precedence(operator: &str) -> Option<u8> {

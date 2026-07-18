@@ -5,10 +5,11 @@ people declare outcomes, authority, limits, and required evidence while machines
 discover acceptable executions.
 
 This repository defines the normative v0 foundation and a focused first executable
-slice. The Rust implementation accepts a clause-only canonical
-goal, emits a validated canonical AST and semantic IR, encodes both as deterministic
-CBOR, and computes algorithm-tagged semantic and artifact identities. It is not yet
-a complete v0 parser, checker, planner, runtime, or SDK.
+slice. The Rust implementation accepts canonical clause goals and the focused
+self-hosted `all` composition slice, emits a validated canonical AST and semantic IR,
+encodes both as deterministic CBOR, and computes algorithm-tagged semantic and
+artifact identities. It is not yet a complete v0 parser, checker, planner, runtime,
+or SDK.
 
 ## Start here
 
@@ -51,12 +52,16 @@ cargo run -- inspect conformance/v0/fixtures/canonical-simple.bhcp
 cargo run -- hash conformance/v0/fixtures/canonical-simple.bhcp
 ```
 
-The implemented source boundary supports namespaced/versioned clause-only goals;
+The implemented source boundary supports namespaced/versioned goals;
 typed `§input` and `§output` facts; `§requires`, `§ensures`, and `§limit` Boolean
 expressions; `§allows` and `§forbids` effect atoms; ranked `§prefer`; and `§verify`
 bindings. Scalar literals, binding references, parentheses, unary `!`/`-`, and the
-checked Boolean, comparison, and `+` operators form the expression subset. Every
-other reserved construct is rejected with a stable diagnostic rather than erased.
+checked Boolean, comparison, and `+` operators form the clause-expression subset.
+Closed record field types, one top-level `§all` body, and equivalent explicit
+`§compose using bhcp/prelude.all-reducer@0` source are also executable. Composition
+children are currently zero-argument goal calls; nested compositions, project
+functions, and every other reserved construct outside the slice are rejected with a
+stable diagnostic rather than erased.
 
 `bhcp.hash/sha3-512@0` is the default and only currently registered identity
 algorithm, implemented in repository-owned Rust. It provides a roughly 256-bit
@@ -79,24 +84,44 @@ cargo build --release
 ```
 
 `cargo run --bin generate-fixtures` regenerates the checked-in AST and IR CBOR
-artifacts for the canonical simple-goal fixture. The semantic model now defines the
-minimal `kernel-network`: total pure reducers return adjectival
-`Pending | Concluded` reduction states over factored execution results. Standard
-`all`, `any`, `none`, `chain`, `gate`, and persistent-retention behavior lowers from
-versioned BHCP prelude definitions rather than privileged IR kinds. This slice
-validates and encodes the kernel model but does not yet parse, lower, or execute
-network source. The next executable boundary is the total expression checker plus
-standard-prelude lowering to monomorphized networks.
+artifacts for the canonical simple-goal and self-hosted `all` fixtures. The semantic
+model defines the minimal `kernel-network`: total pure reducers return adjectival
+`Pending | Concluded` reduction states over factored execution results.
+
+[`prelude/v0/all.bhcp`](prelude/v0/all.bhcp) is parsed and checked as canonical BHCP
+source. Its compile-time lowerer constructs an ID-free network shape through the
+restricted metamodel, disappears, and leaves a monomorphized runtime reducer in
+semantic IR. The generic Rust kernel implements only typed sealed-observation
+queries, result construction, tag-to-child resolution, and derivation sealing; the
+prelude source determines `all` precedence and selects its aggregation operations.
+`§all` and explicit `§compose` produce byte-identical semantic IR and semantic IDs. The runtime tests
+exercise pending requests, named-product satisfaction, decisive refutation,
+fault/unresolved precedence, and generic re-evaluation rejection of tampering:
+
+```sh
+cargo test --test self_hosted_all
+```
+
+The retained reducer currently calls a small, fixed typed API for sealed-observation
+queries and checked result construction. General S5 pattern matching and immutable
+record/collection operations are the intended source-level replacement; adding the
+next derived behaviors must not introduce behavior-specific Rust primitives.
+
+The checker in this slice re-evaluates the retained reducer and verifies that every
+derivation premise is sealed evidence from an observed child. Full obligation-graph
+coverage remains part of the later analysis/evidence milestone; this runtime does not
+claim complete v0 proof checking yet.
 
 The trusted composition boundary is deliberately narrow. A network carries its
 structural ID, output type, finite typed children, and reducer symbol—nothing else.
 It carries no behavior kind, quantifier family, guard, dependency list, budget,
 scheduling order, or parallelism hint. Quantifiers expand to finite children before
 IR; recursive bounds belong to the recursive child call; and budget/concurrency
-decisions live in execution graphs. The complete v0 boundary requires checked-in
-canonical BHCP prelude functions over the compile-time derived-form/network-shape
-metamodel to supply all named orchestration behavior; implementing those definitions
-is the next executable slice, not a claim of the current clause-only compiler.
+decisions live in execution graphs. Pending reducers name stable child tags, which the
+kernel resolves through the network; reducers never allocate child or derivation IDs.
+The next executable boundary is to generalize the total pure expression evaluator and
+the metamodel beyond this `all` slice, then add `gate`, `any`, `none`, and `chain` as
+checked-in prelude source without adding behavior kinds to Rust or semantic IR.
 
 ## Status
 

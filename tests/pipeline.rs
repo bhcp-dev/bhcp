@@ -79,4 +79,11 @@ fn unsupported_and_unresolved_syntax_have_stable_codes() {
         compile_source("§goal example/G@0 { §requires missing == 1; }", "bad.bhcp").unwrap_err();
     assert_eq!(unsupported.code, "BHCP1004");
     assert_eq!(unresolved.code, "BHCP2001");
+
+    let division = compile_source(
+        "§goal example/G@0 { §input n: Integer; §requires n / n == 1; }",
+        "bad.bhcp",
+    )
+    .unwrap_err();
+    assert_eq!(division.code, "BHCP2004");
 }

@@ -193,6 +193,8 @@ pub enum BhcpType {
     Primitive(&'static str),
     ExactNumber(&'static str),
     Record(Vec<FieldType>),
+    List(Box<BhcpType>),
+    Nominal(String, Vec<BhcpType>),
     Option(Box<BhcpType>),
     Evidence(Vec<String>),
     Verdict(Box<BhcpType>),
@@ -232,6 +234,14 @@ impl BhcpType {
                         })
                         .collect(),
                 ),
+            ]),
+            Self::List(value) => {
+                Value::Array(vec![Value::Text("list".to_owned()), value.to_value()])
+            }
+            Self::Nominal(symbol, arguments) => Value::Array(vec![
+                Value::Text("nominal".to_owned()),
+                Value::Text(symbol.clone()),
+                Value::Array(arguments.iter().map(BhcpType::to_value).collect()),
             ]),
             Self::Option(value) => {
                 Value::Array(vec![Value::Text("option".to_owned()), value.to_value()])
@@ -284,6 +294,8 @@ pub enum ExpressionForm {
     Reference(String),
     Unary(String, Box<Expression>),
     Binary(String, Box<Expression>, Box<Expression>),
+    If(Box<Expression>, Box<Expression>, Box<Expression>),
+    Call(String, Vec<Expression>),
 }
 
 impl Expression {
@@ -307,6 +319,17 @@ impl Expression {
                 left.to_value(),
                 right.to_value(),
             ]),
+            ExpressionForm::If(condition, consequent, alternative) => Value::Array(vec![
+                Value::Text("if".to_owned()),
+                condition.to_value(),
+                consequent.to_value(),
+                alternative.to_value(),
+            ]),
+            ExpressionForm::Call(function, arguments) => Value::Array(vec![
+                Value::Text("call".to_owned()),
+                Value::Text(function.clone()),
+                Value::Array(arguments.iter().map(Expression::to_value).collect()),
+            ]),
         };
         Value::map([
             ("id", Value::Text(self.id.clone())),
@@ -323,6 +346,22 @@ impl Expression {
             ExpressionForm::Binary(_, left, right) => {
                 left.validate(ids, references)?;
                 right.validate(ids, references)?;
+            }
+            ExpressionForm::If(condition, consequent, alternative) => {
+                condition.validate(ids, references)?;
+                consequent.validate(ids, references)?;
+                alternative.validate(ids, references)?;
+            }
+            ExpressionForm::Call(function, arguments) => {
+                if !is_symbol(function) {
+                    return Err(Diagnostic::plain(
+                        "BHCP4001",
+                        "called function is not a symbol-id",
+                    ));
+                }
+                for argument in arguments {
+                    argument.validate(ids, references)?;
+                }
             }
         }
         Ok(())

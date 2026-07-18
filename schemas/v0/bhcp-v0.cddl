@@ -298,8 +298,12 @@ lowering-child-shape = (
 )
 derived-form-shape = {
   "input": type,
-  "children": [* { lowering-child-shape }],
+  "children": [* derived-child-shape],
   ? "condition": expression
+}
+derived-child-shape = {
+  lowering-child-shape,
+  "output": type
 }
 network-shape = {
   "output": type,
@@ -324,7 +328,7 @@ derivation = {
 reduction = pending-reduction / concluded-reduction
 pending-reduction = {
   "state": "pending",
-  "required": [1* ref-id]
+  "required": [1* tstr] ; unique known unobserved child tags
 }
 concluded-reduction = {
   "state": "concluded",
