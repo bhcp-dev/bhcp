@@ -65,7 +65,8 @@ impl ProfileSyntaxRegistry {
                 1,
             ));
         }
-        validate_effective_syntax(&syntax)?;
+        validate_effective_syntax(&syntax)
+            .map_err(|diagnostic| attach_profile_context(diagnostic, profile))?;
         if self.profiles.contains_key(profile) {
             return Err(Diagnostic::new(
                 "BHCP9002",
@@ -642,7 +643,8 @@ fn parse_internal(
             source_name,
             source_ref.clone(),
             syntax,
-        )?
+        )
+        .map_err(|diagnostic| attach_profile_context(diagnostic, &selected.profile))?
     } else {
         return Err(Diagnostic::new(
             "BHCP0004",
@@ -681,6 +683,15 @@ fn parse_internal(
     ast.artifact_id = Some(artifact_hash_with(&ast.to_value(false), algorithm)?);
     ast.validate()?;
     Ok((ast, program))
+}
+
+fn attach_profile_context(mut diagnostic: Diagnostic, profile: &str) -> Diagnostic {
+    if matches!(diagnostic.code, "BHCP9002" | "BHCP0005")
+        && !diagnostic.message.starts_with("profile=")
+    {
+        diagnostic.message = format!("profile={profile} {}", diagnostic.message);
+    }
+    diagnostic
 }
 
 fn percent_encode_profile(profile: &str) -> String {

@@ -851,6 +851,13 @@ punctuation prefixes, recursive aliases, reserved-core rebinding, and fixed-toke
 capture; these map failures remain `BHCP9002`. An unregistered selected profile is
 `BHCP0004`, and a mapped-away canonical spelling is `BHCP0005`. Successful lowering
 retains every original source point and never rewrites comment or string contents.
+For an effective-map rejection, the diagnostic names the selected profile, resolved
+syntax symbol, exact `category:canonical=>surface` mapping, and violated rule. Its
+source line is the stable one-based index of that mapping in the resolved syntax
+artifact. A source-level mapped-away spelling instead retains the original program
+line and column while reporting the same profile, syntax, mapping, and rule context.
+Parser callbacks, unrestricted macros, and semantic override payloads are not mapping
+extensions; their unknown artifact fields fail as `BHCP9001` before registry use.
 
 Formatting is not a token mapping. It is the closed presentation record
 `{ indent_width, line_width, final_newline }`, where indentation is 0 through 16

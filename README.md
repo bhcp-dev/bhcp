@@ -166,6 +166,15 @@ the leaf formatting record, and maps them back to the selected surface. Its outp
 idempotent, and an internal canonical-token plus AST-shape round trip prevents
 formatting from becoming semantic.
 
+The adversarial profile harness rejects ambiguous aliases, alias recursion, canonical
+keyword capture, reserved-core rebinding, parser callbacks, unrestricted macros, and
+semantic override fields before an AST, IR, or formatted source can be returned.
+Effective-map `BHCP9002` diagnostics name the selected profile, syntax artifact,
+offending `category:canonical=>surface` mapping, stable one-based mapping index, and
+violated rule. A mapped-away spelling keeps its original program source point under
+`BHCP0005` with the same context. Typed parser/macro/semantic payloads remain unknown
+artifact fields and fail the closed `BHCP9001` model.
+
 `bhcp.hash/sha3-512@0` is the default and only currently registered identity
 algorithm, implemented through the pinned pure-Rust `sha3` crate. It provides a roughly 256-bit
 post-quantum preimage margin. [`bhcp-project.toml`](bhcp-project.toml) is the explicit

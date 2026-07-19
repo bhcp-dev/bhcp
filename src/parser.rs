@@ -5,7 +5,7 @@ use unicode_normalization::is_nfc;
 use crate::diagnostic::{Diagnostic, Result};
 use crate::model::{AstNode, ContentReference, Point, TokenSpan, is_symbol};
 use crate::policy::{PolicyDocument, PolicyHeader, PolicyLayer, PolicyRule, SourcePolicyDocument};
-use crate::profile::{SyntaxDocument, SyntaxMappingCategory};
+use crate::profile::{SyntaxDocument, SyntaxMapping, SyntaxMappingCategory};
 use crate::value::Value;
 
 #[derive(Clone, Debug)]
@@ -149,6 +149,7 @@ const FIXED_BARE_WORDS: &[&str] = &[
 
 #[derive(Clone, Debug)]
 struct EffectiveSyntax {
+    syntax_symbol: String,
     keyword_by_surface: BTreeMap<String, String>,
     keyword_surface_by_canonical: BTreeMap<String, String>,
     sigil_surface: String,
@@ -168,7 +169,7 @@ impl EffectiveSyntax {
     fn from_document(document: &SyntaxDocument) -> Result<Self> {
         document.validate()?;
         if document.extends.is_some() {
-            return Err(syntax_error("unresolved-inheritance"));
+            return Err(syntax_document_error(document, "unresolved-inheritance"));
         }
 
         let mut effective = BTreeMap::new();
@@ -206,8 +207,10 @@ impl EffectiveSyntax {
         );
 
         for mapping in &document.mappings {
-            validate_coordinate(mapping.category, &mapping.canonical)?;
-            validate_surface(mapping.category, &mapping.surface)?;
+            validate_coordinate(mapping.category, &mapping.canonical)
+                .map_err(|_| syntax_mapping_error(document, mapping, "category-mismatch"))?;
+            validate_surface(mapping.category, &mapping.surface)
+                .map_err(|_| syntax_mapping_error(document, mapping, "invalid-surface"))?;
             effective.insert(
                 (mapping.category, mapping.canonical.clone()),
                 mapping.surface.clone(),
@@ -216,29 +219,53 @@ impl EffectiveSyntax {
 
         let mut surface_owner: BTreeMap<&str, (&str, SyntaxMappingCategory)> = BTreeMap::new();
         for ((category, canonical), surface) in &effective {
-            if let Some((existing, _)) = surface_owner.insert(surface, (canonical, *category))
+            if let Some((existing, existing_category)) =
+                surface_owner.insert(surface, (canonical, *category))
                 && existing != canonical
             {
-                return Err(syntax_error("ambiguous-surface"));
+                let Some(mapping) =
+                    diagnostic_mapping(document, *category, canonical, existing_category, existing)
+                else {
+                    return Err(syntax_document_error(document, "ambiguous-surface"));
+                };
+                return Err(syntax_mapping_error(document, mapping, "ambiguous-surface"));
             }
         }
 
         let punctuation: Vec<_> = effective
             .iter()
             .filter(|((category, _), _)| is_punctuation(*category))
-            .map(|((_, canonical), surface)| (canonical.as_str(), surface.as_str()))
+            .map(|((category, canonical), surface)| {
+                (*category, canonical.as_str(), surface.as_str())
+            })
             .collect();
-        for (_, left) in &punctuation {
-            for (_, right) in &punctuation {
+        for (category, canonical, left) in &punctuation {
+            for (right_category, right_canonical, right) in &punctuation {
                 if left != right && right.starts_with(left) {
-                    return Err(syntax_error("punctuation-prefix"));
+                    let Some(mapping) = diagnostic_mapping(
+                        document,
+                        *right_category,
+                        right_canonical,
+                        *category,
+                        canonical,
+                    ) else {
+                        return Err(syntax_document_error(document, "punctuation-prefix"));
+                    };
+                    return Err(syntax_mapping_error(
+                        document,
+                        mapping,
+                        "punctuation-prefix",
+                    ));
                 }
             }
             if FIXED_LEXICAL_TOKENS
                 .iter()
                 .any(|fixed| left.starts_with(fixed) || fixed.starts_with(left))
             {
-                return Err(syntax_error("token-capture"));
+                return Err(mapping_for(document, *category, canonical).map_or_else(
+                    || syntax_document_error(document, "token-capture"),
+                    |mapping| syntax_mapping_error(document, mapping, "token-capture"),
+                ));
             }
         }
 
@@ -248,17 +275,21 @@ impl EffectiveSyntax {
             .map(|((_, canonical), surface)| (canonical.as_str(), surface.as_str()))
             .collect();
         for (canonical, surface) in &aliases {
+            let Some(mapping) = mapping_for(document, SyntaxMappingCategory::Alias, canonical)
+            else {
+                return Err(syntax_document_error(document, "invalid-effective-alias"));
+            };
             if surface.starts_with("bhcp/") && canonical != surface {
-                return Err(syntax_error("core-override"));
+                return Err(syntax_mapping_error(document, mapping, "core-override"));
             }
             if aliases
                 .iter()
                 .any(|(_, candidate_surface)| canonical == candidate_surface)
             {
-                return Err(syntax_error("recursive-alias"));
+                return Err(syntax_mapping_error(document, mapping, "recursive-alias"));
             }
             if FIXED_BARE_WORDS.contains(surface) {
-                return Err(syntax_error("token-capture"));
+                return Err(syntax_mapping_error(document, mapping, "token-capture"));
             }
         }
 
@@ -304,6 +335,7 @@ impl EffectiveSyntax {
         });
 
         Ok(Self {
+            syntax_symbol: document.symbol.clone(),
             keyword_by_surface,
             keyword_surface_by_canonical,
             sigil_surface,
@@ -358,9 +390,16 @@ impl EffectiveSyntax {
                             canonical,
                         );
                         cursor = keyword_end;
-                    } else if self.keyword_surface_by_canonical.contains_key(surface) {
+                    } else if let Some(mapped_surface) =
+                        self.keyword_surface_by_canonical.get(surface)
+                    {
                         return Err(normalization_error(
-                            "mapped-away-keyword",
+                            self.mapped_away_reason(
+                                SyntaxMappingCategory::Keyword,
+                                surface,
+                                mapped_surface,
+                                "mapped-away-keyword",
+                            ),
                             source_name,
                             &source_points[cursor],
                         ));
@@ -370,7 +409,12 @@ impl EffectiveSyntax {
             }
             if source[cursor..].starts_with('§') && self.sigil_surface != "§" {
                 return Err(normalization_error(
-                    "mapped-away-sigil",
+                    self.mapped_away_reason(
+                        SyntaxMappingCategory::Sigil,
+                        "§",
+                        &self.sigil_surface,
+                        "mapped-away-sigil",
+                    ),
                     source_name,
                     &source_points[cursor],
                 ));
@@ -393,7 +437,12 @@ impl EffectiveSyntax {
                 && surface != &character.to_string()
             {
                 return Err(normalization_error(
-                    "mapped-away-punctuation",
+                    self.mapped_away_reason(
+                        punctuation_category(character),
+                        &character.to_string(),
+                        surface,
+                        "mapped-away-punctuation",
+                    ),
                     source_name,
                     &source_points[cursor],
                 ));
@@ -410,7 +459,7 @@ impl EffectiveSyntax {
                 cursor = end;
                 continue;
             }
-            if let Some((canonical, _)) =
+            if let Some((canonical, surface)) =
                 self.alias_surface_by_canonical
                     .iter()
                     .find(|(canonical, surface)| {
@@ -419,7 +468,12 @@ impl EffectiveSyntax {
                     })
             {
                 return Err(normalization_error(
-                    format!("mapped-away-alias {canonical}"),
+                    self.mapped_away_reason(
+                        SyntaxMappingCategory::Alias,
+                        canonical,
+                        surface,
+                        "mapped-away-alias",
+                    ),
                     source_name,
                     &source_points[cursor],
                 ));
@@ -430,6 +484,31 @@ impl EffectiveSyntax {
             cursor = end;
         }
         Ok(mapped)
+    }
+
+    fn mapped_away_reason(
+        &self,
+        category: SyntaxMappingCategory,
+        canonical: &str,
+        surface: &str,
+        rule: &str,
+    ) -> String {
+        format!(
+            "syntax={} mapping={}:{}=>{} rule={rule}",
+            self.syntax_symbol,
+            category.as_str(),
+            canonical,
+            surface,
+        )
+    }
+}
+
+fn punctuation_category(character: char) -> SyntaxMappingCategory {
+    match character {
+        '{' | '(' | '[' => SyntaxMappingCategory::OpenDelimiter,
+        '}' | ')' | ']' => SyntaxMappingCategory::CloseDelimiter,
+        ';' => SyntaxMappingCategory::Terminator,
+        _ => unreachable!("only mapped canonical punctuation reaches this boundary"),
     }
 }
 
@@ -481,6 +560,63 @@ fn is_punctuation(category: SyntaxMappingCategory) -> bool {
             | SyntaxMappingCategory::OpenDelimiter
             | SyntaxMappingCategory::CloseDelimiter
             | SyntaxMappingCategory::Terminator
+    )
+}
+
+fn mapping_for<'a>(
+    document: &'a SyntaxDocument,
+    category: SyntaxMappingCategory,
+    canonical: &str,
+) -> Option<&'a SyntaxMapping> {
+    document
+        .mappings
+        .iter()
+        .find(|mapping| mapping.category == category && mapping.canonical == canonical)
+}
+
+fn diagnostic_mapping<'a>(
+    document: &'a SyntaxDocument,
+    category: SyntaxMappingCategory,
+    canonical: &str,
+    related_category: SyntaxMappingCategory,
+    related_canonical: &str,
+) -> Option<&'a SyntaxMapping> {
+    mapping_for(document, category, canonical)
+        .or_else(|| mapping_for(document, related_category, related_canonical))
+}
+
+fn syntax_document_error(document: &SyntaxDocument, rule: &str) -> Diagnostic {
+    Diagnostic::new(
+        "BHCP9002",
+        format!("syntax={} rule={rule}", document.symbol),
+        &document.symbol,
+        1,
+        1,
+    )
+}
+
+fn syntax_mapping_error(
+    document: &SyntaxDocument,
+    mapping: &SyntaxMapping,
+    rule: &str,
+) -> Diagnostic {
+    let line = document
+        .mappings
+        .iter()
+        .position(|candidate| std::ptr::eq(candidate, mapping))
+        .map_or(1, |index| index + 1);
+    Diagnostic::new(
+        "BHCP9002",
+        format!(
+            "syntax={} mapping={}:{}=>{} rule={rule}",
+            document.symbol,
+            mapping.category.as_str(),
+            mapping.canonical,
+            mapping.surface,
+        ),
+        &document.symbol,
+        line,
+        1,
     )
 }
 

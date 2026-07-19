@@ -651,7 +651,12 @@ impl ProfileRegistry {
             .map(|document| document.symbol.clone())
             .collect();
         let syntax = flatten_syntax(&syntax_documents)?;
-        validate_effective_syntax(&syntax)?;
+        validate_effective_syntax(&syntax).map_err(|mut diagnostic| {
+            if diagnostic.code == "BHCP9002" && !diagnostic.message.starts_with("profile=") {
+                diagnostic.message = format!("profile={profile} {}", diagnostic.message);
+            }
+            diagnostic
+        })?;
 
         let policies = self.policy_documents(&policy_overlays)?;
         let effective_policy = compose_policies(&policies, algorithm)?;

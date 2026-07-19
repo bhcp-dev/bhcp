@@ -60,6 +60,12 @@ elaboration, and the resolved custom program matches canonical semantic identity
 Missing/cyclic parents, unrelated syntax, weaker modes, duplicate or missing overlays,
 and inherited mapping conflicts fail atomically as `BHCP9003`/`BHCP9002`; attached
 policy weakening retains its ordinary `BHCP8101`–`BHCP8107` code.
+`tests/profile_adversarial.rs` and its checked-in
+`tests/fixtures/profile_adversarial/manifest.txt` corpus make the prohibited behavior
+boundary executable. Ambiguous aliases, recursion, canonical keyword capture, and
+reserved-core rebinding fail before parsing with profile/syntax/mapping/rule context;
+mapped-away source retains its original span; parser, macro, and semantic-override
+artifact fields fail the closed model; and the CLI emits no partial formatted source.
 
 The registered verifier slice additionally executes EVD-01 through EVD-06 for flat
 contract clauses, including capability-bounded project adapters and their deterministic
@@ -87,6 +93,8 @@ represented only by WAV-01/WAV-02 acceptance requirements.
 | SYN-02 | Source omits the profile preamble. | Exact profile `bhcp/canonical@0` is selected. |
 | SYN-03 | Custom source has a malformed or non-first preamble. | Parse rejection before profile rules run. |
 | SYN-04 | Canonical or custom source is formatted repeatedly through a validated resolved profile. | Byte-idempotent output; comments and mapped Unicode spellings survive; the canonical token stream, AST shape, semantic IR, and semantic ID remain equivalent. |
+| SYN-05 | An effective profile introduces ambiguous/recursive aliases, captures canonical words, or rebinds reserved core symbols. | `BHCP9002` before program parsing; diagnostic identifies profile, syntax, mapping index, coordinate/surface, and violated rule; no AST/IR/source output. |
+| SYN-06 | A syntax/profile artifact embeds parser code, unrestricted macros, or semantic overrides. | Closed-model `BHCP9001`; no registry activation or later artifact. |
 | ID-01 | Only whitespace, comments, labels, source spans, or formatting change. | Semantic ID unchanged; artifact ID changes when complete artifact metadata changes. |
 | ID-02 | An observable output field, branch tag, effect, preference, policy, or native extension changes. | Semantic ID changes. |
 | ID-03 | Alpha-equivalent local binders and the same tagged derived `all` branches in a different source order lower where effects make order unobservable. | Identical normalized kernel-network bytes and semantic ID. |
