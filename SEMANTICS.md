@@ -751,8 +751,10 @@ affects neither identity. Source decomposition, content, and layer assignment re
 in artifact identity but do not affect the semantic join of accepted restrictions.
 
 The empty effective policy contains no additive demands, prohibitions, capability
-ceilings, or limits and has `dynamic` type mode. After valid waivers are applied to
-their exact source-rule identities, layers are joined in order. A later layer that
+ceilings, limits, source layers, provenance, or waivers. Its materialized type-mode
+entry is `dynamic` and non-waivable because no weakening below `dynamic` exists.
+After valid waivers are applied to their exact source-rule identities, layers are
+joined in order. A later layer that
 states a broader capability, larger limit, weaker type mode, removal, or replacement
 does not override the earlier restriction: it is either an additional restriction,
 an exact duplicate, or a forbidden weakening. Conflicts resolve to the restrictive
@@ -761,7 +763,10 @@ join; deny wins.
 `source-policy-document` (`form = source`) is the authored boundary.
 `effective-policy-document` (`form = effective`) is the execution boundary. Its
 `effective` member is canonical: category arrays are sorted and unique and its type
-mode is materialized. The document's `semantic_id` commits only to that member,
+mode is materialized. Capability rules normalize to at most one intersected ceiling
+per effect. Limit rules normalize by `(dimension, unit, scope)`; distinct overlapping
+scopes remain separate and the minimum applicable maximum governs their overlap.
+The document's `semantic_id` commits only to the `effective` member,
 including effective waivability and issuer constraints. `source_layers` retains
 content-addressed source documents grouped in organization → team → repository →
 user order; `provenance` maps each canonical effective-rule index to sorted source
@@ -1045,6 +1050,7 @@ shape.
 | time ≤ 10 seconds | time ≤ 500 milliseconds | none | rejected; v0 has no implicit unit conversion |
 | non-waivable deny | waiver naming that rule | none | rejected waiver |
 | source `org/policy@0:r1` and `repo/policy@0:r1` | add both | two distinct source identities | valid |
+| no source documents | identity policy | empty restrictions and non-waivable `dynamic` mode | valid |
 
 ## Appendix B. Vision-to-contract traceability
 

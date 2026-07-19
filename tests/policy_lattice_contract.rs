@@ -23,6 +23,7 @@ fn policy_rules_have_closed_category_operation_value_shapes() {
         "source-policy-document = {",
         "effective-policy-document = {",
         "\"form\": \"effective\"",
+        "\"source_layers\": [* policy-source-layer]",
         "\"provenance\": [* policy-provenance]",
         "\"rules\": [1* source-rule-identity]",
     ] {
@@ -113,6 +114,22 @@ fn strict_restriction_relation_is_acyclic_in_the_finite_model() {
             }
         }
     }
+
+    for &earlier in &values {
+        for &middle in &values {
+            if !middle.at_least_as_restrictive_as(earlier) {
+                continue;
+            }
+            for &later in &values {
+                if later.at_least_as_restrictive_as(middle) {
+                    assert!(
+                        later.at_least_as_restrictive_as(earlier),
+                        "transitivity plus antisymmetry excludes longer strict cycles"
+                    );
+                }
+            }
+        }
+    }
 }
 
 #[test]
@@ -131,7 +148,9 @@ fn policy_composition_is_associative_coordinate_by_coordinate() {
     let values = finite_model();
     for &earlier in &values {
         for &later in &values {
-            assert!(earlier.compose(later).at_least_as_restrictive_as(earlier));
+            let composed = earlier.compose(later);
+            assert!(composed.at_least_as_restrictive_as(earlier));
+            assert!(composed.at_least_as_restrictive_as(later));
         }
     }
 }

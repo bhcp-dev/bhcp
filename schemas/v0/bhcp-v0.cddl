@@ -530,7 +530,7 @@ effective-policy-document = {
   "form": "effective",
   "semantic_id": semantic-id,
   "effective": effective-policy,
-  "source_layers": [1* policy-source-layer],
+  "source_layers": [* policy-source-layer],
   "provenance": [* policy-provenance],
   ? "waivers": [* content-reference]
 }
