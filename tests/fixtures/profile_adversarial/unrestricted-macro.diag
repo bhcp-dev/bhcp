@@ -1,0 +1,14 @@
+{
+  "version": "bhcp/v0",
+  "features": [],
+  "kind": "syntax",
+  "symbol": "example/syntax.macro@0",
+  "preamble": "#!bhcp-profile",
+  "mappings": [],
+  "formatting": {
+    "indent_width": 2,
+    "line_width": 80,
+    "final_newline": true
+  },
+  "macros": ["erase", "insert", "reorder"]
+}

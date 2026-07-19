@@ -1,0 +1,10 @@
+{
+  "version": "bhcp/v0",
+  "features": [],
+  "kind": "profile",
+  "symbol": "example/profile.semantic-override@0",
+  "syntax": "example/syntax.safe@0",
+  "policy_overlays": [],
+  "type_mode": "strict",
+  "semantic_overrides": ["goal-means-policy-bypass"]
+}
