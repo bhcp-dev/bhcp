@@ -62,6 +62,71 @@ fn widening_loosening_and_type_weakening_have_distinct_auditable_codes() {
 }
 
 #[test]
+fn diagnostics_name_the_governing_contributor_after_earlier_rules_compose() {
+    let capability = diagnostic(
+        r#"§policy example/a-org@0 {
+  layer organization;
+  rule a: capability narrow { effect: bhcp-effect/fs.read@0, scope: { goals: [example/goal.a@0, example/goal.b@0] } } nonwaivable;
+}
+§policy example/z-team@0 {
+  layer team;
+  rule a: capability narrow { effect: bhcp-effect/fs.read@0, scope: { goals: [example/goal.b@0] } } nonwaivable;
+}
+§policy example/repo@0 {
+  layer repository;
+  rule a: capability narrow { effect: bhcp-effect/fs.read@0, scope: { goals: [example/goal.a@0, example/goal.b@0] } } nonwaivable;
+}"#,
+    );
+    assert_eq!(capability.code, "BHCP8101");
+    assert!(
+        capability
+            .message
+            .contains("earlier team authority example/z-team@0:a")
+    );
+
+    let limit = diagnostic(
+        r#"§policy example/a-org@0 {
+  layer organization;
+  rule a: limit tighten { dimension: example/limit.memory@0, unit: example/unit.byte@0, maximum: ["integer", 10] } nonwaivable;
+}
+§policy example/z-team@0 {
+  layer team;
+  rule a: limit tighten { dimension: example/limit.memory@0, unit: example/unit.byte@0, maximum: ["integer", 5] } nonwaivable;
+}
+§policy example/repo@0 {
+  layer repository;
+  rule a: limit tighten { dimension: example/limit.memory@0, unit: example/unit.byte@0, maximum: ["integer", 6] } nonwaivable;
+}"#,
+    );
+    assert_eq!(limit.code, "BHCP8102");
+    assert!(
+        limit
+            .message
+            .contains("earlier team authority example/z-team@0:a")
+    );
+
+    let mode = diagnostic(
+        r#"§policy example/a-org@0 {
+  layer organization;
+  rule a: type-mode strengthen gradual nonwaivable;
+}
+§policy example/z-team@0 {
+  layer team;
+  rule a: type-mode strengthen strict nonwaivable;
+}
+§policy example/repo@0 {
+  layer repository;
+  rule a: type-mode strengthen infer-strict nonwaivable;
+}"#,
+    );
+    assert_eq!(mode.code, "BHCP8103");
+    assert!(
+        mode.message
+            .contains("earlier team authority example/z-team@0:a")
+    );
+}
+
+#[test]
 fn removals_and_allow_over_deny_use_explicit_rejection_codes() {
     let earlier = SourceRuleIdentity {
         policy: "example/org@0".to_owned(),

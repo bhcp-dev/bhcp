@@ -107,7 +107,10 @@ canonicalize to an omitted universe, capability scopes intersect, exact limits t
 their minimum, type mode strengthens, and exact duplicate governance combines by
 waivability conjunction and issuer intersection. Missing/cyclic/cross-layer
 inheritance, duplicate sources, forbidden weakening, and overlapping incompatible
-limit units fail before an effective artifact is emitted.
+limit units fail before an effective artifact is emitted. The Rust boundary reports
+`BHCP8101`–`BHCP8107` for distinct weakening/conflict categories and `BHCP8110` for
+source-topology failures. Conflict messages retain the attempted source rule and
+earlier authority, while malformed typed policy values remain `BHCP8001`.
 
 The cddl-rs CBOR validator is not used for instances yet: version 0.10.6 misvalidates
 repeated references to controlled aliases used by this schema, including

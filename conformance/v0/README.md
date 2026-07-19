@@ -128,7 +128,9 @@ forms MUST lower to the same meaning.
 | ID | Scenario | Expected result |
 | --- | --- | --- |
 | POL-01 | Organization → team → repository → user layers only strengthen. | Deterministic monotonic composite policy. |
-| POL-02 | A local layer widens authority, loosens a limit, weakens evidence, or relaxes type mode. | Rejected without a waiver. |
+| POL-02 | A local layer widens authority, loosens a limit, removes a requirement/evidence demand, allows a denied effect, or relaxes type mode. | Whole layer rejected without a waiver using `BHCP8101`–`BHCP8106`; diagnostic names later rule, earlier authority, attempted change, and waiver requirement. |
+| POL-03 | Overlapping limits use incompatible units. | Whole layer rejected with auditable `BHCP8107`; no implicit conversion or partial effective policy. |
+| POL-04 | Policy sources are duplicated or have missing, cyclic, or cross-layer inheritance references. | Composition rejected with stable `BHCP8110`; malformed source values remain `BHCP8001`. |
 | WAV-01 | Exact scoped weakening has an authorized issuer, audit reference, active interval, and expiry. | Accepted only inside scope and time. |
 | WAV-02 | Waiver is expired, premature, overbroad, unauthorized, or targets a non-waivable rule. | Rejected, not ignored. |
 | EXT-01 | A derived extension names a total pure BHCP lowering function, declares no native payload schema, and fully lowers to core IR. | Extension presentation disappears; core meaning is checked and hashed. Missing or invalid lowering is rejected. |

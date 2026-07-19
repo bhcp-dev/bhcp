@@ -305,7 +305,7 @@ fn later_layers_cannot_hide_capability_limit_or_type_weakening() {
         ],
     );
 
-    for (later_rule, expected) in [
+    for (later_rule, code, expected) in [
         (
             scoped_effect_rule(
                 "a-capability",
@@ -314,15 +314,18 @@ fn later_layers_cannot_hide_capability_limit_or_type_weakening() {
                 "bhcp-effect/fs.read@0",
                 Some(&["example/goal.a@0", "example/goal.b@0"]),
             ),
-            "repository policy example/policy.repo@0 rule a-capability broadens capability bhcp-effect/fs.read@0",
+            "BHCP8101",
+            "repository policy example/policy.repo@0 rule a-capability broadens capability bhcp-effect/fs.read@0 from goals=[example/goal.a@0] to goals=[example/goal.a@0,example/goal.b@0]; earlier organization authority example/policy.org@0:a-capability; waiver required",
         ),
         (
             limit("a-limit", 6, "example/unit.byte@0", None),
-            "repository policy example/policy.repo@0 rule a-limit loosens limit example/limit.memory@0",
+            "BHCP8102",
+            "repository policy example/policy.repo@0 rule a-limit loosens limit example/limit.memory@0 from integer(5) to integer(6); earlier organization authority example/policy.org@0:b-limit; waiver required",
         ),
         (
             type_mode("a-mode", "gradual"),
-            "repository policy example/policy.repo@0 rule a-mode weakens type mode",
+            "BHCP8103",
+            "repository policy example/policy.repo@0 rule a-mode weakens type mode from strict to gradual; earlier organization authority example/policy.org@0:c-mode; waiver required",
         ),
     ] {
         let later = source(
@@ -332,7 +335,7 @@ fn later_layers_cannot_hide_capability_limit_or_type_weakening() {
             vec![later_rule],
         );
         let error = compose_policies(&[org.clone(), later], HashAlgorithm::default()).unwrap_err();
-        assert_eq!(error.code, "BHCP8002");
+        assert_eq!(error.code, code);
         assert_eq!(error.message, expected);
     }
 }
@@ -353,10 +356,10 @@ fn overlapping_limit_units_and_invalid_inheritance_fail_closed() {
     );
     let error =
         compose_policies(&[base.clone(), wrong_unit], HashAlgorithm::default()).unwrap_err();
-    assert_eq!(error.code, "BHCP8002");
+    assert_eq!(error.code, "BHCP8107");
     assert_eq!(
         error.message,
-        "overlapping limit example/limit.memory@0 uses incompatible units example/unit.byte@0 and example/unit.word@0"
+        "repository policy example/policy.repo@0 rule a-limit uses incompatible unit example/unit.word@0 for overlapping limit example/limit.memory@0; earlier unit example/unit.byte@0; earlier organization authority example/policy.base@0:a-limit; waiver required"
     );
 
     let missing = source(
@@ -365,14 +368,15 @@ fn overlapping_limit_units_and_invalid_inheritance_fail_closed() {
         Some("example/policy.missing@0"),
         vec![],
     );
+    let missing_error = compose_policies(&[missing], HashAlgorithm::default()).unwrap_err();
+    assert_eq!(missing_error.code, "BHCP8110");
     assert_eq!(
-        compose_policies(&[missing], HashAlgorithm::default())
-            .unwrap_err()
-            .message,
+        missing_error.message,
         "policy example/policy.child@0 extends missing policy example/policy.missing@0"
     );
 
     let duplicate = compose_policies(&[base.clone(), base], HashAlgorithm::default()).unwrap_err();
+    assert_eq!(duplicate.code, "BHCP8110");
     assert_eq!(
         duplicate.message,
         "duplicate policy source example/policy.base@0"
@@ -393,10 +397,10 @@ fn cycles_and_cross_layer_inheritance_are_rejected() {
         Some("example/policy.left@0"),
         vec![],
     );
+    let cycle = compose_policies(&[left, right], HashAlgorithm::default()).unwrap_err();
+    assert_eq!(cycle.code, "BHCP8110");
     assert_eq!(
-        compose_policies(&[left, right], HashAlgorithm::default())
-            .unwrap_err()
-            .message,
+        cycle.message,
         "policy inheritance cycle includes example/policy.left@0"
     );
 
@@ -407,10 +411,10 @@ fn cycles_and_cross_layer_inheritance_are_rejected() {
         Some("example/policy.org@0"),
         vec![],
     );
+    let cross_layer = compose_policies(&[org, repo], HashAlgorithm::default()).unwrap_err();
+    assert_eq!(cross_layer.code, "BHCP8110");
     assert_eq!(
-        compose_policies(&[org, repo], HashAlgorithm::default())
-            .unwrap_err()
-            .message,
+        cross_layer.message,
         "policy example/policy.repo@0 extends a policy in another layer"
     );
 }
@@ -568,10 +572,10 @@ fn identity_scope_exact_numbers_and_same_layer_units_are_canonical() {
             limit("b-word", 4, "example/unit.word@0", None),
         ],
     );
+    let error = compose_policies(&[mixed_units], HashAlgorithm::default()).unwrap_err();
+    assert_eq!(error.code, "BHCP8107");
     assert_eq!(
-        compose_policies(&[mixed_units], HashAlgorithm::default())
-            .unwrap_err()
-            .message,
-        "overlapping limit example/limit.memory@0 uses incompatible units example/unit.byte@0 and example/unit.word@0"
+        error.message,
+        "team policy example/policy.units@0 rule b-word uses incompatible unit example/unit.word@0 for overlapping limit example/limit.memory@0; earlier unit example/unit.byte@0; earlier team authority example/policy.units@0:a-byte; waiver required"
     );
 }

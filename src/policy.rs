@@ -10,7 +10,14 @@ use crate::model::{HashId, is_symbol};
 use crate::value::Value;
 
 const INVALID_POLICY: &str = "BHCP8001";
-const INVALID_COMPOSITION: &str = "BHCP8002";
+const CAPABILITY_WIDENING: &str = "BHCP8101";
+const LIMIT_LOOSENING: &str = "BHCP8102";
+const TYPE_MODE_WEAKENING: &str = "BHCP8103";
+const REQUIREMENT_REMOVAL: &str = "BHCP8104";
+const EVIDENCE_REMOVAL: &str = "BHCP8105";
+const ALLOW_OVER_DENY: &str = "BHCP8106";
+const INCOMPATIBLE_LIMIT_UNITS: &str = "BHCP8107";
+const INVALID_COMPOSITION_TOPOLOGY: &str = "BHCP8110";
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct PolicyHeader {
@@ -141,6 +148,101 @@ impl PolicyLayer {
             Self::User => "user",
         }
     }
+}
+
+/// A weakening that cannot be expressed by the closed additive source-policy grammar.
+///
+/// The waiver boundary uses this typed representation instead of silently editing an
+/// earlier rule. Until a valid waiver is applied, every attempt is rejected.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum PolicyWeakeningAttempt {
+    RemoveRequirement {
+        layer: PolicyLayer,
+        policy: String,
+        rule: String,
+        requirement: String,
+        earlier: SourceRuleIdentity,
+        earlier_layer: PolicyLayer,
+    },
+    RemoveEvidence {
+        layer: PolicyLayer,
+        policy: String,
+        rule: String,
+        obligation: String,
+        earlier: SourceRuleIdentity,
+        earlier_layer: PolicyLayer,
+    },
+    AllowDeniedEffect {
+        layer: PolicyLayer,
+        policy: String,
+        rule: String,
+        effect: String,
+        earlier: SourceRuleIdentity,
+        earlier_layer: PolicyLayer,
+    },
+}
+
+/// Rejects an explicit weakening until the waiver boundary authorizes it.
+pub fn reject_policy_weakening(attempt: PolicyWeakeningAttempt) -> Result<()> {
+    let (code, layer, policy, rule, action, earlier, earlier_layer) = match attempt {
+        PolicyWeakeningAttempt::RemoveRequirement {
+            layer,
+            policy,
+            rule,
+            requirement,
+            earlier,
+            earlier_layer,
+        } => (
+            REQUIREMENT_REMOVAL,
+            layer,
+            policy,
+            rule,
+            format!("removes requirement {requirement}"),
+            earlier,
+            earlier_layer,
+        ),
+        PolicyWeakeningAttempt::RemoveEvidence {
+            layer,
+            policy,
+            rule,
+            obligation,
+            earlier,
+            earlier_layer,
+        } => (
+            EVIDENCE_REMOVAL,
+            layer,
+            policy,
+            rule,
+            format!("removes evidence {obligation}"),
+            earlier,
+            earlier_layer,
+        ),
+        PolicyWeakeningAttempt::AllowDeniedEffect {
+            layer,
+            policy,
+            rule,
+            effect,
+            earlier,
+            earlier_layer,
+        } => (
+            ALLOW_OVER_DENY,
+            layer,
+            policy,
+            rule,
+            format!("allows denied effect {effect}"),
+            earlier,
+            earlier_layer,
+        ),
+    };
+    Err(weakening_diagnostic(
+        code,
+        layer,
+        &policy,
+        &rule,
+        &action,
+        earlier_layer,
+        &earlier,
+    ))
 }
 
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
@@ -1586,7 +1688,7 @@ pub fn compose_policies(
 
     let mut composition = Composition::default();
     for (layer, documents) in &by_layer {
-        validate_layer_monotonicity(*layer, documents, &composition)?;
+        validate_layer_monotonicity(*layer, documents, &composition, &ordered)?;
         for document in documents {
             for rule in &document.rules {
                 composition.add_source_rule(document, rule)?;
@@ -1650,8 +1752,10 @@ fn validate_layer_monotonicity(
     layer: PolicyLayer,
     documents: &[&SourcePolicyDocument],
     earlier: &Composition,
+    sources: &[&SourcePolicyDocument],
 ) -> Result<()> {
-    let mut layer_limits = Vec::<&LimitPolicyValue>::new();
+    let mut layer_limits =
+        Vec::<(&SourcePolicyDocument, &PolicyRuleCommon, &LimitPolicyValue)>::new();
     for document in documents {
         for rule in &document.rules {
             match rule {
@@ -1662,24 +1766,52 @@ fn validate_layer_monotonicity(
                         .find(|candidate| candidate.effective.value.effect == value.effect)
                         && !scope_subset(&value.scope, &ceiling.effective.value.scope)
                     {
+                        let (earlier_layer, earlier_source) =
+                            earlier_authority_where(ceiling, sources, |rule| {
+                                matches!(
+                                    rule,
+                                    PolicyRule::Capability { value: prior, .. }
+                                        if prior.effect == value.effect
+                                            && !scope_subset(&value.scope, &prior.scope)
+                                )
+                            });
                         return Err(weakening(
+                            CAPABILITY_WIDENING,
                             layer,
                             document,
                             common,
-                            format!("broadens capability {}", value.effect),
+                            format!(
+                                "broadens capability {} from {} to {}",
+                                value.effect,
+                                display_scope(&ceiling.effective.value.scope),
+                                display_scope(&value.scope)
+                            ),
+                            earlier_layer,
+                            &earlier_source,
                         ));
                     }
                 }
                 PolicyRule::Limit { common, value } => {
-                    for prior in layer_limits.iter().filter(|prior| {
-                        prior.dimension == value.dimension
-                            && scopes_overlap(&prior.scope, &value.scope)
-                    }) {
+                    for (prior_document, prior_common, prior) in
+                        layer_limits.iter().filter(|(_, _, prior)| {
+                            prior.dimension == value.dimension
+                                && scopes_overlap(&prior.scope, &value.scope)
+                        })
+                    {
                         if prior.unit != value.unit {
-                            return Err(composition_invalid(format!(
-                                "overlapping limit {} uses incompatible units {} and {}",
-                                value.dimension, prior.unit, value.unit
-                            )));
+                            let prior_identity = SourceRuleIdentity {
+                                policy: prior_document.symbol.clone(),
+                                rule: prior_common.id.clone(),
+                            };
+                            return Err(unit_conflict(
+                                layer,
+                                document,
+                                common,
+                                value,
+                                layer,
+                                prior,
+                                &prior_identity,
+                            ));
                         }
                     }
                     for prior in earlier.limits.iter().filter(|candidate| {
@@ -1687,33 +1819,74 @@ fn validate_layer_monotonicity(
                             && scopes_overlap(&candidate.effective.value.scope, &value.scope)
                     }) {
                         if prior.effective.value.unit != value.unit {
-                            return Err(composition_invalid(format!(
-                                "overlapping limit {} uses incompatible units {} and {}",
-                                value.dimension, prior.effective.value.unit, value.unit
-                            )));
+                            let (earlier_layer, earlier_source) = earlier_authority(prior, sources);
+                            return Err(unit_conflict(
+                                layer,
+                                document,
+                                common,
+                                value,
+                                earlier_layer,
+                                &prior.effective.value,
+                                &earlier_source,
+                            ));
                         }
                         if exact_number_cmp(&value.maximum, &prior.effective.value.maximum)
                             == Ordering::Greater
                         {
+                            let (earlier_layer, earlier_source) =
+                                earlier_authority_where(prior, sources, |rule| {
+                                    matches!(
+                                        rule,
+                                        PolicyRule::Limit { value: prior, .. }
+                                            if prior.dimension == value.dimension
+                                                && scopes_overlap(&prior.scope, &value.scope)
+                                                && exact_number_cmp(
+                                                    &value.maximum,
+                                                    &prior.maximum,
+                                                ) == Ordering::Greater
+                                    )
+                                });
                             return Err(weakening(
+                                LIMIT_LOOSENING,
                                 layer,
                                 document,
                                 common,
-                                format!("loosens limit {}", value.dimension),
+                                format!(
+                                    "loosens limit {} from {} to {}",
+                                    value.dimension,
+                                    display_exact_number(&prior.effective.value.maximum),
+                                    display_exact_number(&value.maximum)
+                                ),
+                                earlier_layer,
+                                &earlier_source,
                             ));
                         }
                     }
-                    layer_limits.push(value);
+                    layer_limits.push((document, common, value));
                 }
                 PolicyRule::TypeMode { common, value } => {
                     if let Some(prior) = &earlier.type_mode
                         && value < &prior.effective.value
                     {
+                        let (earlier_layer, earlier_source) =
+                            earlier_authority_where(prior, sources, |rule| {
+                                matches!(
+                                    rule,
+                                    PolicyRule::TypeMode { value: prior, .. } if value < prior
+                                )
+                            });
                         return Err(weakening(
+                            TYPE_MODE_WEAKENING,
                             layer,
                             document,
                             common,
-                            "weakens type mode".to_owned(),
+                            format!(
+                                "weakens type mode from {} to {}",
+                                prior.effective.value.as_str(),
+                                value.as_str()
+                            ),
+                            earlier_layer,
+                            &earlier_source,
                         ));
                     }
                 }
@@ -1725,18 +1898,142 @@ fn validate_layer_monotonicity(
 }
 
 fn weakening(
+    code: &'static str,
     layer: PolicyLayer,
     document: &SourcePolicyDocument,
     common: &PolicyRuleCommon,
     action: String,
+    earlier_layer: PolicyLayer,
+    earlier: &SourceRuleIdentity,
 ) -> Diagnostic {
-    composition_invalid(format!(
-        "{} policy {} rule {} {}",
-        layer.as_str(),
-        document.symbol,
-        common.id,
-        action
-    ))
+    weakening_diagnostic(
+        code,
+        layer,
+        &document.symbol,
+        &common.id,
+        &action,
+        earlier_layer,
+        earlier,
+    )
+}
+
+fn weakening_diagnostic(
+    code: &'static str,
+    layer: PolicyLayer,
+    policy: &str,
+    rule: &str,
+    action: &str,
+    earlier_layer: PolicyLayer,
+    earlier: &SourceRuleIdentity,
+) -> Diagnostic {
+    Diagnostic::plain(
+        code,
+        format!(
+            "{} policy {} rule {} {}; earlier {} authority {}:{}; waiver required",
+            layer.as_str(),
+            policy,
+            rule,
+            action,
+            earlier_layer.as_str(),
+            earlier.policy,
+            earlier.rule
+        ),
+    )
+}
+
+fn earlier_authority<T>(
+    rule: &ComposedRule<T>,
+    sources: &[&SourcePolicyDocument],
+) -> (PolicyLayer, SourceRuleIdentity) {
+    earlier_authority_where(rule, sources, |_| true)
+}
+
+fn earlier_authority_where<T>(
+    rule: &ComposedRule<T>,
+    sources: &[&SourcePolicyDocument],
+    mut qualifies: impl FnMut(&PolicyRule) -> bool,
+) -> (PolicyLayer, SourceRuleIdentity) {
+    let identity = rule
+        .sources
+        .iter()
+        .find(|identity| {
+            let source = sources
+                .iter()
+                .find(|source| source.symbol == identity.policy)
+                .expect("composed rule source belongs to the validated source set");
+            let source_rule = source
+                .rules
+                .iter()
+                .find(|rule| rule.id() == identity.rule)
+                .expect("composed rule identity belongs to its validated source");
+            qualifies(source_rule)
+        })
+        .expect("a weakening has at least one governing earlier source")
+        .clone();
+    let layer = sources
+        .iter()
+        .find(|source| source.symbol == identity.policy)
+        .expect("composed rule source belongs to the validated source set")
+        .layer;
+    (layer, identity)
+}
+
+fn unit_conflict(
+    layer: PolicyLayer,
+    document: &SourcePolicyDocument,
+    common: &PolicyRuleCommon,
+    attempted: &LimitPolicyValue,
+    earlier_layer: PolicyLayer,
+    earlier: &LimitPolicyValue,
+    earlier_source: &SourceRuleIdentity,
+) -> Diagnostic {
+    weakening_diagnostic(
+        INCOMPATIBLE_LIMIT_UNITS,
+        layer,
+        &document.symbol,
+        &common.id,
+        &format!(
+            "uses incompatible unit {} for overlapping limit {}; earlier unit {}",
+            attempted.unit, attempted.dimension, earlier.unit
+        ),
+        earlier_layer,
+        earlier_source,
+    )
+}
+
+fn display_scope(scope: &Option<PolicyScope>) -> String {
+    let Some(scope) = scope else {
+        return "universe".to_owned();
+    };
+    let mut dimensions = Vec::new();
+    for (name, values) in [
+        ("goals", &scope.goals),
+        ("resources", &scope.resources),
+        ("operations", &scope.operations),
+    ] {
+        if let Some(values) = values {
+            dimensions.push(format!("{name}=[{}]", values.join(",")));
+        }
+    }
+    if dimensions.is_empty() {
+        "universe".to_owned()
+    } else {
+        dimensions.join(" ")
+    }
+}
+
+fn display_exact_number(value: &ExactNumber) -> String {
+    match value {
+        ExactNumber::Integer(value) => format!("integer({value})"),
+        ExactNumber::Rational {
+            numerator,
+            denominator,
+        } => format!("rational({numerator},{denominator})"),
+        ExactNumber::Decimal {
+            coefficient,
+            exponent,
+        } => format!("decimal({coefficient},{exponent})"),
+    }
 }
 
 impl Composition {
@@ -2160,7 +2457,7 @@ fn build_source_layers(
 }
 
 fn composition_invalid(message: impl Into<String>) -> Diagnostic {
-    Diagnostic::plain(INVALID_COMPOSITION, message)
+    Diagnostic::plain(INVALID_COMPOSITION_TOPOLOGY, message)
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
