@@ -1,3 +1,6 @@
+#[cfg(not(debug_assertions))]
+compile_error!("controlled release-build gate failure for issue #12 evidence");
+
 pub mod cbor;
 pub mod diagnostic;
 pub mod hash;

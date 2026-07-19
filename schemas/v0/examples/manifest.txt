@@ -14,4 +14,3 @@ execution-result.diag execution-result
 planner-request.diag planner-request
 planner-result.diag planner-result
 feature-manifest.diag feature-manifest
-content-reference.diag content-reference
