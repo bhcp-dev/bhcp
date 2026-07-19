@@ -786,6 +786,9 @@ impl SemanticIrDocument {
                 for child in &body.children {
                     add_id(&child.id, &mut ids)?;
                     child_goals.push(child.goal.clone());
+                    for argument in &child.arguments {
+                        argument.value.validate(&mut ids, &mut references)?;
+                    }
                 }
             }
         }
@@ -829,6 +832,7 @@ impl SemanticIrDocument {
                 .iter()
                 .find(|function| function.symbol == network.reducer)
                 .expect("reducer resolution was checked above");
+            validate_network_arguments(network, &self.goals)?;
             let mut observation_fields = Vec::with_capacity(network.children.len());
             for child in &network.children {
                 let child_goal = self
@@ -864,6 +868,86 @@ impl SemanticIrDocument {
         }
         Ok(())
     }
+}
+
+fn validate_network_arguments(network: &KernelNetwork, goals: &[GoalDefinition]) -> Result<()> {
+    for (child_index, child) in network.children.iter().enumerate() {
+        let goal = goals
+            .iter()
+            .find(|goal| goal.id == child.goal)
+            .expect("child goal resolution was checked before argument validation");
+        let BhcpType::Record(fields) = &goal.input else {
+            return Err(Diagnostic::plain(
+                "BHCP4001",
+                "kernel child goal input must be a record",
+            ));
+        };
+        if child.arguments.len() != fields.len() {
+            return Err(Diagnostic::plain(
+                "BHCP4001",
+                "kernel child arguments must exactly cover its typed input fields",
+            ));
+        }
+        for field in fields {
+            let Some(argument) = child
+                .arguments
+                .iter()
+                .find(|argument| argument.name == field.name)
+            else {
+                return Err(Diagnostic::plain(
+                    "BHCP4001",
+                    "kernel child argument does not name a typed input field",
+                ));
+            };
+            if argument.value.value_type != field.value_type {
+                return Err(Diagnostic::plain(
+                    "BHCP4001",
+                    "kernel child argument does not preserve its input field type",
+                ));
+            }
+            let ExpressionForm::Call(symbol, parameters) = &argument.value.form else {
+                return Err(Diagnostic::plain(
+                    "BHCP4001",
+                    "kernel child argument is not a checked data-edge expression",
+                ));
+            };
+            let [parameter] = parameters.as_slice() else {
+                return Err(Diagnostic::plain(
+                    "BHCP4001",
+                    "observed-output data edge must name exactly one predecessor tag",
+                ));
+            };
+            let ExpressionForm::Literal(Value::Text(tag)) = &parameter.form else {
+                return Err(Diagnostic::plain(
+                    "BHCP4001",
+                    "observed-output data edge must use a literal predecessor tag",
+                ));
+            };
+            let Some(predecessor) = network.children[..child_index]
+                .iter()
+                .find(|candidate| candidate.tag == *tag)
+            else {
+                return Err(Diagnostic::plain(
+                    "BHCP4001",
+                    "observed-output data edge must name an earlier network child",
+                ));
+            };
+            let predecessor_goal = goals
+                .iter()
+                .find(|goal| goal.id == predecessor.goal)
+                .expect("predecessor child goal resolves");
+            if symbol != "bhcp/kernel.observed-output@0"
+                || parameter.value_type != BhcpType::Primitive("Text")
+                || argument.value.value_type != predecessor_goal.output
+            {
+                return Err(Diagnostic::plain(
+                    "BHCP4001",
+                    "observed-output data edge has an invalid symbol or output type",
+                ));
+            }
+        }
+    }
+    Ok(())
 }
 
 fn header_entries(features: &[String]) -> Vec<(String, Value)> {

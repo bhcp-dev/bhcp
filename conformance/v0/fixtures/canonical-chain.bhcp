@@ -1,0 +1,23 @@
+§goal example/Edit@0 {
+    §output value: Text;
+}
+
+§goal example/Check@0 {
+    §input patch: { value: Text };
+    §output passed: Bool;
+}
+
+§goal example/Save@0 {
+    §input checked: { passed: Bool };
+    §output receipt: Text;
+}
+
+§goal example/Workflow@0 {
+    §output receipt: Text;
+
+    §chain {
+        patch = example/Edit@0();
+        checked = example/Check@0(patch = borrow patch);
+        saved = example/Save@0(checked = move checked);
+    };
+}

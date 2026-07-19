@@ -3,20 +3,21 @@ use std::collections::{HashMap, HashSet};
 use crate::cbor::encode_deterministic;
 use crate::diagnostic::{Diagnostic, Result};
 use crate::hash::{HashAlgorithm, artifact_hash_with, semantic_hash_with};
-use crate::kernel::{KernelChild, KernelNetwork};
+use crate::kernel::{ArgumentMode, KernelArgument, KernelChild, KernelNetwork};
 use crate::model::{
     BhcpType, Binding, CanonicalAstDocument, Clause, ClauseKind, ContentReference, Effect,
     Expression, ExpressionForm, FieldType, FunctionDefinition, GoalDefinition, HashId,
     SemanticIrDocument, VerifierBinding, features_for,
 };
 use crate::parser::{
-    ParsedProgram, SurfaceClauseKind, SurfaceComposition, SurfaceEffect, SurfaceExpression,
-    SurfaceFunction, SurfaceGoal, SurfaceLiteral, SurfaceType, parse_canonical,
+    ParsedProgram, SurfaceArgumentMode, SurfaceClauseKind, SurfaceComposition, SurfaceEffect,
+    SurfaceExpression, SurfaceFunction, SurfaceGoal, SurfaceLiteral, SurfaceType, parse_canonical,
 };
 use crate::policy::SourcePolicyDocument;
 use crate::prelude::{
-    ALL_FEATURE, ALL_LOWERER, ALL_REDUCER, ANY_FEATURE, ANY_LOWERER, ANY_REDUCER, DerivedChild,
-    DerivedForm, NONE_FEATURE, NONE_LOWERER, NONE_REDUCER, NetworkShape, Prelude,
+    ALL_FEATURE, ALL_LOWERER, ALL_REDUCER, ANY_FEATURE, ANY_LOWERER, ANY_REDUCER, CHAIN_FEATURE,
+    CHAIN_LOWERER, CHAIN_REDUCER, DerivedChild, DerivedForm, NONE_FEATURE, NONE_LOWERER,
+    NONE_REDUCER, NetworkShape, Prelude,
 };
 use crate::value::Value;
 
@@ -130,6 +131,9 @@ fn parse_internal(
     if uses_self_hosted_none(&program) {
         features.push(NONE_FEATURE.to_owned());
     }
+    if uses_self_hosted_chain(&program) {
+        features.push(CHAIN_FEATURE.to_owned());
+    }
     let mut ast = CanonicalAstDocument {
         features,
         root: program.ast.clone(),
@@ -229,6 +233,9 @@ fn elaborate(
     if uses_self_hosted_none(program) {
         features.push(NONE_FEATURE.to_owned());
     }
+    if uses_self_hosted_chain(program) {
+        features.push(CHAIN_FEATURE.to_owned());
+    }
     Ok(SemanticIrDocument {
         features,
         functions,
@@ -271,6 +278,29 @@ fn is_self_hosted_none_composition(composition: &SurfaceComposition) -> bool {
     }
 }
 
+fn uses_self_hosted_chain(program: &ParsedProgram) -> bool {
+    program.goals.iter().any(|goal| {
+        goal.body
+            .as_ref()
+            .is_some_and(is_self_hosted_chain_composition)
+    })
+}
+
+fn is_self_hosted_chain_composition(composition: &SurfaceComposition) -> bool {
+    match composition {
+        SurfaceComposition::DerivedChain { .. } => true,
+        SurfaceComposition::Compose { reducer, .. } => reducer == CHAIN_REDUCER,
+        _ => false,
+    }
+}
+
+fn has_implicit_unit_output(goal: &SurfaceGoal) -> bool {
+    goal.body.as_ref().is_some_and(|composition| {
+        is_self_hosted_none_composition(composition)
+            || (is_self_hosted_chain_composition(composition) && composition.branches().is_empty())
+    })
+}
+
 #[derive(Clone)]
 struct GoalSignature {
     id: String,
@@ -311,12 +341,7 @@ fn goal_signature(goal: &SurfaceGoal, index: usize, source_name: &str) -> Result
     }
     input_fields.sort_by(|left, right| left.name.cmp(&right.name));
     output_fields.sort_by(|left, right| left.name.cmp(&right.name));
-    let output = if output_fields.is_empty()
-        && goal
-            .body
-            .as_ref()
-            .is_some_and(is_self_hosted_none_composition)
-    {
+    let output = if output_fields.is_empty() && has_implicit_unit_output(goal) {
         BhcpType::Primitive("Unit")
     } else {
         BhcpType::Record(output_fields)
@@ -401,11 +426,7 @@ fn lower_goal(
     debug_assert_eq!(signature.input, input);
     debug_assert!(
         signature.output == declared_output
-            || (declared_output == BhcpType::Record(vec![])
-                && goal
-                    .body
-                    .as_ref()
-                    .is_some_and(is_self_hosted_none_composition))
+            || (declared_output == BhcpType::Record(vec![]) && has_implicit_unit_output(goal))
     );
     let output = signature.output.clone();
     let mut clauses = Vec::new();
@@ -542,6 +563,7 @@ fn lower_composition(
     functions: &mut Vec<FunctionDefinition>,
     ids: &mut Ids,
 ) -> Result<KernelNetwork> {
+    let is_chain = is_self_hosted_chain_composition(composition);
     let mut tags = HashSet::new();
     let mut children = Vec::new();
     for branch in composition.branches() {
@@ -561,22 +583,29 @@ fn lower_composition(
                 &branch.at,
             )
         })?;
-        if child.input != BhcpType::Record(vec![]) {
-            return Err(error(
-                "BHCP2004",
-                "composition children with inputs require goal-call arguments, which are outside this slice",
-                source_name,
-                &branch.at,
-            ));
-        }
+        let arguments = if is_chain {
+            lower_chain_arguments(branch, child, children.last(), source_name, ids)?
+        } else {
+            if child.input != BhcpType::Record(vec![]) || !branch.arguments.is_empty() {
+                return Err(error(
+                    "BHCP2004",
+                    "goal-call arguments are implemented only for chain composition",
+                    source_name,
+                    &branch.at,
+                ));
+            }
+            vec![]
+        };
         children.push(DerivedChild {
             tag: branch.tag.clone(),
             goal: child.id.clone(),
             output: child.output.clone(),
-            arguments: vec![],
+            arguments,
         });
     }
-    children.sort_by(|left, right| left.tag.cmp(&right.tag));
+    if !is_chain {
+        children.sort_by(|left, right| left.tag.cmp(&right.tag));
+    }
     let shape = match composition {
         SurfaceComposition::DerivedAll { .. } => prelude.lower(
             ALL_LOWERER,
@@ -596,6 +625,14 @@ fn lower_composition(
         )?,
         SurfaceComposition::DerivedNone { .. } => prelude.lower(
             NONE_LOWERER,
+            DerivedForm {
+                input: parent.input.clone(),
+                output: parent.output.clone(),
+                children,
+            },
+        )?,
+        SurfaceComposition::DerivedChain { .. } => prelude.lower(
+            CHAIN_LOWERER,
             DerivedForm {
                 input: parent.input.clone(),
                 output: parent.output.clone(),
@@ -671,6 +708,88 @@ fn lower_composition(
             .collect(),
         reducer: reducer_symbol,
     })
+}
+
+fn lower_chain_arguments(
+    branch: &crate::parser::SurfaceBranch,
+    child: &GoalSignature,
+    predecessor: Option<&DerivedChild>,
+    source_name: &str,
+    ids: &mut Ids,
+) -> Result<Vec<KernelArgument>> {
+    let BhcpType::Record(input_fields) = &child.input else {
+        unreachable!("goal inputs are records in the implemented source slice")
+    };
+    let Some(predecessor) = predecessor else {
+        if input_fields.is_empty() && branch.arguments.is_empty() {
+            return Ok(vec![]);
+        }
+        return Err(error(
+            "BHCP2003",
+            "the first chain child must have no predecessor input",
+            source_name,
+            &branch.at,
+        ));
+    };
+    let ([field], [argument]) = (input_fields.as_slice(), branch.arguments.as_slice()) else {
+        return Err(error(
+            "BHCP2003",
+            "each later chain child must bind its one input to the immediate predecessor output",
+            source_name,
+            &branch.at,
+        ));
+    };
+    if argument.name != field.name {
+        return Err(error(
+            "BHCP2001",
+            format!(
+                "chain argument {:?} does not name the child input",
+                argument.name
+            ),
+            source_name,
+            &argument.at,
+        ));
+    }
+    if argument.source != predecessor.tag {
+        return Err(error(
+            "BHCP2001",
+            format!(
+                "chain argument source {:?} is not the immediate predecessor {:?}",
+                argument.source, predecessor.tag
+            ),
+            source_name,
+            &argument.at,
+        ));
+    }
+    if field.value_type != predecessor.output {
+        return Err(error(
+            "BHCP2003",
+            "chain predecessor output does not match the child input type",
+            source_name,
+            &argument.at,
+        ));
+    }
+    let tag = Expression {
+        id: ids.next("expr"),
+        value_type: BhcpType::Primitive("Text"),
+        form: ExpressionForm::Literal(Value::Text(predecessor.tag.clone())),
+    };
+    let value = Expression {
+        id: ids.next("expr"),
+        value_type: predecessor.output.clone(),
+        form: ExpressionForm::Call("bhcp/kernel.observed-output@0".to_owned(), vec![tag]),
+    };
+    let mode = match argument.mode {
+        SurfaceArgumentMode::Value => ArgumentMode::Value,
+        SurfaceArgumentMode::Move => ArgumentMode::Move,
+        SurfaceArgumentMode::Borrow => ArgumentMode::Borrow,
+        SurfaceArgumentMode::Share => ArgumentMode::Share,
+    };
+    Ok(vec![KernelArgument {
+        name: argument.name.clone(),
+        mode,
+        value,
+    }])
 }
 
 fn specialized_reducer_symbol(
@@ -897,6 +1016,7 @@ fn lower_reducer_expression(
                 "bhcp/kernel.satisfied-record@0"
                 | "bhcp/kernel.first-satisfied-output@0"
                 | "bhcp/kernel.last-satisfied-output@0"
+                | "bhcp/kernel.last-satisfied-output-or-unit@0"
                     if argument_types == [observations_type.clone()] =>
                 {
                     output_type.as_ref().clone()

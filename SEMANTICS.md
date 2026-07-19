@@ -524,6 +524,12 @@ Reading an absent observation or producing an argument of the wrong type is reje
 before execution when provable and is otherwise an operational fault. The reducer
 returns exactly one reduction state:
 
+In the executable `chain` slice, every child after the first has exactly one typed
+input bound to the immediate predecessor's whole sealed output through an explicit
+`bhcp/kernel.observed-output@0` data-edge expression. Its value/move/borrow/share mode
+is semantic. The first child is input-free, source order is preserved, and the edge
+does not add a scheduler dependency field or ordering hint to `kernel-network`.
+
 | Reduction | Meaning |
 | --- | --- |
 | `Pending(requiredTags)` | The listed unique, known, unobserved child tags are exactly those whose results may next affect a conclusion. |

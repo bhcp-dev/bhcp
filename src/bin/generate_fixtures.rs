@@ -10,6 +10,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         "canonical-all",
         "canonical-any",
         "canonical-none",
+        "canonical-chain",
     ] {
         let source_path = directory.join(format!("{name}.bhcp"));
         let source = fs::read_to_string(&source_path)?;

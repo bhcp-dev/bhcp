@@ -1,0 +1,43 @@
+§function bhcp/prelude.lower-chain@0<I, O>(
+    form: Meta<DerivedForm, I, O>
+): Meta<NetworkShape, I, O> =
+    bhcp/meta.network-shape@0(
+        bhcp/meta.last-child-output-or-unit@0(form),
+        form,
+        "bhcp/prelude.chain-reducer@0"
+    );
+
+§function bhcp/prelude.chain-reducer@0<I, O, Observations>(
+    parent: I,
+    observations: Observations
+): Reduction<O> =
+    if bhcp/kernel.has-refuted@0(observations) then
+        bhcp/kernel.conclude@0(
+            bhcp/kernel.refuted@0(
+                bhcp/kernel.partial-evidence@0(observations)
+            )
+        )
+    else if bhcp/kernel.has-faulted@0(observations) then
+        bhcp/kernel.conclude@0(
+            bhcp/kernel.faulted@0(
+                bhcp/kernel.first-fault@0(observations)
+            )
+        )
+    else if bhcp/kernel.has-unresolved@0(observations) then
+        bhcp/kernel.conclude@0(
+            bhcp/kernel.unresolved@0(
+                bhcp/kernel.first-unresolved-reason@0(observations),
+                bhcp/kernel.partial-evidence@0(observations)
+            )
+        )
+    else if bhcp/kernel.has-missing@0(observations) then
+        bhcp/kernel.pending@0(
+            bhcp/kernel.first-missing-tag@0(observations)
+        )
+    else
+        bhcp/kernel.conclude@0(
+            bhcp/kernel.satisfied@0(
+                bhcp/kernel.last-satisfied-output-or-unit@0(observations),
+                bhcp/kernel.satisfied-evidence@0(observations)
+            )
+        );
