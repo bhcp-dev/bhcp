@@ -3,7 +3,42 @@
 use std::collections::HashMap;
 use std::fmt::Write;
 
+use crate::profile::ResolvedProfile;
 use crate::value::Value;
+
+pub fn render_profile_resolution(resolved: &ResolvedProfile) -> String {
+    let mut output = String::new();
+    writeln!(output, "profile {}", resolved.profile).unwrap();
+    writeln!(
+        output,
+        "profile-chain [{}]",
+        resolved.profile_chain.join(", ")
+    )
+    .unwrap();
+    writeln!(output, "syntax {}", resolved.syntax.symbol).unwrap();
+    writeln!(
+        output,
+        "syntax-chain [{}]",
+        resolved.syntax_chain.join(", ")
+    )
+    .unwrap();
+    writeln!(output, "type-mode {}", resolved.type_mode.as_str()).unwrap();
+    writeln!(
+        output,
+        "policy-overlays [{}]",
+        resolved.policy_overlays.join(", ")
+    )
+    .unwrap();
+    if let Some(identity) = &resolved.effective_policy.header.semantic_id {
+        writeln!(
+            output,
+            "effective-policy semantic_id {}",
+            render_hash(&identity.to_value()).expect("validated policy identity")
+        )
+        .unwrap();
+    }
+    output
+}
 
 pub fn render_artifact(artifact: &Value, source: Option<&str>) -> String {
     let mut output = String::new();

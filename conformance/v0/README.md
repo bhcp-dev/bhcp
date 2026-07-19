@@ -38,9 +38,9 @@ no artifact output. Exact custom symbols are selected without aliasing; unregist
 symbols fail closed with `BHCP0004`. The typed artifact harness in
 `tests/profile_models.rs` round-trips every mapping category, common profile field,
 and type mode through deterministic CBOR and pins stable malformed-document
-diagnostics without closing feature negotiation. The profile-resolution model in
-`tests/profile_contract.rs` pins the remaining S9.1 decision boundary before
-inheritance exists. Positive vectors resolve exact single-parent syntax and profile
+diagnostics without closing feature negotiation. The finite profile-resolution model
+in `tests/profile_contract.rs` pins the complete S9.1 decision boundary alongside the
+executable registry. Positive vectors resolve exact single-parent syntax and profile
 chains, safe token-coordinate overrides, nondecreasing type mode, and root-to-leaf
 policy overlays. Adversarial vectors cover missing/cyclic parents, duplicate
 coordinates, category errors, ambiguous or prefix-conflicting surfaces, recursive
@@ -52,8 +52,14 @@ sources close SYN-01 for one explicitly registered effective syntax: all six map
 categories normalize before the canonical parser, comments and literals are inert,
 original spans drive diagnostics, and equivalent canonical/custom programs share a
 semantic ID. Adversarial effective maps fail as `BHCP9002`; mapped-away canonical
-spellings fail as `BHCP0005`; registry omission remains `BHCP0004`. Syntax/profile
-inheritance and attached overlay composition remain assigned to the next stage.
+spellings fail as `BHCP0005`; registry omission remains `BHCP0004`.
+`tests/profile_resolution.rs` makes the previously finite-only inheritance boundary
+executable: registry insertion order cannot change the resolved value, child syntax
+overrides flatten root to leaf, exact policy parents and overlays compose before
+elaboration, and the resolved custom program matches canonical semantic identity.
+Missing/cyclic parents, unrelated syntax, weaker modes, duplicate or missing overlays,
+and inherited mapping conflicts fail atomically as `BHCP9003`/`BHCP9002`; attached
+policy weakening retains its ordinary `BHCP8101`–`BHCP8107` code.
 
 The registered verifier slice additionally executes EVD-01 through EVD-06 for flat
 contract clauses, including capability-bounded project adapters and their deterministic
