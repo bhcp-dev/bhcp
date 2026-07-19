@@ -120,6 +120,26 @@ fn type_authority_prohibition_and_limit_denials_are_stable_and_emit_no_ir() {
             .unwrap_err();
     assert_eq!(loose.code, "BHCP8204");
     assert!(loose.message.contains("example/limit.attempts@0"));
+
+    let scoped_limit = effective(
+        r#"
+§policy example/policy.org@0 {
+  layer organization;
+  rule a-capability: capability narrow { effect: bhcp-effect/fs-read@0 } nonwaivable;
+  rule b-limit: limit tighten {
+    dimension: example/limit.attempts@0,
+    unit: example/unit.count@0,
+    maximum: ["integer", 3],
+    scope: { goals: [example/Greet@0], operations: [example/operation.retry@0] }
+  } nonwaivable;
+  rule c-mode: type-mode strengthen infer-strict nonwaivable;
+  rule d-prohibition: prohibition deny { effect: bhcp-effect/network@0 } nonwaivable;
+}
+"#,
+    );
+    let loose = GOAL.replace("attempts <= 3", "attempts <= 4");
+    let scoped = compile_source_with_policy(&loose, "goal.bhcp", &scoped_limit).unwrap_err();
+    assert_eq!(scoped.code, "BHCP8204");
 }
 
 #[test]
