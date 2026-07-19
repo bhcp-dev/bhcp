@@ -163,6 +163,7 @@ fn inspect_renders_source_and_effective_layers_rules_provenance_and_identities()
     let source_text = String::from_utf8(source.stdout).unwrap();
     assert!(source_text.contains("policy source example/policy.org@0 layer organization"));
     assert!(source_text.contains("[a-requirement] requirement add nonwaivable"));
+    assert!(source_text.contains("requirement: \"example/requirement.lint@0\""));
 
     let composed = policy_command("compose", &[&fixtures.organization, &fixtures.repository]);
     assert!(composed.status.success());
@@ -181,6 +182,7 @@ fn inspect_renders_source_and_effective_layers_rules_provenance_and_identities()
         "effective requirements[0]",
         "effective capabilities[0]",
         "effective limits[0]",
+        "effective capabilities[0] nonwaivable:",
         "effective type-mode strict",
         "provenance capability[0] <- example/policy.org@0#b-capability, example/policy.repo@0#a-capability",
     ] {
