@@ -29,9 +29,11 @@ fn run() -> Result<(), String> {
         "run-001" => historical(&arguments, "contextual-policy-multiseed-001", true),
         "freeze-002" => historical(&arguments, "contextual-policy-multiseed-002", false),
         "run-002" => historical(&arguments, "contextual-policy-multiseed-002", true),
-        "freeze-003" => corrected(&arguments, false),
-        "run-003" => corrected(&arguments, true),
-        _ => Err("mode must select registered run 001, 002, or 003".to_owned()),
+        "freeze-003" => corrected(&arguments, "contextual-policy-multiseed-003", false),
+        "run-003" => corrected(&arguments, "contextual-policy-multiseed-003", true),
+        "freeze-004" => corrected(&arguments, "contextual-policy-multiseed-004", false),
+        "run-004" => corrected(&arguments, "contextual-policy-multiseed-004", true),
+        _ => Err("mode must select registered run 001, 002, 003, or 004".to_owned()),
     }
 }
 
@@ -70,7 +72,11 @@ fn historical(
     finish(plan, should_run, arguments.get(10))
 }
 
-fn corrected(arguments: &[std::ffi::OsString], should_run: bool) -> Result<(), String> {
+fn corrected(
+    arguments: &[std::ffi::OsString],
+    experiment_id: &str,
+    should_run: bool,
+) -> Result<(), String> {
     if arguments.len() != if should_run { 12 } else { 11 } {
         return Err("run 003 expects MODE DRIVER CODEX CODEX_HOME CARGO_HOME RUSTUP_HOME BHCP RUSTUP TOOLCHAIN_BIN DENY_ROOT SCRATCH [OUTPUT]".to_owned());
     }
@@ -119,6 +125,7 @@ fn corrected(arguments: &[std::ffi::OsString], should_run: bool) -> Result<(), S
         verify_rustup_selection(&rustup, name, executable)?;
     }
     let plan = corrected_plan(
+        experiment_id,
         &fixture,
         &scratch,
         &driver,
@@ -280,6 +287,7 @@ fn judge<const N: usize>(name: &str, cargo: &Path, arguments: [&str; N]) -> Judg
 
 #[allow(clippy::too_many_arguments)]
 fn corrected_plan(
+    experiment_id: &str,
     fixture: &Path,
     scratch: &Path,
     driver: &Path,
@@ -295,7 +303,7 @@ fn corrected_plan(
     oracle_probe: &Path,
 ) -> ExperimentPlan {
     let mut plan = ExperimentPlan::new(
-        "contextual-policy-multiseed-003",
+        experiment_id,
         fixture,
         scratch,
         ExperimentPins {

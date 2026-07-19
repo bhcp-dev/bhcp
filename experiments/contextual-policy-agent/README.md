@@ -37,6 +37,8 @@ protocol, and symmetric offline judge sequence for subsequent runs.
   ordered-specificity invariants, while a latest-main follow-up passed 10/10 with
   substantially higher token intake.
 - Multi-seed runs 001 and 002 are retained as invalid infrastructure records after
-  independent review found that host reads were not confined. Run 003 is
-  [preregistered](results/multiseed-003-registration.md) with operating-system read
-  confinement and exact nested executable identities.
+  independent review found that host reads were not confined. Run 003 established
+  the read boundary but was excluded before model launch because temporary
+  metadata traversal was too narrow. Run 004 is
+  [preregistered](results/multiseed-004-registration.md) after a real Codex smoke
+  request completed through the corrected boundary.
