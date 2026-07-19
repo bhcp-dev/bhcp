@@ -481,3 +481,12 @@ fn verification_revalidates_the_retained_effective_policy() {
     assert_eq!(diagnostic.code, "BHCP7001");
     assert!(diagnostic.message.contains("invalid effective policy"));
 }
+
+#[test]
+fn retained_policy_document_cannot_be_removed_to_drop_evidence_demands() {
+    let mut compilation = compilation();
+    compilation.effective_policy = None;
+    let diagnostic = verify(&compilation, &VerifierRegistry::new()).unwrap_err();
+    assert_eq!(diagnostic.code, "BHCP7001");
+    assert!(diagnostic.message.contains("retained effective policy"));
+}
