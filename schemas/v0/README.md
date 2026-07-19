@@ -99,6 +99,16 @@ rule spans in the canonical AST. Diagnostic-only labels, comments, and formattin
 not enter the policy document. Waiver/profile shorthand and expression-valued policy
 clauses are explicitly deferred and rejected rather than accepted as opaque values.
 
+The policy composer now emits canonical `effective-policy-document` values from
+validated source documents. Source layers and policy references are sorted,
+content-addressed, and retained separately from effective semantic meaning; rule
+provenance is indexed after deterministic category ordering. Empty scope maps
+canonicalize to an omitted universe, capability scopes intersect, exact limits take
+their minimum, type mode strengthens, and exact duplicate governance combines by
+waivability conjunction and issuer intersection. Missing/cyclic/cross-layer
+inheritance, duplicate sources, forbidden weakening, and overlapping incompatible
+limit units fail before an effective artifact is emitted.
+
 The cddl-rs CBOR validator is not used for instances yet: version 0.10.6 misvalidates
 repeated references to controlled aliases used by this schema, including
 `[* feature-id]` where `feature-id` ultimately carries `.regexp`. The normative

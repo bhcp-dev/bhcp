@@ -1,7 +1,7 @@
 //! Strongly typed v0 source and effective policy documents.
 
 use std::cmp::Ordering;
-use std::collections::HashSet;
+use std::collections::{BTreeMap, BTreeSet, HashSet};
 
 use crate::cbor::{decode_deterministic, encode_deterministic};
 use crate::diagnostic::{Diagnostic, Result};
@@ -10,6 +10,7 @@ use crate::model::{HashId, is_symbol};
 use crate::value::Value;
 
 const INVALID_POLICY: &str = "BHCP8001";
+const INVALID_COMPOSITION: &str = "BHCP8002";
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct PolicyHeader {
@@ -1537,6 +1538,629 @@ impl EffectivePolicyDocument {
             "effective policy artifact_id does not match document",
         )
     }
+}
+
+#[derive(Clone)]
+struct ComposedRule<T> {
+    effective: EffectiveRule<T>,
+    sources: Vec<SourceRuleIdentity>,
+}
+
+#[derive(Default)]
+struct Composition {
+    requirements: Vec<ComposedRule<RequirementPolicyValue>>,
+    evidence: Vec<ComposedRule<EvidencePolicyValue>>,
+    prohibitions: Vec<ComposedRule<CapabilityPolicyValue>>,
+    capabilities: Vec<ComposedRule<CapabilityPolicyValue>>,
+    limits: Vec<ComposedRule<LimitPolicyValue>>,
+    type_mode: Option<ComposedRule<TypeMode>>,
+}
+
+/// Composes validated source documents in organization-to-user order.
+pub fn compose_policies(
+    sources: &[SourcePolicyDocument],
+    algorithm: HashAlgorithm,
+) -> Result<EffectivePolicyDocument> {
+    for source in sources {
+        PolicyDocument::Source(source.clone()).validate()?;
+    }
+    let mut ordered = sources.iter().collect::<Vec<_>>();
+    ordered.sort_by(|left, right| left.symbol.cmp(&right.symbol));
+    if let Some(pair) = ordered
+        .windows(2)
+        .find(|pair| pair[0].symbol == pair[1].symbol)
+    {
+        return Err(composition_invalid(format!(
+            "duplicate policy source {}",
+            pair[0].symbol
+        )));
+    }
+    validate_inheritance(&ordered)?;
+
+    let mut by_layer = BTreeMap::<PolicyLayer, Vec<&SourcePolicyDocument>>::new();
+    let mut features = BTreeSet::new();
+    for source in &ordered {
+        by_layer.entry(source.layer).or_default().push(*source);
+        features.extend(source.header.features.iter().cloned());
+    }
+
+    let mut composition = Composition::default();
+    for (layer, documents) in &by_layer {
+        validate_layer_monotonicity(*layer, documents, &composition)?;
+        for document in documents {
+            for rule in &document.rules {
+                composition.add_source_rule(document, rule)?;
+            }
+        }
+    }
+    composition.finish(ordered, features.into_iter().collect(), algorithm)
+}
+
+fn validate_inheritance(sources: &[&SourcePolicyDocument]) -> Result<()> {
+    for source in sources {
+        if let Some(parent) = &source.extends {
+            let Some(parent) = sources.iter().find(|candidate| candidate.symbol == *parent) else {
+                return Err(composition_invalid(format!(
+                    "policy {} extends missing policy {}",
+                    source.symbol, parent
+                )));
+            };
+            if parent.layer != source.layer {
+                return Err(composition_invalid(format!(
+                    "policy {} extends a policy in another layer",
+                    source.symbol
+                )));
+            }
+        }
+    }
+    let mut states = vec![0_u8; sources.len()];
+    for index in 0..sources.len() {
+        visit_inheritance(index, sources, &mut states)?;
+    }
+    Ok(())
+}
+
+fn visit_inheritance(
+    index: usize,
+    sources: &[&SourcePolicyDocument],
+    states: &mut [u8],
+) -> Result<()> {
+    if states[index] == 2 {
+        return Ok(());
+    }
+    states[index] = 1;
+    if let Some(parent) = &sources[index].extends {
+        let parent_index = sources
+            .iter()
+            .position(|candidate| candidate.symbol == *parent)
+            .expect("inheritance target was validated");
+        if states[parent_index] == 1 {
+            return Err(composition_invalid(format!(
+                "policy inheritance cycle includes {}",
+                sources[parent_index].symbol
+            )));
+        }
+        visit_inheritance(parent_index, sources, states)?;
+    }
+    states[index] = 2;
+    Ok(())
+}
+
+fn validate_layer_monotonicity(
+    layer: PolicyLayer,
+    documents: &[&SourcePolicyDocument],
+    earlier: &Composition,
+) -> Result<()> {
+    let mut layer_limits = Vec::<&LimitPolicyValue>::new();
+    for document in documents {
+        for rule in &document.rules {
+            match rule {
+                PolicyRule::Capability { common, value } => {
+                    if let Some(ceiling) = earlier
+                        .capabilities
+                        .iter()
+                        .find(|candidate| candidate.effective.value.effect == value.effect)
+                        && !scope_subset(&value.scope, &ceiling.effective.value.scope)
+                    {
+                        return Err(weakening(
+                            layer,
+                            document,
+                            common,
+                            format!("broadens capability {}", value.effect),
+                        ));
+                    }
+                }
+                PolicyRule::Limit { common, value } => {
+                    for prior in layer_limits.iter().filter(|prior| {
+                        prior.dimension == value.dimension
+                            && scopes_overlap(&prior.scope, &value.scope)
+                    }) {
+                        if prior.unit != value.unit {
+                            return Err(composition_invalid(format!(
+                                "overlapping limit {} uses incompatible units {} and {}",
+                                value.dimension, prior.unit, value.unit
+                            )));
+                        }
+                    }
+                    for prior in earlier.limits.iter().filter(|candidate| {
+                        candidate.effective.value.dimension == value.dimension
+                            && scopes_overlap(&candidate.effective.value.scope, &value.scope)
+                    }) {
+                        if prior.effective.value.unit != value.unit {
+                            return Err(composition_invalid(format!(
+                                "overlapping limit {} uses incompatible units {} and {}",
+                                value.dimension, prior.effective.value.unit, value.unit
+                            )));
+                        }
+                        if exact_number_cmp(&value.maximum, &prior.effective.value.maximum)
+                            == Ordering::Greater
+                        {
+                            return Err(weakening(
+                                layer,
+                                document,
+                                common,
+                                format!("loosens limit {}", value.dimension),
+                            ));
+                        }
+                    }
+                    layer_limits.push(value);
+                }
+                PolicyRule::TypeMode { common, value } => {
+                    if let Some(prior) = &earlier.type_mode
+                        && value < &prior.effective.value
+                    {
+                        return Err(weakening(
+                            layer,
+                            document,
+                            common,
+                            "weakens type mode".to_owned(),
+                        ));
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+    Ok(())
+}
+
+fn weakening(
+    layer: PolicyLayer,
+    document: &SourcePolicyDocument,
+    common: &PolicyRuleCommon,
+    action: String,
+) -> Diagnostic {
+    composition_invalid(format!(
+        "{} policy {} rule {} {}",
+        layer.as_str(),
+        document.symbol,
+        common.id,
+        action
+    ))
+}
+
+impl Composition {
+    fn add_source_rule(
+        &mut self,
+        document: &SourcePolicyDocument,
+        rule: &PolicyRule,
+    ) -> Result<()> {
+        let source = SourceRuleIdentity {
+            policy: document.symbol.clone(),
+            rule: rule.id().to_owned(),
+        };
+        match rule {
+            PolicyRule::Requirement { common, value } => {
+                let mut value = value.clone();
+                value.scope = normalized_scope(&value.scope);
+                merge_additive(&mut self.requirements, common, value, source)
+            }
+            PolicyRule::Evidence { common, value } => {
+                let mut value = value.clone();
+                value.scope = normalized_scope(&value.scope);
+                merge_additive(&mut self.evidence, common, value, source)
+            }
+            PolicyRule::Prohibition { common, value } => {
+                let mut value = value.clone();
+                value.scope = normalized_scope(&value.scope);
+                merge_additive(&mut self.prohibitions, common, value, source)
+            }
+            PolicyRule::Capability { common, value } => {
+                let mut value = value.clone();
+                value.scope = normalized_scope(&value.scope);
+                if let Some(existing) = self
+                    .capabilities
+                    .iter_mut()
+                    .find(|candidate| candidate.effective.value.effect == value.effect)
+                {
+                    existing.effective.value.scope =
+                        intersect_scope(&existing.effective.value.scope, &value.scope);
+                    merge_governance(&mut existing.effective, common);
+                    insert_source(&mut existing.sources, source);
+                } else {
+                    self.capabilities.push(composed(common, value, source));
+                }
+            }
+            PolicyRule::Limit { common, value } => {
+                let mut value = value.clone();
+                value.scope = normalized_scope(&value.scope);
+                if let Some(existing) = self.limits.iter_mut().find(|candidate| {
+                    candidate.effective.value.dimension == value.dimension
+                        && candidate.effective.value.unit == value.unit
+                        && candidate.effective.value.scope == value.scope
+                }) {
+                    match exact_number_cmp(&value.maximum, &existing.effective.value.maximum) {
+                        Ordering::Less => {
+                            *existing = composed(common, value, source);
+                        }
+                        Ordering::Equal => {
+                            if exact_number_encoding(&value.maximum)
+                                < exact_number_encoding(&existing.effective.value.maximum)
+                            {
+                                existing.effective.value.maximum = value.maximum.clone();
+                            }
+                            merge_governance(&mut existing.effective, common);
+                            insert_source(&mut existing.sources, source);
+                        }
+                        Ordering::Greater => {}
+                    }
+                } else {
+                    self.limits.push(composed(common, value, source));
+                }
+            }
+            PolicyRule::TypeMode { common, value } => match &mut self.type_mode {
+                Some(existing) if value > &existing.effective.value => {
+                    *existing = composed(common, *value, source);
+                }
+                Some(existing) if value == &existing.effective.value => {
+                    merge_governance(&mut existing.effective, common);
+                    insert_source(&mut existing.sources, source);
+                }
+                Some(_) => {}
+                None => self.type_mode = Some(composed(common, *value, source)),
+            },
+        }
+        Ok(())
+    }
+
+    fn finish(
+        mut self,
+        sources: Vec<&SourcePolicyDocument>,
+        features: Vec<String>,
+        algorithm: HashAlgorithm,
+    ) -> Result<EffectivePolicyDocument> {
+        sort_composed(&mut self.requirements, RequirementPolicyValue::to_value)?;
+        sort_composed(&mut self.evidence, EvidencePolicyValue::to_value)?;
+        sort_composed(&mut self.prohibitions, CapabilityPolicyValue::to_value)?;
+        sort_composed(&mut self.capabilities, CapabilityPolicyValue::to_value)?;
+        sort_composed(&mut self.limits, LimitPolicyValue::to_value)?;
+
+        let mut provenance = Vec::new();
+        append_provenance(
+            &mut provenance,
+            PolicyCategory::Requirement,
+            &self.requirements,
+        );
+        append_provenance(&mut provenance, PolicyCategory::Evidence, &self.evidence);
+        append_provenance(
+            &mut provenance,
+            PolicyCategory::Prohibition,
+            &self.prohibitions,
+        );
+        append_provenance(
+            &mut provenance,
+            PolicyCategory::Capability,
+            &self.capabilities,
+        );
+        append_provenance(&mut provenance, PolicyCategory::Limit, &self.limits);
+
+        let mut type_mode = self.type_mode.unwrap_or(ComposedRule {
+            effective: EffectiveRule {
+                waivable: false,
+                authorized_issuers: vec![],
+                value: TypeMode::Dynamic,
+            },
+            sources: vec![],
+        });
+        if type_mode.effective.value == TypeMode::Dynamic {
+            type_mode.effective.waivable = false;
+            type_mode.effective.authorized_issuers.clear();
+        }
+        if !type_mode.sources.is_empty() {
+            provenance.push(RuleProvenance {
+                category: PolicyCategory::TypeMode,
+                effective_rule: 0,
+                sources: type_mode.sources.clone(),
+            });
+        }
+
+        let effective = EffectivePolicy {
+            requirements: take_effective(self.requirements),
+            evidence: take_effective(self.evidence),
+            prohibitions: take_effective(self.prohibitions),
+            capabilities: take_effective(self.capabilities),
+            limits: take_effective(self.limits),
+            type_mode: type_mode.effective,
+        };
+        let source_layers = build_source_layers(&sources, algorithm)?;
+        let semantic_id = hash_value(&effective.to_value(), algorithm)?;
+        let mut document = EffectivePolicyDocument {
+            header: PolicyHeader {
+                features,
+                semantic_id: Some(semantic_id),
+                artifact_id: None,
+                provenance: None,
+                authorization: None,
+            },
+            effective,
+            source_layers,
+            rule_provenance: provenance,
+            waivers: None,
+        };
+        document.header.artifact_id =
+            Some(artifact_hash_with(&document.to_value(false), algorithm)?);
+        document.validate()?;
+        Ok(document)
+    }
+}
+
+fn composed<T: Clone>(
+    common: &PolicyRuleCommon,
+    value: T,
+    source: SourceRuleIdentity,
+) -> ComposedRule<T> {
+    ComposedRule {
+        effective: EffectiveRule {
+            waivable: common.waivable,
+            authorized_issuers: common.authorized_issuers.clone(),
+            value,
+        },
+        sources: vec![source],
+    }
+}
+
+fn merge_additive<T: Clone + Eq>(
+    rules: &mut Vec<ComposedRule<T>>,
+    common: &PolicyRuleCommon,
+    value: T,
+    source: SourceRuleIdentity,
+) {
+    if let Some(existing) = rules
+        .iter_mut()
+        .find(|candidate| candidate.effective.value == value)
+    {
+        merge_governance(&mut existing.effective, common);
+        insert_source(&mut existing.sources, source);
+    } else {
+        rules.push(composed(common, value, source));
+    }
+}
+
+fn merge_governance<T>(effective: &mut EffectiveRule<T>, common: &PolicyRuleCommon) {
+    if !effective.waivable || !common.waivable {
+        effective.waivable = false;
+        effective.authorized_issuers.clear();
+        return;
+    }
+    effective.authorized_issuers =
+        intersect_sorted(&effective.authorized_issuers, &common.authorized_issuers);
+    if effective.authorized_issuers.is_empty() {
+        effective.waivable = false;
+    }
+}
+
+fn insert_source(sources: &mut Vec<SourceRuleIdentity>, source: SourceRuleIdentity) {
+    match sources.binary_search(&source) {
+        Ok(_) => {}
+        Err(index) => sources.insert(index, source),
+    }
+}
+
+fn intersect_sorted<T: Ord + Clone>(left: &[T], right: &[T]) -> Vec<T> {
+    left.iter()
+        .filter(|value| right.binary_search(value).is_ok())
+        .cloned()
+        .collect()
+}
+
+fn scope_subset(left: &Option<PolicyScope>, right: &Option<PolicyScope>) -> bool {
+    let left = left.as_ref();
+    let right = right.as_ref();
+    dimension_subset(
+        left.and_then(|scope| scope.goals.as_ref()),
+        right.and_then(|scope| scope.goals.as_ref()),
+    ) && dimension_subset(
+        left.and_then(|scope| scope.resources.as_ref()),
+        right.and_then(|scope| scope.resources.as_ref()),
+    ) && dimension_subset(
+        left.and_then(|scope| scope.operations.as_ref()),
+        right.and_then(|scope| scope.operations.as_ref()),
+    )
+}
+
+fn dimension_subset(left: Option<&Vec<String>>, right: Option<&Vec<String>>) -> bool {
+    match (left, right) {
+        (_, None) => true,
+        (None, Some(_)) => false,
+        (Some(left), Some(right)) => left.iter().all(|value| right.binary_search(value).is_ok()),
+    }
+}
+
+fn intersect_scope(left: &Option<PolicyScope>, right: &Option<PolicyScope>) -> Option<PolicyScope> {
+    let scope = PolicyScope {
+        goals: intersect_dimension(
+            left.as_ref().and_then(|value| value.goals.as_ref()),
+            right.as_ref().and_then(|value| value.goals.as_ref()),
+        ),
+        resources: intersect_dimension(
+            left.as_ref().and_then(|value| value.resources.as_ref()),
+            right.as_ref().and_then(|value| value.resources.as_ref()),
+        ),
+        operations: intersect_dimension(
+            left.as_ref().and_then(|value| value.operations.as_ref()),
+            right.as_ref().and_then(|value| value.operations.as_ref()),
+        ),
+    };
+    if scope.goals.is_none() && scope.resources.is_none() && scope.operations.is_none() {
+        None
+    } else {
+        Some(scope)
+    }
+}
+
+fn normalized_scope(scope: &Option<PolicyScope>) -> Option<PolicyScope> {
+    match scope {
+        Some(scope)
+            if scope.goals.is_none() && scope.resources.is_none() && scope.operations.is_none() =>
+        {
+            None
+        }
+        value => value.clone(),
+    }
+}
+
+fn intersect_dimension(
+    left: Option<&Vec<String>>,
+    right: Option<&Vec<String>>,
+) -> Option<Vec<String>> {
+    match (left, right) {
+        (None, None) => None,
+        (Some(value), None) | (None, Some(value)) => Some(value.clone()),
+        (Some(left), Some(right)) => Some(intersect_sorted(left, right)),
+    }
+}
+
+fn scopes_overlap(left: &Option<PolicyScope>, right: &Option<PolicyScope>) -> bool {
+    let left = left.as_ref();
+    let right = right.as_ref();
+    dimension_overlaps(
+        left.and_then(|scope| scope.goals.as_ref()),
+        right.and_then(|scope| scope.goals.as_ref()),
+    ) && dimension_overlaps(
+        left.and_then(|scope| scope.resources.as_ref()),
+        right.and_then(|scope| scope.resources.as_ref()),
+    ) && dimension_overlaps(
+        left.and_then(|scope| scope.operations.as_ref()),
+        right.and_then(|scope| scope.operations.as_ref()),
+    )
+}
+
+fn dimension_overlaps(left: Option<&Vec<String>>, right: Option<&Vec<String>>) -> bool {
+    match (left, right) {
+        (Some(left), Some(right)) => left.iter().any(|value| right.binary_search(value).is_ok()),
+        (Some(value), None) | (None, Some(value)) => !value.is_empty(),
+        (None, None) => true,
+    }
+}
+
+fn exact_number_cmp(left: &ExactNumber, right: &ExactNumber) -> Ordering {
+    let (left_num, left_den, left_exp) = exact_parts(left);
+    let (right_num, right_den, right_exp) = exact_parts(right);
+    scaled_integer_cmp(
+        left_num * right_den,
+        left_exp,
+        right_num * left_den,
+        right_exp,
+    )
+}
+
+fn exact_number_encoding(value: &ExactNumber) -> Vec<u8> {
+    encode_deterministic(&value.to_value()).expect("validated exact number encodes")
+}
+
+fn exact_parts(value: &ExactNumber) -> (u128, u128, i64) {
+    match value {
+        ExactNumber::Integer(value) => (*value as u128, 1, 0),
+        ExactNumber::Rational {
+            numerator,
+            denominator,
+        } => (*numerator as u128, *denominator as u128, 0),
+        ExactNumber::Decimal {
+            coefficient,
+            exponent,
+        } => (*coefficient as u128, 1, *exponent),
+    }
+}
+
+fn scaled_integer_cmp(left: u128, left_exp: i64, right: u128, right_exp: i64) -> Ordering {
+    if left == 0 || right == 0 {
+        return left.cmp(&right);
+    }
+    let left_text = left.to_string();
+    let right_text = right.to_string();
+    let left_magnitude = left_text.len() as i128 + left_exp as i128;
+    let right_magnitude = right_text.len() as i128 + right_exp as i128;
+    match left_magnitude.cmp(&right_magnitude) {
+        Ordering::Equal => {
+            let width = left_text.len().max(right_text.len());
+            (0..width)
+                .map(|index| left_text.as_bytes().get(index).copied().unwrap_or(b'0'))
+                .cmp(
+                    (0..width)
+                        .map(|index| right_text.as_bytes().get(index).copied().unwrap_or(b'0')),
+                )
+        }
+        ordering => ordering,
+    }
+}
+
+fn sort_composed<T>(rules: &mut [ComposedRule<T>], value: fn(&T) -> Value) -> Result<()> {
+    rules.sort_by_cached_key(|rule| {
+        encode_deterministic(&effective_rule_value(&rule.effective, value))
+            .expect("validated effective rule encodes")
+    });
+    Ok(())
+}
+
+fn append_provenance<T>(
+    output: &mut Vec<RuleProvenance>,
+    category: PolicyCategory,
+    rules: &[ComposedRule<T>],
+) {
+    output.extend(
+        rules
+            .iter()
+            .enumerate()
+            .map(|(effective_rule, rule)| RuleProvenance {
+                category,
+                effective_rule,
+                sources: rule.sources.clone(),
+            }),
+    );
+}
+
+fn take_effective<T>(rules: Vec<ComposedRule<T>>) -> Vec<EffectiveRule<T>> {
+    rules.into_iter().map(|rule| rule.effective).collect()
+}
+
+fn build_source_layers(
+    sources: &[&SourcePolicyDocument],
+    algorithm: HashAlgorithm,
+) -> Result<Vec<PolicySourceLayer>> {
+    let mut layers = BTreeMap::<PolicyLayer, Vec<PolicySource>>::new();
+    for source in sources {
+        let bytes = PolicyDocument::Source((*source).clone()).to_cbor(false)?;
+        layers.entry(source.layer).or_default().push(PolicySource {
+            symbol: source.symbol.clone(),
+            artifact: ArtifactReference {
+                media_type: "application/cbor".to_owned(),
+                size: bytes.len() as u64,
+                digests: vec![algorithm.hash(&bytes)],
+                locations: None,
+            },
+        });
+    }
+    Ok(layers
+        .into_iter()
+        .map(|(layer, mut policies)| {
+            policies.sort_by(|left, right| left.symbol.cmp(&right.symbol));
+            PolicySourceLayer { layer, policies }
+        })
+        .collect())
+}
+
+fn composition_invalid(message: impl Into<String>) -> Diagnostic {
+    Diagnostic::plain(INVALID_COMPOSITION, message)
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
