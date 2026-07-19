@@ -1,4 +1,6 @@
 use bhcp::experiment_codex::summarize_events;
+use std::fs;
+use std::process::Command;
 
 #[test]
 fn closed_codex_event_summary_counts_only_completed_commands_and_final_usage() {
@@ -28,4 +30,41 @@ fn codex_event_summary_fails_closed_on_unknown_or_incomplete_usage() {
         .is_err()
     );
     assert!(summarize_events(b"{\"type\":\"turn.started\"}\n".as_slice()).is_err());
+}
+
+#[test]
+fn driver_forwards_the_controller_owned_target_to_codex() {
+    let root = std::env::temp_dir().join(format!("bhcp-codex-driver-{}", std::process::id()));
+    if root.exists() {
+        fs::remove_dir_all(&root).unwrap();
+    }
+    for directory in ["workspace/subject", "target", "codex-home", "home", "cargo", "rustup", "tools"] {
+        fs::create_dir_all(root.join(directory)).unwrap();
+    }
+    fs::write(root.join("workspace/prompt.md"), "frozen prompt\n").unwrap();
+    let output = Command::new(env!("CARGO_BIN_EXE_bhcp_codex_experiment_driver"))
+        .args([
+            env!("CARGO_BIN_EXE_bhcp-experiment-fake-codex"),
+            root.join("codex-home").to_str().unwrap(),
+            root.join("home").to_str().unwrap(),
+            root.join("cargo").to_str().unwrap(),
+            root.join("rustup").to_str().unwrap(),
+            root.join("tools").to_str().unwrap(),
+            "1.97.1",
+        ])
+        .current_dir(root.join("workspace"))
+        .env_clear()
+        .env("BHCP_EXPERIMENT_MODEL", "test-model")
+        .env("BHCP_EXPERIMENT_REASONING", "medium")
+        .env("BHCP_EXPERIMENT_SANDBOX", "workspace-write/no-network")
+        .env("BHCP_EXPERIMENT_TOOLCHAIN", "test-toolchain")
+        .env("BHCP_EXPERIMENT_PROMPT", "prompt.md")
+        .env("CARGO_TARGET_DIR", root.join("target"))
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+    assert!(String::from_utf8(output.stdout)
+        .unwrap()
+        .contains("completed_commands=1"));
+    fs::remove_dir_all(root).unwrap();
 }
