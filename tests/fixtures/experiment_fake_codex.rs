@@ -3,12 +3,30 @@ use std::io::Read;
 use std::path::PathBuf;
 
 fn main() {
+    if std::env::args_os().nth(1).as_deref() == Some(std::ffi::OsStr::new("--version")) {
+        println!("codex-cli 0.142.4");
+        return;
+    }
     if let Some(probe) = std::env::var_os("BHCP_EXPERIMENT_DENIED_READ_PROBE") {
         assert!(
             fs::read(&probe).is_err(),
             "the original oracle remained readable inside the Codex boundary"
         );
     }
+    let auth = PathBuf::from(std::env::var_os("CODEX_HOME").expect("missing Codex home"))
+        .join("auth.json");
+    assert!(
+        fs::read(&auth).is_ok(),
+        "Codex could not read its credentials"
+    );
+    assert!(
+        !std::process::Command::new("/usr/bin/head")
+            .arg(&auth)
+            .status()
+            .unwrap()
+            .success(),
+        "a Codex child process could read isolated credentials"
+    );
     let target = PathBuf::from(std::env::var_os("CARGO_TARGET_DIR").expect("missing target"));
     assert!(target.is_dir());
     let arguments: Vec<_> = std::env::args_os().collect();

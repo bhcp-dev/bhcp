@@ -60,7 +60,7 @@ fn driver_confines_codex_reads_and_forwards_the_controller_owned_target() {
             root.join("cargo").to_str().unwrap(),
             root.join("rustup").to_str().unwrap(),
             env!("CARGO_BIN_EXE_bhcp-experiment-fake-agent"),
-            env!("CARGO_BIN_EXE_bhcp-experiment-fake-agent"),
+            root.join("rustup").to_str().unwrap(),
             "1.97.1",
             root.join("denied").to_str().unwrap(),
             denied_probe.to_str().unwrap(),
