@@ -1,0 +1,55 @@
+§policy example/policy.compact@0 {
+  layer organization;
+  rule a-capability: capability narrow {
+    effect: bhcp-effect/fs.read@0,
+    scope: {
+      goals: [example/Conformance@0]
+    }
+  } nonwaivable;
+  rule b-evidence-approval: evidence add {
+    obligation: example/obligation.approval@0,
+    classes: [human-approved],
+    minimum: 1,
+    scope: { goals: [example/Conformance@0] }
+  } nonwaivable;
+  rule c-evidence-audit: evidence add {
+    obligation: example/obligation.audit@0,
+    classes: [empirical],
+    minimum: 1,
+    scope: { goals: [example/Conformance@0] }
+  } nonwaivable;
+  rule d-evidence-review: evidence add {
+    obligation: example/obligation.review@0,
+    classes: [static],
+    minimum: 1,
+    scope: { goals: [example/Conformance@0] }
+  } nonwaivable;
+  rule e-limit: limit tighten {
+    dimension: example/limit.attempts@0,
+    unit: example/unit.count@0,
+    maximum: ["integer", 3]
+  } nonwaivable;
+  rule f-mode: type-mode strengthen infer-strict nonwaivable;
+  rule g-prohibition-network: prohibition deny {
+    effect: bhcp-effect/network@0
+  } nonwaivable;
+  rule h-prohibition-process: prohibition deny {
+    effect: bhcp-effect/process@0
+  } nonwaivable;
+  rule i-requirement-audit: requirement add {
+    requirement: example/requirement.audit@0,
+    scope: { goals: [example/Conformance@0] }
+  } nonwaivable;
+  rule j-requirement-repository: requirement add {
+    requirement: example/requirement.repository-review@0,
+    scope: { goals: [example/Conformance@0] }
+  } nonwaivable;
+  rule k-requirement-team: requirement add {
+    requirement: example/requirement.team-review@0,
+    scope: { goals: [example/Conformance@0] }
+  } nonwaivable;
+  rule l-requirement-user: requirement add {
+    requirement: example/requirement.user-review@0,
+    scope: { goals: [example/Conformance@0] }
+  } nonwaivable;
+}

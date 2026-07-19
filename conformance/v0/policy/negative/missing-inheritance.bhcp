@@ -1,0 +1,3 @@
+§policy example/negative.missing@0 §extends example/negative.absent@0 {
+  layer repository;
+}

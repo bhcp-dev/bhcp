@@ -1,0 +1,8 @@
+§policy example/negative.mode.organization@0 {
+  layer organization;
+  rule a-mode: type-mode strengthen strict nonwaivable;
+}
+§policy example/negative.mode.repository@0 {
+  layer repository;
+  rule a-mode: type-mode strengthen gradual nonwaivable;
+}

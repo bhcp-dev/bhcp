@@ -1,0 +1,21 @@
+§policy example/policy.repository@0 {
+  layer repository;
+  rule a-capability: capability narrow {
+    effect: bhcp-effect/fs.read@0,
+    scope: {
+      goals: [example/Conformance@0]
+    }
+  } nonwaivable;
+  rule b-limit: limit tighten {
+    dimension: example/limit.attempts@0,
+    unit: example/unit.count@0,
+    maximum: ["integer", 5]
+  } nonwaivable;
+  rule c-prohibition: prohibition deny {
+    effect: bhcp-effect/process@0
+  } nonwaivable;
+  rule d-requirement: requirement add {
+    requirement: example/requirement.repository-review@0,
+    scope: { goals: [example/Conformance@0] }
+  } nonwaivable;
+}

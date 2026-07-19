@@ -1,0 +1,6 @@
+§goal example/Conformance@0 {
+  §input attempts: Integer;
+  §allows bhcp-effect/fs.read@0;
+  §forbids bhcp-effect/network@0;
+  §limit example/limit.attempts@0: attempts <= 3;
+}
