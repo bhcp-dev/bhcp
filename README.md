@@ -190,10 +190,10 @@ registrations produce required unresolved gaps; arbitrary project commands are n
 silently executed. Evidence timestamps are injected, and the implemented boundary
 accepts canonical UTC timestamps at second precision.
 
-This library boundary does not yet build obligation or execution graphs, load
-verifier commands from a project manifest, or run the coding-agent experiment's Rust
-and policy adapters. Those adapters remain the next vertical slice; they will consume
-the generic registry instead of becoming kernel primitives.
+This library boundary does not yet build obligation or execution graphs or connect
+process-backed adapters to evidence-bundle dispatch. The manifest and bounded process
+runner are implemented; the next vertical slice maps their typed outcomes into the
+generic registry instead of making adapters kernel primitives.
 
 ### Project-local verifier adapters
 
@@ -219,10 +219,43 @@ Declarations are sorted by verifier symbol and effect sets are normalized. Every
 field is required. Executables are lexical project-relative paths; shells, command
 strings, absolute/parent paths, ambient network, unknown effects or keys, duplicate
 fields or symbols, invalid media types, and unbounded timeouts fail closed with a
-project-manifest diagnostic. The process runner remains follow-up work: it must
-canonicalize the executable to defeat symlink escape, pass argv without a shell,
-intersect effects with canonical policy, and retain adapter provenance in evidence.
-The local declaration is not a new CDDL artifact and does not change semantic ID.
+project-manifest diagnostic.
+
+`VerifierProcessRunner` canonicalizes the project root and exact executable, rejects
+symlink escape, captures the executable and registration artifacts, passes argv
+directly with no shell or `PATH` lookup, clears the environment, and sends one
+deterministic CBOR request on standard input. The closed response protocol preserves
+accepted, rejected, unresolved, and faulted states. Input, stdout, stderr, executable
+size, wall-clock time, and cancellation are bounded and have stable, distinguishable
+outcomes. Every execution record retains the exact declaration, obligation targets,
+request, response when present, executable artifact, and exit code.
+
+The runner compares the executable's device, inode, mode, size, and nanosecond
+modification identity before and after artifact capture and again immediately before
+launch, so same-length replacement is detected. The portable native launch still
+reopens that canonical path after the final comparison; deployments must prevent
+concurrent mutation of registered executables. Descriptor-based execution is a future
+hardening option, not a property claimed by this slice.
+
+Native adapters run only behind the packaged `bhcp-adapter-sandbox`, which closes every
+inherited descriptor above standard error before installing the fail-closed OS sandbox.
+Linux requires Landlock ABI v4 with full enforcement and seccomp; filesystem
+access is restricted to the exact executable, read-only platform runtime paths, and
+the project root only when its read/write effects were declared. Socket and network
+operations are denied. macOS additionally requires `/usr/bin/sandbox-exec`; it denies
+network and all non-project writes, and withholds common user/data roots unless project
+read was declared while retaining the read-only OS runtime surface needed to load the
+binary.
+An unsupported or unavailable sandbox is an execution failure, never a silent direct
+launch. The local declaration is not a new CDDL artifact and does not change semantic
+ID.
+
+Operationally, a missing executable, canonical path escape, malformed or oversized
+output, stderr flooding, nonzero exit, timeout, and cancellation are different
+conditions; sandbox setup also fails closed as a process fault. Timeouts and
+cancellation are unresolved completion reasons; process/protocol failures are faults.
+A `BHCP7001` diagnostic means the request or registration violated the boundary before
+any adapter process was started.
 
 ## Coding-agent experiments
 
