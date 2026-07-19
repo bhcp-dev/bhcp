@@ -289,6 +289,25 @@ fn effective_policy_round_trips_typed_applied_waiver_audit_entries() {
         PolicyDocument::from_cbor(&document.to_cbor(true).unwrap()).unwrap(),
         document
     );
+
+    let plain = PolicyDocument::from_value(&effective_policy()).unwrap();
+    let later =
+        PolicyDocument::from_value(&effective_policy_with_waivers(array([applied_waiver(
+            array([
+                array([text("example/policy.org@0"), text("a-rule")]),
+                array([text("example/policy.org@0"), text("b-rule")]),
+            ]),
+            Value::Tag(0, Box::new(text("2026-07-19T14:00:00Z"))),
+        )])))
+        .unwrap();
+    let (PolicyDocument::Effective(plain), PolicyDocument::Effective(later)) = (&plain, &later)
+    else {
+        unreachable!()
+    };
+    assert_eq!(plain.header.semantic_id, effective.header.semantic_id);
+    assert_eq!(effective.header.semantic_id, later.header.semantic_id);
+    assert_ne!(plain.header.artifact_id, effective.header.artifact_id);
+    assert_ne!(effective.header.artifact_id, later.header.artifact_id);
 }
 
 #[test]
