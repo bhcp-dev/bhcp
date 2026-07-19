@@ -391,6 +391,14 @@ any adapter process was started.
 
 ## Coding-agent experiments
 
+[`experiments/CONTROLLER.md`](experiments/CONTROLLER.md) documents the implemented
+safe-Rust experiment controller. It freezes input, model, reasoning, sandbox,
+toolchain, limit, arm-order, executable, and judge identities before launch;
+creates a fresh oracle-free workspace per arm; records bounded external metrics;
+rejects interrupted, contaminated, adaptive-oracle, and incomplete sessions; then
+copies the frozen oracle and judges every arm symmetrically. Repository-facing
+reports are create-once Markdown rather than checked-in JSON event streams.
+
 [`experiments/minimal-coding-agent/`](experiments/minimal-coding-agent/) contains a
 pinned, dependency-free Rust repository for the first controlled coding-agent
 comparison. Its visible tests pass while an independent oracle rejects partial batch
