@@ -140,7 +140,7 @@ impl PolicyLayer {
         }
     }
 
-    pub fn as_str(self) -> &'static str {
+    fn as_str(self) -> &'static str {
         match self {
             Self::Organization => "organization",
             Self::Team => "team",
