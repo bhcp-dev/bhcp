@@ -99,7 +99,18 @@ rather than erased.
 | --- | --- | --- |
 | `§goal` / `§function` | Goals and the checked prelude-function boundary described above | General project functions and the remaining S7 goal grammar |
 | `§policy` | Layer, `§extends`, six closed typed rules, scopes/parameters, waivability, issuers, composition, inspection, policy-aware elaboration, and no-waiver conformance fixtures | Expression-valued policy clauses, waiver/profile shorthand, and enforcement beyond the compile-time/evidence boundary |
-| Other S7 definitions | None | `§type`, `§predicate`, `§syntax`, `§profile`, `§waiver`, `§extension`, and `§refines` |
+| `§syntax` / `§profile` | Normative closed mapping, inheritance, formatting, overlay, and identity contract plus wire shapes and decision vectors | Source parsing, preamble scanning, typed Rust models, normalization, and formatting |
+| Other S7 definitions | None | `§type`, `§predicate`, `§waiver`, `§extension`, and `§refines` |
+
+The Phase 4 decision boundary admits only one-token keyword, punctuation, and symbol
+alias mappings. Exact single-parent chains resolve root to leaf; effective surface
+spellings must be unambiguous and prefix-safe; core symbols cannot be rebound; and
+formatting can change only insignificant whitespace. Profile children may select only
+the same or a descendant syntax, may strengthen but not relax type mode, and append
+unique policy overlays in an auditable root-to-leaf order before ordinary monotonic
+policy composition. These rules are specified and executable as finite decision
+vectors; accepting noncanonical source remains deferred to the scanner/model/lowering
+issues that follow.
 
 `bhcp.hash/sha3-512@0` is the default and only currently registered identity
 algorithm, implemented through the pinned pure-Rust `sha3` crate. It provides a roughly 256-bit

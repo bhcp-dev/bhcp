@@ -27,6 +27,15 @@ and a unary gate infers `Excluded | Included<T>` from its child. Obligation-grap
 proof coverage and unlisted scenarios remain normative acceptance requirements, not
 claimed implementation support.
 
+The finite profile-resolution model in `tests/profile_contract.rs` pins the S9.1
+decision boundary before the profile parser exists. Positive vectors resolve exact
+single-parent syntax and profile chains, safe token-coordinate overrides,
+nondecreasing type mode, and root-to-leaf policy overlays. Adversarial vectors cover
+missing/cyclic parents, duplicate coordinates, category errors, ambiguous or
+prefix-conflicting surfaces, recursive aliases, core rebinding, unrelated child
+syntax, weaker child type mode, and duplicate overlays. It specifies SYN-01/SYN-03
+resolution behavior without claiming that noncanonical source is accepted yet.
+
 The registered verifier slice additionally executes EVD-01 through EVD-06 for flat
 contract clauses, including capability-bounded project adapters and their deterministic
 evidence mapping. It does not yet claim general obligation-graph construction,

@@ -2,8 +2,17 @@
   "version": "bhcp/v0",
   "features": [],
   "kind": "syntax",
-  "symbol": "bhcp.syntax/canonical@0",
+  "symbol": "example/syntax.words@0",
+  "extends": "bhcp.syntax/canonical@0",
   "preamble": "#!bhcp-profile",
-  "mappings": [],
-  "formatting": {}
+  "mappings": [
+    {"category": "keyword", "canonical": "goal", "surface": "outcome"},
+    {"category": "terminator", "canonical": ";", "surface": "!"},
+    {"category": "alias", "canonical": "example/Check@0", "surface": "check"}
+  ],
+  "formatting": {
+    "indent_width": 2,
+    "line_width": 100,
+    "final_newline": true
+  }
 }

@@ -799,10 +799,97 @@ Omission selects `bhcp/canonical@0`. Preamble parsing permits only ASCII space a
 and performs no aliasing. The selected profile is included in the AST artifact but
 excluded from semantic identity.
 
-v0 syntax profiles may remap keywords, the sigil, delimiters, terminators, formatting
-rules, and aliases; inherit one exact parent; and attach policy overlays. They MUST
-lower deterministically to canonical tokens. Arbitrary grammars, parser code,
-unrestricted macros, ambiguous aliases, and core-semantic overrides are rejected.
+#### S9.1.1 Mapping vocabulary and lexical safety
+
+A syntax mapping changes one spelling, never grammar. Its canonical coordinate is
+one member of this closed vocabulary:
+
+- `keyword`: one bare reserved word from the canonical grammar, such as `goal` or
+  `requires`; the sigil is a separate coordinate;
+- `sigil`: the canonical `§` token;
+- `open-delimiter` or `close-delimiter`: one canonical `{ }`, `( )`, or `[ ]` token,
+  with pairing determined by that canonical token rather than by presentation;
+- `terminator`: the canonical `;` token; or
+- `alias`: one fully qualified, versioned symbol.
+
+The `canonical` value MUST be a registered coordinate of the declared category. A
+keyword surface is one NFC-normalized identifier token. A sigil, delimiter, or
+terminator surface is a non-empty NFC-normalized punctuation sequence containing no
+letter, number, whitespace, or control character. An alias surface is one
+NFC-normalized alias identifier or fully qualified symbol spelling and expands
+exactly once to its canonical symbol before ordinary name resolution. Mapping text
+MUST NOT contain the fixed profile preamble.
+
+Within one syntax document, each `(category, canonical)` coordinate occurs at most
+once; violation is `duplicate-coordinate`. A wrong or unknown coordinate is
+`category-mismatch`, and an empty, non-normalized, or lexically invalid surface is
+`invalid-surface`. After inheritance and overrides resolve, two distinct canonical
+coordinates MUST NOT share a surface spelling (`ambiguous-surface`). No effective
+punctuation spelling may be a strict prefix of another (`punctuation-prefix`). An
+alias target MUST NOT itself be any effective alias surface, so alias chains and
+cycles fail as `recursive-alias`. A surface symbol in the reserved `bhcp/` namespace
+may map only to itself; rebinding a core symbol fails as `core-override`.
+
+Normalization recognizes one surface token and emits exactly its one canonical token
+or symbol. A mapping cannot insert, erase, split, combine, or reorder tokens; change
+literal, identifier, comment, or version syntax; introduce precedence or parser code;
+or redefine the meaning of a canonical token. Omitted coordinates use canonical
+spellings. The complete effective map is validated before any program token is
+accepted, so conflicts never depend on which spelling appears first in the input.
+
+Formatting is not a token mapping. It is the closed presentation record
+`{ indent_width, line_width, final_newline }`, where indentation is 0 through 16
+ASCII spaces, line width is 1 through 512 columns, and the final-newline choice is
+Boolean. A formatter may add or remove only insignificant whitespace according to
+that record; it MUST NOT change the normalized token stream.
+
+#### S9.1.2 Syntax inheritance and conflict resolution
+
+Syntax documents form a symbol-indexed registry. A symbol is unique and `extends`
+names zero or one exact syntax-document symbol. Missing parents fail as
+`missing-parent`; repeated ancestry fails as `inheritance-cycle`. Resolution walks
+the single chain from root to leaf. The child replaces an inherited mapping only at
+the identical `(category, canonical)` coordinate and otherwise adds a coordinate.
+It supplies its complete formatting record. The fully resolved leaf is then checked
+against every lexical-safety rule above; inheritance cannot hide a conflict.
+
+There is no multiple inheritance, fallback search, version-range selection, ambient
+registry precedence, or source-order tie-break. A parent symbol resolves to one exact
+artifact before normalization begins. Syntax inheritance affects the AST artifact,
+inspection, and formatting provenance, but only its emitted canonical token stream is
+available to parsing and semantic lowering.
+
+#### S9.1.3 Profile inheritance, overlays, and identity
+
+Profile documents use the same unique-symbol, zero-or-one-exact-parent, missing-parent,
+and cycle rules. Resolution walks root to leaf. A child profile's `syntax` MUST name
+the same syntax document as its parent or a descendant of that syntax; selecting an
+unrelated syntax fails as `unrelated-syntax`. Its `type_mode` MUST equal or strengthen
+the inherited mode along `dynamic < gradual < infer-strict < strict`; an explicit
+relaxation fails as `weaker-type-mode` rather than being silently ignored.
+
+Policy overlays are concatenated root to leaf and, within each profile, in declared
+array order. The same policy symbol appearing twice in the resolved chain fails as
+`duplicate-overlay`. Every overlay must resolve exactly, then all overlays enter the
+S9.2 composer: fixed organization → team → repository → user layer order and
+canonical symbol order within a layer determine composition and diagnostics. Profile
+array order remains audit provenance; it never creates a precedence escape from the
+restrictive join. An invalid or weakening overlay rejects the profile attachment as a
+whole.
+
+The fixed preamble selects only the leaf profile. That profile resolves exactly one
+syntax chain, one nondecreasing type-mode boundary, and one ordered overlay list
+before the rest of the file is tokenized. There is no per-definition profile switch.
+The selected profile, resolved syntax artifacts, original spelling, and formatting
+belong to AST artifact identity. Lexical mappings and formatting never enter semantic
+identity after canonicalization. The resolved type mode and effective overlays are
+explicit policy inputs and therefore affect semantic identity by the ordinary S9.2
+rules. Consequently two profiles that emit identical canonical tokens and resolve to
+the same effective policy produce identical semantic IR and semantic IDs, even when
+their presentation and AST artifact IDs differ.
+
+Arbitrary grammars, executable macros, parser plugins, ambiguous aliases, implicit
+parents, and core-semantic overrides are outside v0 and MUST be rejected.
 
 ### S9.2 Monotonic policy
 
@@ -1258,7 +1345,7 @@ shape.
 | self-hosted standard goal algebra | S8.2–S8.3 | `meta-type`, `derived-form-shape`, `network-shape`, `function-definition`, `kernel-network`, `execution-result` |
 | composition of contracts/policy/budgets/preferences | S8.4 | `clause`, `budget`, `preference`, graph rules |
 | persistent retention/freshness | S8.5 | `state-cell`, `state-node`, `state-transition` |
-| profiles and fixed preamble | S9.1 | `syntax-document`, `profile-document`, `syntax-mapping` |
+| profiles and fixed preamble | S9.1 | `syntax-document`, `profile-document`, `syntax-mapping`, `formatting-rules` |
 | monotonic policy and waivers | S9.2 | `policy-document`, `waiver-document` |
 | derived/native extensions | S9.3 | `extension-descriptor-document`, `extension-node` |
 | platform analysis/execution/evidence artifacts | S10 | all graph, planner, evidence document roots |

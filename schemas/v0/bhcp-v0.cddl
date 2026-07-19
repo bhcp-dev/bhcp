@@ -419,11 +419,31 @@ policy-decision = {
 
 ; ---------- Profiles, policies, waivers, and extensions ----------
 
-syntax-mapping = {
-  "category": "keyword" / "sigil" / "open-delimiter" / "close-delimiter"
-            / "terminator" / "alias" / "formatting",
+syntax-mapping = keyword-syntax-mapping / punctuation-syntax-mapping
+               / alias-syntax-mapping
+
+keyword-syntax-mapping = {
+  "category": "keyword",
   "canonical": tstr,
   "surface": tstr
+}
+
+punctuation-syntax-mapping = {
+  "category": "sigil" / "open-delimiter" / "close-delimiter" / "terminator",
+  "canonical": tstr,
+  "surface": tstr
+}
+
+alias-syntax-mapping = {
+  "category": "alias",
+  "canonical": symbol-id,
+  "surface": tstr
+}
+
+formatting-rules = {
+  "indent_width": 0..16,
+  "line_width": 1..512,
+  "final_newline": bool
 }
 
 syntax-document = {
@@ -433,7 +453,7 @@ syntax-document = {
   ? "extends": symbol-id,
   "preamble": "#!bhcp-profile",
   "mappings": [* syntax-mapping],
-  "formatting": { * tstr => value }
+  "formatting": formatting-rules
 }
 
 profile-document = {

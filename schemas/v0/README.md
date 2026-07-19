@@ -55,6 +55,16 @@ BHCP lowering function, is not must-understand after full lowering, and has no n
 payload schema. A native descriptor has a required payload schema, is always
 must-understand, and cannot masquerade as a derived lowering.
 
+Syntax documents use a closed union of keyword, punctuation, and alias mappings.
+Category-specific wire shapes prevent alias coordinates from degrading into arbitrary
+values, while S9.1 supplies the registered canonical-coordinate, NFC, lexical,
+uniqueness, prefix, alias, and core-protection checks that CDDL cannot express. The
+separate closed formatting record permits only bounded indentation/line width and a
+final-newline choice, none of which can alter tokens. Profile documents retain one
+exact optional parent, one exact syntax, an ordered overlay list, and type mode;
+S9.1 defines root-to-leaf resolution and rejects unrelated syntax, type-mode
+relaxation, duplicate overlays, missing parents, and cycles before tokenization.
+
 Policy documents use a closed typed union rather than an unrestricted `value` slot.
 Each category has exactly one operation: requirements and evidence add typed demands,
 prohibitions deny typed effect scopes, capabilities narrow typed effect scopes,
