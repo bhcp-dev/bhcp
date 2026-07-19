@@ -2249,6 +2249,32 @@ pub fn apply_waiver(
             ));
         }
         match (&target.weakening, provenance.category) {
+            (WaiverWeakening::BroadenCapability { from, to }, PolicyCategory::Capability) => {
+                let rule = output
+                    .effective
+                    .capabilities
+                    .get_mut(provenance.effective_rule)
+                    .ok_or_else(|| waiver_target("waiver capability target index is invalid"))?;
+                authorize_effective_rule(rule, authority_root)?;
+                let target_scope = normalized_scope(&target.scope);
+                if target_scope != normalized_scope(&rule.value.scope)
+                    || target_scope != normalized_scope(&from.scope)
+                {
+                    return Err(waiver_change(
+                        "capability waiver does not match the exact target scope",
+                    ));
+                }
+                if from != &rule.value
+                    || from.effect != to.effect
+                    || !scope_subset(&from.scope, &to.scope)
+                    || normalized_scope(&from.scope) == normalized_scope(&to.scope)
+                {
+                    return Err(waiver_change(
+                        "waiver capability change is not an exact broadening",
+                    ));
+                }
+                rule.value = to.clone();
+            }
             (WaiverWeakening::LoosenLimit { from, to }, PolicyCategory::Limit) => {
                 let rule = output
                     .effective
