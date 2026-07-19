@@ -310,3 +310,33 @@ fn pilot_006_preserves_the_negative_result_and_latest_skill_follow_up() {
         replay_candidate(patch, blob, accepted);
     }
 }
+
+#[test]
+fn multiseed_001_is_registered_against_the_exact_evaluated_skill() {
+    let root = experiment();
+    let registration =
+        fs::read_to_string(root.join("results/multiseed-001-registration.md")).unwrap();
+    let prompt = root.join("MULTISEED_PROMPT.md");
+    let installed_skill = root.join("subject/.agents/skills/interpret-bhcp-contract/SKILL.md");
+    let evaluated_skill = root.join("results/pilot-006/evaluated-skill/SKILL.md");
+
+    assert_eq!(
+        fs::read(&installed_skill).unwrap(),
+        fs::read(&evaluated_skill).unwrap()
+    );
+    assert_eq!(
+        git_blob(&installed_skill),
+        "b1a2f5fdfb3044be679f1e947bf1a1e56957e278"
+    );
+    assert_eq!(
+        git_blob(&prompt),
+        "d3df4a0285c2b0d76b47b89d522c46096a6e0ea0"
+    );
+    assert!(
+        registration
+            .contains("`seed-01`, `seed-02`, `seed-03`, `seed-04`, `seed-05`; no replacement runs")
+    );
+    assert!(registration.contains("Codex CLI exposes no numeric model seed"));
+    assert!(registration.contains("`claimed_success=false` is the evidence-calibrated claim"));
+    assert!(registration.contains("No hypothesis test, confidence interval, causal skill effect"));
+}

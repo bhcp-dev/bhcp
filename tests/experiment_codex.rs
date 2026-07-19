@@ -20,12 +20,12 @@ fn closed_codex_event_summary_counts_only_completed_commands_and_final_usage() {
 
 #[test]
 fn codex_event_summary_fails_closed_on_unknown_or_incomplete_usage() {
-    assert!(summarize_events(b"not-json\n").is_err());
+    assert!(summarize_events(b"not-json\n".as_slice()).is_err());
     assert!(
         summarize_events(
-            b"{\"type\":\"turn.completed\",\"usage\":{\"input_tokens\":1}}\n"
+            b"{\"type\":\"turn.completed\",\"usage\":{\"input_tokens\":1}}\n".as_slice()
         )
         .is_err()
     );
-    assert!(summarize_events(b"{\"type\":\"turn.started\"}\n").is_err());
+    assert!(summarize_events(b"{\"type\":\"turn.started\"}\n".as_slice()).is_err());
 }
