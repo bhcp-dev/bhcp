@@ -132,6 +132,14 @@ fn remove_target_scope(document: Value) -> Value {
     Value::owned_map(entries)
 }
 
+fn replace_root_field(document: Value, key: &str, replacement: Value) -> Value {
+    let Value::Map(mut entries) = document else {
+        unreachable!()
+    };
+    entries.iter_mut().find(|(name, _)| name == key).unwrap().1 = replacement;
+    Value::owned_map(entries)
+}
+
 fn policy(waivable: bool) -> bhcp::policy::EffectivePolicyDocument {
     let governance = if waivable {
         "waivable by [\"security-team\"]"
@@ -430,4 +438,46 @@ fn additive_removals_and_allow_over_deny_remove_only_the_exact_target() {
             "{rule}"
         );
     }
+}
+
+#[test]
+fn finite_delegation_chain_must_connect_an_authorized_root_to_the_exact_issuer() {
+    let delegation = Value::map([
+        ("delegator", text("security-team")),
+        ("delegate", text("release-manager")),
+        ("authorization", reference()),
+    ]);
+    let value = replace_root_field(
+        waiver_value("release-manager", "attempts"),
+        "authority_chain",
+        array([delegation]),
+    );
+    let waiver = WaiverDocument::from_value(&value).unwrap();
+    apply_waiver(
+        &policy(true),
+        &waiver,
+        "2026-07-19T13:30:00Z",
+        HashAlgorithm::default(),
+    )
+    .unwrap();
+
+    let unauthorized = Value::map([
+        ("delegator", text("untrusted-root")),
+        ("delegate", text("release-manager")),
+        ("authorization", reference()),
+    ]);
+    let value = replace_root_field(
+        waiver_value("release-manager", "attempts"),
+        "authority_chain",
+        array([unauthorized]),
+    );
+    let waiver = WaiverDocument::from_value(&value).unwrap();
+    let error = apply_waiver(
+        &policy(true),
+        &waiver,
+        "2026-07-19T13:30:00Z",
+        HashAlgorithm::default(),
+    )
+    .unwrap_err();
+    assert_eq!(error.code, "BHCP8305");
 }
