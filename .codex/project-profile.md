@@ -125,9 +125,10 @@ request is not mergeable merely because local checks pass. All configured requir
 checks must be green for the exact Reviewed head SHA.
 
 Strict required-check mode is enabled on `main`; administrators are included. The
-branch must be current before merge, force pushes and branch deletion are disabled,
-and every review conversation must be resolved. The required contexts are bound to
-the GitHub Actions app, not to author-supplied status names.
+branch must be current before merge, force pushes are disabled, the protected branch
+cannot be deleted, and every review conversation must be resolved. This does not
+conflict with deleting a merged topic branch. The required contexts are bound to the
+GitHub Actions app, not to author-supplied status names.
 
 ## Pull request, review, and merge
 
