@@ -50,6 +50,16 @@ BHCP lowering function, is not must-understand after full lowering, and has no n
 payload schema. A native descriptor has a required payload schema, is always
 must-understand, and cannot masquerade as a derived lowering.
 
+Policy documents use a closed typed union rather than an unrestricted `value` slot.
+Each category has exactly one operation: requirements and evidence add typed demands,
+prohibitions deny typed effect scopes, capabilities narrow typed effect scopes,
+limits tighten exact maxima, and type modes strengthen along the v0 mode order.
+Source policy documents carry `form = source`. Canonical effective documents carry
+`form = effective`, separate the semantic restriction value from content-addressed
+source layers and rule provenance, and keep all 17 root alternatives unchanged by
+remaining under the existing `policy-document` root. The comparison, duplicate,
+waiver, identity, and composition rules are normative in SEMANTICS S9.2.
+
 The files in [`examples/`](examples/) use CBOR diagnostic notation and contain at
 least one instance of every root alternative. `examples/manifest.txt` binds each
 fixture to its expected root kind. The Rust validation harness:
@@ -57,6 +67,8 @@ fixture to its expected root kind. The Rust validation harness:
 - parses the normative bundle with cddl-rs 0.10.6 and rejects malformed CDDL;
 - checks the CDDL root inventory, the minimal kernel-network shape, and the disjoint
   derived/native extension rules;
+- checks that policy categories use closed category/operation/value shapes and uses
+  a finite executable model to exercise antisymmetry and associative composition;
 - parses every diagnostic fixture and validates its v0 root contract;
 - confirms all root kinds are present exactly as declared by the fixture manifest;
 - checks every understood `bhcp.hash/sha3-512@0` digest length;

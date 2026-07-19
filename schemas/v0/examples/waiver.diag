@@ -3,7 +3,7 @@
   "features": [],
   "kind": "waiver",
   "symbol": "example/waiver@0",
-  "rules": ["rule-1"],
+  "rules": [["example/policy@0", "rule-1"]],
   "scope": {"repository": "example"},
   "weakening": {"limit": "attempts"},
   "justification": "Temporary migration",
