@@ -119,10 +119,11 @@ identity.
 The current Rust slice reaches policy-aware elaboration: a validated effective
 policy can gate type mode, authority, prohibitions, and explicit dimensioned numeric
 limits before semantic IR exists. Accepted IR retains its governing policy and
-normalized decisions. The waiver contract now defines exact typed targets and
-changes, scope containment, direct/delegated issuer authority, injected half-open
-time validity, audit material, atomic rejection, and identity effects. Applying that
-contract and the later graph stages remain separate roadmap work.
+normalized decisions. The implemented waiver path validates and applies exact typed
+targets and changes across all six categories, scope containment, direct/delegated
+issuer authority, injected half-open time validity, audit material, atomic rejection,
+and identity effects. Unrepresentable partial product-scope subtraction and the later
+graph stages remain separate roadmap work.
 
 The presentation front end now has fixed raw-byte profile selection, typed
 deterministic syntax/profile artifacts, and a closed registry that validates an

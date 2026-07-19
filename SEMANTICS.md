@@ -1060,8 +1060,14 @@ effective maximum (`BHCP8204`) before emitting semantic IR. Accepted IR retains 
 effective-policy identities and normalized per-goal indices for applicable
 requirements, evidence demands, prohibitions, capabilities, and limits. Only the
 effective semantic identity and decisions enter semantic IR meaning; the policy
-artifact identity remains audit-only. Waiver application and execution-time
-enforcement remain separate later boundaries.
+artifact identity remains audit-only. The Rust waiver path validates all six typed
+weakening categories, exact representable target scopes, direct or finite delegated
+authority, injected half-open time, complete contributing-source coverage, and
+atomic multi-target application. It materializes new semantic/artifact identities
+and inspectable applied-waiver records. A partial product-scope subtraction whose
+complement cannot be represented exactly by the current effective-rule shapes is
+rejected rather than approximated. Broader execution-time enforcement remains a
+separate later boundary.
 
 A waiver decision is a pure function of the validated pre-waiver effective policy,
 one waiver document, and an injected decision time. An implementation MUST NOT read an ambient clock,
