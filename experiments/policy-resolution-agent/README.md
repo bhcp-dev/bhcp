@@ -48,6 +48,9 @@ receives [`TASK.md`](TASK.md); the BHCP arm receives the same ticket plus
 [`contract.bhcp`](contract.bhcp) and [`contract.semantic-id`](contract.semantic-id).
 Only `src/lib.rs` may change. The first paired run should pin both arms to
 `gpt-5.4-mini` with medium reasoning, matching Pilot 002's explicit model control.
+The implemented safe-Rust [experiment controller](../CONTROLLER.md) now enforces
+that frozen run order, input identity, oracle withholding, bounded metrics, and
+symmetric offline judgment protocol for future registered runs.
 
 ## Recorded trial
 

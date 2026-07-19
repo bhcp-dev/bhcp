@@ -26,6 +26,10 @@ Run the visible checks during the session. Copy the withheld oracle only after t
 agent stops, then run its ten invariants plus formatting, Clippy, the public tests,
 `git diff --check`, and the one-file/dependency policy.
 
+The implemented safe-Rust [experiment controller](../CONTROLLER.md) freezes and
+enforces this arm order, input identity, oracle-withholding point, bounded result
+protocol, and symmetric offline judge sequence for subsequent runs.
+
 ## Recorded trial
 
 - [`results/pilot-006/`](results/pilot-006/) — raw BHCP and prose passed all ten

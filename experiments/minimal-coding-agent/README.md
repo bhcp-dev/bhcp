@@ -76,12 +76,12 @@ accepted result.
 - [`results/pilot-002/`](results/pilot-002/) — the same paired run pinned to
   `gpt-5.4-mini` with reversed arm order; both candidates again passed all checks.
 
-## Deliberate boundary
+## Executable controller boundary
 
-The BHCP executable slice now compiles and hashes the contract, resolves each
-verifier's explicit obligation targets, dispatches host-registered verifiers, and
-constructs a deterministic evidence bundle. It does not yet provide the
-process-backed public-Rust, oracle, or change-policy adapters, nor the execution graph
-they reference. Until that adapter boundary exists, the controller performs those
-commands. This fixture is therefore the subject and oracle for the experiment, not a
-claim that the complete experiment runner already exists.
+The safe-Rust [experiment controller](../CONTROLLER.md) now freezes the plan,
+creates oracle-free arm workspaces, launches a pinned driver, captures bounded
+metrics and final claims outside the subject, then copies the unchanged oracle and
+runs symmetric offline judges. Process-backed verifier adapters and deterministic
+evidence mapping also exist, but exposing those registered adapters inside the agent
+session remains separate work. This fixture is the subject and oracle for both the
+external controller and that later in-session evidence experiment.
