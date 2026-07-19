@@ -9,6 +9,8 @@ use bhcp::pipeline::{compile_source, parse_policy_source, parse_source};
 static NEXT_TEMP: AtomicUsize = AtomicUsize::new(1);
 
 const PROGRAM: &str = "§goal example/G@0 {}\n";
+const EXPLICIT_CANONICAL_FIXTURE: &str =
+    include_str!("../conformance/v0/fixtures/canonical-profile-preamble.bhcp");
 const POLICY: &str = r#"§policy example/policy@0 {
   layer organization;
   rule a-mode: type-mode strengthen infer-strict nonwaivable;
@@ -89,6 +91,14 @@ fn explicit_canonical_preamble_preserves_offsets_and_semantic_identity() {
     assert_eq!(plain.ir.semantic_id, profiled.ir.semantic_id);
     assert_ne!(plain.ast.artifact_id, profiled.ast.artifact_id);
     assert_eq!(profiled.ast.profile, CANONICAL_PROFILE);
+
+    let fixture = parse_source(
+        EXPLICIT_CANONICAL_FIXTURE,
+        "canonical-profile-preamble.bhcp",
+    )
+    .unwrap();
+    assert_eq!(fixture.profile, CANONICAL_PROFILE);
+    assert_eq!(fixture.root.span.start.line, 2);
 
     let policy = explicit(CANONICAL_PROFILE, POLICY);
     assert_eq!(

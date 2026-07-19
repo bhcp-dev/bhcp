@@ -9,7 +9,8 @@ use bhcp::hash::{HashAlgorithm, format_hash};
 use bhcp::inspection::render_artifact;
 use bhcp::manifest::ProjectManifest;
 use bhcp::pipeline::{
-    compile_source_with_algorithm, parse_policy_source_with_algorithm, parse_source_with_algorithm,
+    compile_source_bytes_with_algorithm, parse_policy_source_bytes_with_algorithm,
+    parse_source_bytes_with_algorithm,
 };
 use bhcp::policy::{PolicyDocument, SourcePolicyDocument, compose_policies};
 use bhcp::schema::validate_root;
@@ -61,11 +62,11 @@ fn run() -> Result<(), (u8, String)> {
         return Ok(());
     }
 
-    let source = fs::read_to_string(file).map_err(|error| (1, format!("{file}: {error}")))?;
+    let source = fs::read(file).map_err(|error| (1, format!("{file}: {error}")))?;
     let manifest =
         ProjectManifest::discover(Path::new(file)).map_err(|error| (1, error.to_string()))?;
     if command == "parse" {
-        let ast = parse_source_with_algorithm(&source, file, manifest.identity_algorithm)
+        let ast = parse_source_bytes_with_algorithm(&source, file, manifest.identity_algorithm)
             .map_err(|error| (1, error.to_string()))?;
         let value = ast.to_value(true);
         validate_root(&value, "canonical-ast").map_err(|error| (1, error.to_string()))?;
@@ -73,7 +74,7 @@ fn run() -> Result<(), (u8, String)> {
         return write_stdout(&bytes);
     }
 
-    let compiled = compile_source_with_algorithm(&source, file, manifest.identity_algorithm)
+    let compiled = compile_source_bytes_with_algorithm(&source, file, manifest.identity_algorithm)
         .map_err(|error| (1, error.to_string()))?;
     if command == "lower" {
         validate_root(&compiled.ir.to_value(true), "semantic-ir")
@@ -144,10 +145,10 @@ fn inspect_policy_file(file: &str) -> Result<(), (u8, String)> {
         let bytes = fs::read(file).map_err(|error| (1, format!("{file}: {error}")))?;
         vec![PolicyDocument::from_cbor(&bytes).map_err(|error| (1, error.to_string()))?]
     } else {
-        let source = fs::read_to_string(file).map_err(|error| (1, format!("{file}: {error}")))?;
+        let source = fs::read(file).map_err(|error| (1, format!("{file}: {error}")))?;
         let manifest =
             ProjectManifest::discover(Path::new(file)).map_err(|error| (1, error.to_string()))?;
-        parse_policy_source_with_algorithm(&source, file, manifest.identity_algorithm)
+        parse_policy_source_bytes_with_algorithm(&source, file, manifest.identity_algorithm)
             .map_err(|error| (1, error.to_string()))?
             .documents
             .into_iter()
@@ -192,11 +193,12 @@ fn load_source_policies(
             )),
         };
     }
-    let source = fs::read_to_string(file).map_err(|error| (1, format!("{file}: {error}")))?;
+    let source = fs::read(file).map_err(|error| (1, format!("{file}: {error}")))?;
     let manifest =
         ProjectManifest::discover(Path::new(file)).map_err(|error| (1, error.to_string()))?;
-    let parsed = parse_policy_source_with_algorithm(&source, file, manifest.identity_algorithm)
-        .map_err(|error| (1, error.to_string()))?;
+    let parsed =
+        parse_policy_source_bytes_with_algorithm(&source, file, manifest.identity_algorithm)
+            .map_err(|error| (1, error.to_string()))?;
     Ok((parsed.documents, manifest.identity_algorithm))
 }
 

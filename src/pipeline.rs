@@ -11,8 +11,9 @@ use crate::model::{
     features_for,
 };
 use crate::parser::{
-    ParsedProgram, SurfaceArgumentMode, SurfaceClauseKind, SurfaceComposition, SurfaceEffect,
-    SurfaceExpression, SurfaceFunction, SurfaceGoal, SurfaceLiteral, SurfaceType, parse_canonical,
+    CANONICAL_PROFILE, ParsedProgram, SurfaceArgumentMode, SurfaceClauseKind, SurfaceComposition,
+    SurfaceEffect, SurfaceExpression, SurfaceFunction, SurfaceGoal, SurfaceLiteral, SurfaceType,
+    parse_canonical, scan_profile_preamble,
 };
 use crate::policy::{
     EffectivePolicyDocument, ExactNumber, PolicyDocument, PolicyScope, SourcePolicyDocument,
@@ -52,6 +53,18 @@ pub fn parse_source_with_algorithm(
     source_name: &str,
     algorithm: HashAlgorithm,
 ) -> Result<CanonicalAstDocument> {
+    parse_source_bytes_with_algorithm(source.as_bytes(), source_name, algorithm)
+}
+
+pub fn parse_source_bytes(source: &[u8], source_name: &str) -> Result<CanonicalAstDocument> {
+    parse_source_bytes_with_algorithm(source, source_name, HashAlgorithm::default())
+}
+
+pub fn parse_source_bytes_with_algorithm(
+    source: &[u8],
+    source_name: &str,
+    algorithm: HashAlgorithm,
+) -> Result<CanonicalAstDocument> {
     Ok(parse_internal(source, source_name, algorithm)?.0)
 }
 
@@ -61,6 +74,18 @@ pub fn parse_policy_source(source: &str, source_name: &str) -> Result<ParsedPoli
 
 pub fn parse_policy_source_with_algorithm(
     source: &str,
+    source_name: &str,
+    algorithm: HashAlgorithm,
+) -> Result<ParsedPolicySource> {
+    parse_policy_source_bytes_with_algorithm(source.as_bytes(), source_name, algorithm)
+}
+
+pub fn parse_policy_source_bytes(source: &[u8], source_name: &str) -> Result<ParsedPolicySource> {
+    parse_policy_source_bytes_with_algorithm(source, source_name, HashAlgorithm::default())
+}
+
+pub fn parse_policy_source_bytes_with_algorithm(
+    source: &[u8],
     source_name: &str,
     algorithm: HashAlgorithm,
 ) -> Result<ParsedPolicySource> {
@@ -109,7 +134,7 @@ pub fn compile_source_with_policy_and_algorithm(
     policy: &EffectivePolicyDocument,
     algorithm: HashAlgorithm,
 ) -> Result<Compilation> {
-    compile_source_internal(source, source_name, algorithm, Some(policy))
+    compile_source_internal(source.as_bytes(), source_name, algorithm, Some(policy))
 }
 
 pub fn compile_source_with_algorithm(
@@ -117,11 +142,23 @@ pub fn compile_source_with_algorithm(
     source_name: &str,
     algorithm: HashAlgorithm,
 ) -> Result<Compilation> {
+    compile_source_bytes_with_algorithm(source.as_bytes(), source_name, algorithm)
+}
+
+pub fn compile_source_bytes(source: &[u8], source_name: &str) -> Result<Compilation> {
+    compile_source_bytes_with_algorithm(source, source_name, HashAlgorithm::default())
+}
+
+pub fn compile_source_bytes_with_algorithm(
+    source: &[u8],
+    source_name: &str,
+    algorithm: HashAlgorithm,
+) -> Result<Compilation> {
     compile_source_internal(source, source_name, algorithm, None)
 }
 
 fn compile_source_internal(
-    source: &str,
+    source: &[u8],
     source_name: &str,
     algorithm: HashAlgorithm,
     policy: Option<&EffectivePolicyDocument>,
@@ -396,17 +433,33 @@ fn policy_enforcement_error(
 }
 
 fn parse_internal(
-    source: &str,
+    source: &[u8],
     source_name: &str,
     algorithm: HashAlgorithm,
 ) -> Result<(CanonicalAstDocument, ParsedProgram)> {
-    let bytes = source.as_bytes();
+    let selected = scan_profile_preamble(source, source_name)?;
+    if selected.profile != CANONICAL_PROFILE {
+        return Err(Diagnostic::new(
+            "BHCP0004",
+            format!(
+                "selected syntax profile {:?} is not registered for normalization in this slice",
+                selected.profile
+            ),
+            source_name,
+            1,
+            1,
+        ));
+    }
+    let bytes = source;
     let source_ref = ContentReference {
-        media_type: "text/bhcp;profile=bhcp%2Fcanonical%400".to_owned(),
+        media_type: format!(
+            "text/bhcp;profile={}",
+            percent_encode_profile(&selected.profile)
+        ),
         size: bytes.len(),
         digests: vec![algorithm.hash(bytes)],
     };
-    let program = parse_canonical(source, source_name, source_ref.clone())?;
+    let program = parse_canonical(&selected.canonical_source, source_name, source_ref.clone())?;
     let mut features = features_for(algorithm);
     if uses_self_hosted_all(&program) {
         features.push(ALL_FEATURE.to_owned());
@@ -425,6 +478,7 @@ fn parse_internal(
     }
     let mut ast = CanonicalAstDocument {
         features,
+        profile: selected.profile,
         root: program.ast.clone(),
         source: source_ref,
         artifact_id: None,
@@ -432,6 +486,19 @@ fn parse_internal(
     ast.artifact_id = Some(artifact_hash_with(&ast.to_value(false), algorithm)?);
     ast.validate()?;
     Ok((ast, program))
+}
+
+fn percent_encode_profile(profile: &str) -> String {
+    let mut encoded = String::with_capacity(profile.len());
+    for byte in profile.bytes() {
+        if byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'_' | b'-') {
+            encoded.push(char::from(byte));
+        } else {
+            use std::fmt::Write as _;
+            write!(encoded, "%{byte:02X}").expect("writing to a String cannot fail");
+        }
+    }
+    encoded
 }
 
 struct Ids {

@@ -10,9 +10,12 @@ Each positive case must check canonical AST, semantic IR, graph, execution resul
 deterministic bytes where those stages apply. Each negative case must check a stable
 diagnostic code and must not emit a misleading later-stage artifact.
 
-The first executable slice covers the source-to-IR portions of SYN-02, ID-01,
-ID-02, and deterministic emission for CBOR-01 using
-`fixtures/canonical-simple.bhcp`. The adjacent presentation fixture proves that
+The first executable slice covers the source-to-IR portions of SYN-02, SYN-03,
+ID-01, ID-02, and deterministic emission for CBOR-01 using
+`fixtures/canonical-simple.bhcp` and the byte-level profile-preamble harness. The
+explicit `fixtures/canonical-profile-preamble.bhcp` example proves that the fixed
+scanner selects canonical syntax while retaining original source offsets and
+artifact identity. The adjacent presentation fixture proves that
 comments, formatting, and diagnostic labels do not affect semantic identity. The
 checked-in `.ast.cbor` and `.ir.cbor` files are compiler output and are validated by
 the same Rust harness as the 17 root diagnostic fixtures. The self-hosted `all`,
@@ -27,7 +30,13 @@ and a unary gate infers `Excluded | Included<T>` from its child. Obligation-grap
 proof coverage and unlisted scenarios remain normative acceptance requirements, not
 claimed implementation support.
 
-The finite profile-resolution model in `tests/profile_contract.rs` pins the S9.1
+The byte-level scanner tests execute the fixed S9.1 selection boundary before any
+profile-specific normalization: omission, an optional BOM, or an explicit canonical
+preamble select exactly one profile, while invalid UTF-8, CRLF, Unicode whitespace,
+truncation, aliases, duplicates, and misplaced directives fail with `BHCP0003` and
+no artifact output. Exact custom symbols are selected without aliasing and then fail
+closed with `BHCP0004` until normalization is registered. The finite
+profile-resolution model in `tests/profile_contract.rs` pins the remaining S9.1
 decision boundary before the profile parser exists. Positive vectors resolve exact
 single-parent syntax and profile chains, safe token-coordinate overrides,
 nondecreasing type mode, and root-to-leaf policy overlays. Adversarial vectors cover
