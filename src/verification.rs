@@ -817,6 +817,15 @@ fn policy_evidence_obligations(
     goal: &GoalDefinition,
 ) -> Result<Vec<PolicyEvidenceObligation>> {
     let Some(policy) = &compilation.effective_policy else {
+        if goal
+            .policy_decision
+            .as_ref()
+            .is_some_and(|decision| !decision.evidence.is_empty())
+        {
+            return Err(invalid(
+                "policy evidence decisions require the retained effective policy document",
+            ));
+        }
         return Ok(vec![]);
     };
     PolicyDocument::Effective(policy.clone())
