@@ -55,9 +55,11 @@ maturity without creating another semantic contract.
 | #46 | #78 | `2440a83f00f58fa2a93c4f0bbc71473a7fafa6a4` |
 | #47 | #79 | `e76e50ce7720ca8c09d89edacd5fde3e3cffef51` |
 | #48 | #80 | `7084f6e6a1a1a687cc1ba746f8ac10e194301000` |
+| #49 | #81 | `7ab426e6f5dabb2d11bd6245ac1da3337124ddb4` |
 
-Issue #49 is this audit and remains intentionally absent from the delivered ledger
-until its exact reviewed head is merged and verified on `main`.
+The ledger is complete through the audit's own reviewed squash merge. Wiki, issue,
+and milestone status are post-merge metadata reconciled under the same protected
+`main`-branch gate rather than inputs to an artifact's immutable delivery identity.
 
 ## Consistency result
 
@@ -76,15 +78,12 @@ until its exact reviewed head is merged and verified on `main`.
   [Development](https://github.com/bhcp-dev/bhcp/wiki/Development-and-Operations),
   [Decisions](https://github.com/bhcp-dev/bhcp/wiki/Decisions-and-Interesting-Bits),
   and [Roadmap](https://github.com/bhcp-dev/bhcp/wiki/Roadmap-and-Agentic-Workflow)
-  publish the implemented evidence through #48; the #49 completion result is a
-  post-merge reconciliation step.
-- Live issue inspection found #41–#48 closed with `status:done`, #49 as the sole
-  Phase 4 audit in review, and no open native blocker. Pull requests
-  [#73](https://github.com/bhcp-dev/bhcp/pull/73) through
-  [#80](https://github.com/bhcp-dev/bhcp/pull/80) are the reviewed squash merges for
-  the implementation/evidence chain. The
-  [Phase 4 milestone](https://github.com/bhcp-dev/bhcp/milestone/4) should close only
-  after #49 is reviewed, merged, reconciled to `status:done`, and green on `main`.
+  publish the completed #49 result and the remaining claimable roadmap queue.
+- Pull requests [#73](https://github.com/bhcp-dev/bhcp/pull/73) through
+  [#81](https://github.com/bhcp-dev/bhcp/pull/81) are the reviewed squash merges for
+  the complete implementation/evidence chain. Issue and
+  [Phase 4 milestone](https://github.com/bhcp-dev/bhcp/milestone/4) closure are
+  post-merge metadata reconciled only after protected `main` is green.
 
 ## Explicit non-goals and residual boundary
 
