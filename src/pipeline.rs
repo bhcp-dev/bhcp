@@ -273,9 +273,6 @@ fn apply_effective_policy(
                     for index in &limits {
                         let ceiling = &policy.effective.limits[*index].value;
                         if ceiling.dimension == *dimension
-                            && ceiling.scope.as_ref().is_none_or(|scope| {
-                                scope.resources.is_none() && scope.operations.is_none()
-                            })
                             && requested.compare(&ceiling.maximum).is_gt()
                         {
                             return Err(policy_enforcement_error(
