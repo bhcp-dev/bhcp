@@ -353,6 +353,16 @@ fn missing_rejected_unresolved_faulted_and_tampered_results_stay_distinct_in_cbo
         &registry(&project, "malformed"),
         "2026-07-19T06:00:00Z",
     );
+    let mut boundary_registry = VerifierRegistry::new();
+    boundary_registry
+        .register_adapter(
+            VerifierProcessRunner::new(&project.root).unwrap(),
+            declaration("accepted"),
+            vec![],
+            CancellationToken::new(),
+        )
+        .unwrap();
+    let boundary_fault = verify(&compilation, &boundary_registry, "2026-07-19T06:00:00Z");
 
     assert_eq!(
         missing.state,
@@ -368,8 +378,20 @@ fn missing_rejected_unresolved_faulted_and_tampered_results_stay_distinct_in_cbo
     );
     assert!(matches!(faulted.state, VerificationState::Faulted(_)));
     assert!(matches!(tampered.state, VerificationState::Faulted(_)));
+    assert!(matches!(
+        boundary_fault.state,
+        VerificationState::Faulted(_)
+    ));
+    assert!(boundary_fault.adapter_records.is_empty());
 
-    for report in [&missing, &rejected, &unresolved, &faulted, &tampered] {
+    for report in [
+        &missing,
+        &rejected,
+        &unresolved,
+        &faulted,
+        &tampered,
+        &boundary_fault,
+    ] {
         report.bundle.validate().unwrap();
         validate_root(&report.bundle.to_value(true), "evidence-bundle").unwrap();
     }
@@ -379,11 +401,13 @@ fn missing_rejected_unresolved_faulted_and_tampered_results_stay_distinct_in_cbo
     let unresolved_text = render_artifact(&unresolved.bundle.to_value(true), None);
     let faulted_text = render_artifact(&faulted.bundle.to_value(true), None);
     let tampered_text = render_artifact(&tampered.bundle.to_value(true), None);
+    let boundary_text = render_artifact(&boundary_fault.bundle.to_value(true), None);
     assert!(missing_text.contains("verifier-unregistered"));
     assert!(rejected_text.contains("rejected"));
     assert!(unresolved_text.contains("example/unresolved.fixture@0"));
     assert!(faulted_text.contains("example/faulted.fixture@0"));
     assert!(tampered_text.contains("bhcp.fault/adapter-malformed-output@0"));
+    assert!(boundary_text.contains("bhcp.fault/adapter-boundary@0"));
     assert_ne!(missing.bundle_bytes, unresolved.bundle_bytes);
     assert_ne!(unresolved.bundle_bytes, faulted.bundle_bytes);
     assert_ne!(faulted.bundle_bytes, tampered.bundle_bytes);
