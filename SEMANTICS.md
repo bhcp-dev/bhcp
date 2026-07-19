@@ -259,6 +259,29 @@ artifact: it does not change semantic identity, but the resolved adapter artifac
 and declaration MUST be retained as execution/evidence provenance. The v0 CDDL root
 inventory therefore does not gain a project-manifest document.
 
+The host runner MUST resolve the project root and executable canonically, verify that
+the resolved regular file remains below the project root, and invoke that exact path
+without a shell or `PATH` search. It MUST clear ambient environment variables and MUST
+execute only behind an operating-system sandbox that fails closed when its restrictions
+cannot be fully installed. The sandbox MUST deny network operations, MUST deny writes
+outside the project, and MUST grant project reads or writes only when present in both
+the declaration and the effective canonical/policy ceiling. Read-only operating-system
+runtime files required to load the executable are part of the host implementation
+surface, not adapter project authority.
+
+The v0 process request is deterministic CBOR with version, verifier symbol, normalized
+structural obligation targets, and opaque payload bytes. The deterministic CBOR response
+is a closed map: accepted and rejected carry evidence media type, payload, and trust;
+unresolved and faulted carry a registered reason. Unknown fields, versions, states,
+non-deterministic encoding, or invalid evidence data are malformed output. The runner
+MUST bound the request, executable artifact, stdout, stderr, declared wall-clock timeout,
+and cancellation latency. It MUST keep timeout and cancellation as distinguishable
+unresolved outcomes, and keep missing/escaped executables, malformed or oversized
+output, and nonzero exit as distinguishable operational faults. Sandbox setup MUST fail
+closed as an operational fault. The audit record MUST retain the exact declaration and
+obligation targets plus content references for the declaration, executable, request,
+and response when one was produced.
+
 The evaluator MAY provide fixed, versioned, total pure primitive definitions at the
 bottom of expression evaluation for constructing and inspecting language values,
 including sealed kernel observations and checked result construction.

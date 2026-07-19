@@ -1,18 +1,23 @@
 use std::env;
 use std::io::{self, Read, Write};
-use std::process::ExitCode;
+use std::process::{Command, ExitCode};
 use std::thread;
 use std::time::Duration;
+use std::{fs, net::TcpStream};
 
 use bhcp::cbor::encode_deterministic;
 use bhcp::value::Value;
 
 fn main() -> ExitCode {
+    let mode = env::args().nth(1).unwrap_or_default();
+    if mode == "hold" {
+        thread::sleep(Duration::from_secs(30));
+        return ExitCode::SUCCESS;
+    }
     let mut input = Vec::new();
     if io::stdin().read_to_end(&mut input).is_err() || input.is_empty() {
         return ExitCode::from(90);
     }
-    let mode = env::args().nth(1).unwrap_or_default();
     match mode.as_str() {
         "accepted" | "rejected" => write_value(Value::map([
             ("version", Value::Text("bhcp/adapter-result@0".to_owned())),
@@ -27,10 +32,7 @@ fn main() -> ExitCode {
             (
                 "reason",
                 Value::map([
-                    (
-                        "code",
-                        Value::Text(format!("example/{mode}.fixture@0")),
-                    ),
+                    ("code", Value::Text(format!("example/{mode}.fixture@0"))),
                     ("message", Value::Text(format!("fixture {mode}"))),
                 ]),
             ),
@@ -65,10 +67,62 @@ fn main() -> ExitCode {
             ]))
         }
         "sleep" => {
-            thread::sleep(Duration::from_secs(5));
+            thread::sleep(Duration::from_secs(30));
             ExitCode::SUCCESS
         }
+        "descendant" => {
+            let executable = env::current_exe().unwrap();
+            if Command::new(executable).arg("hold").spawn().is_err() {
+                thread::sleep(Duration::from_secs(30));
+            }
+            ExitCode::SUCCESS
+        }
+        "network-denied" => isolation_result(matches!(
+            TcpStream::connect("127.0.0.1:9"),
+            Err(error) if error.kind() == io::ErrorKind::PermissionDenied
+        )),
+        "exec-denied" => isolation_result(matches!(
+            Command::new("/usr/bin/true").status(),
+            Err(error) if error.kind() == io::ErrorKind::PermissionDenied
+        )),
+        "read-denied" | "read-allowed" => {
+            let path = env::args().nth(2).unwrap_or_default();
+            let succeeded = fs::read(path).is_ok();
+            isolation_result(succeeded == (mode == "read-allowed"))
+        }
+        "write-denied" | "write-allowed" => {
+            let path = env::args().nth(2).unwrap_or_default();
+            let succeeded = fs::write(path, b"adapter write").is_ok();
+            isolation_result(succeeded == (mode == "write-allowed"))
+        }
         _ => ExitCode::from(91),
+    }
+}
+
+fn isolation_result(enforced: bool) -> ExitCode {
+    if enforced {
+        write_value(Value::map([
+            ("version", Value::Text("bhcp/adapter-result@0".to_owned())),
+            ("state", Value::Text("accepted".to_owned())),
+            ("media_type", Value::Text("text/plain".to_owned())),
+            ("payload", Value::Bytes(b"isolation enforced".to_vec())),
+            ("trust", Value::Array(vec![])),
+        ]))
+    } else {
+        write_value(Value::map([
+            ("version", Value::Text("bhcp/adapter-result@0".to_owned())),
+            ("state", Value::Text("faulted".to_owned())),
+            (
+                "reason",
+                Value::map([
+                    ("code", Value::Text("example/isolation.leaked@0".to_owned())),
+                    (
+                        "message",
+                        Value::Text("sandbox capability leaked".to_owned()),
+                    ),
+                ]),
+            ),
+        ]))
     }
 }
 

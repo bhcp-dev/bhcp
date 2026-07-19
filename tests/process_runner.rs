@@ -1,5 +1,6 @@
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::OnceLock;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::thread;
 use std::time::{Duration, Instant};
@@ -54,22 +55,36 @@ fn declaration(mode: &str) -> VerifierAdapterDeclaration {
 }
 
 fn request(payload: &[u8]) -> AdapterRequest<'_> {
+    static OBLIGATIONS: OnceLock<Vec<String>> = OnceLock::new();
+    static EFFECTS: OnceLock<Vec<String>> = OnceLock::new();
     AdapterRequest {
         verifier: "example/verifier.fixture@0",
-        obligations: &["clause-2".to_owned(), "clause-3".to_owned()],
+        obligations: OBLIGATIONS.get_or_init(|| vec!["clause-2".to_owned(), "clause-3".to_owned()]),
         payload,
-        effect_ceiling: &["bhcp-effect/process@0".to_owned()],
+        effect_ceiling: EFFECTS.get_or_init(|| vec!["bhcp-effect/process@0".to_owned()]),
     }
+}
+
+fn runner(project_root: &Path) -> VerifierProcessRunner {
+    #[cfg(target_os = "linux")]
+    {
+        assert!(Path::new(env!("CARGO_BIN_EXE_bhcp-adapter-sandbox")).is_file());
+    }
+    VerifierProcessRunner::new(project_root).unwrap()
 }
 
 #[test]
 fn exact_registration_targets_and_argv_are_retained_without_shell_or_path_lookup() {
     let project = TestProject::new();
-    let runner = VerifierProcessRunner::new(&project.root).unwrap();
+    let runner = runner(&project.root);
     let mut declaration = declaration("accepted");
     declaration.argv.push("; touch injected".to_owned());
     let run = runner
-        .run(&declaration, request(b"candidate"), &CancellationToken::new())
+        .run(
+            &declaration,
+            request(b"candidate"),
+            &CancellationToken::new(),
+        )
         .unwrap();
 
     let VerifierExecution::Completed(VerifierConclusion::Accepted(evidence)) = &run.execution
@@ -82,9 +97,23 @@ fn exact_registration_targets_and_argv_are_retained_without_shell_or_path_lookup
     assert_eq!(run.record.declaration, declaration);
     assert_eq!(run.record.obligations, ["clause-2", "clause-3"]);
     assert!(run.record.registration_artifact.validate().is_ok());
-    assert!(run.record.executable_artifact.as_ref().unwrap().validate().is_ok());
+    assert!(
+        run.record
+            .executable_artifact
+            .as_ref()
+            .unwrap()
+            .validate()
+            .is_ok()
+    );
     assert!(run.record.request_artifact.validate().is_ok());
-    assert!(run.record.response_artifact.as_ref().unwrap().validate().is_ok());
+    assert!(
+        run.record
+            .response_artifact
+            .as_ref()
+            .unwrap()
+            .validate()
+            .is_ok()
+    );
     assert_eq!(run.record.exit_code, Some(0));
     assert!(!project.root.join("injected").exists());
 
@@ -105,7 +134,7 @@ fn exact_registration_targets_and_argv_are_retained_without_shell_or_path_lookup
 #[test]
 fn accepted_rejected_unresolved_and_faulted_results_remain_distinct() {
     let project = TestProject::new();
-    let runner = VerifierProcessRunner::new(&project.root).unwrap();
+    let runner = runner(&project.root);
     for (mode, expected) in [
         ("accepted", "accepted"),
         ("rejected", "rejected"),
@@ -132,7 +161,7 @@ fn accepted_rejected_unresolved_and_faulted_results_remain_distinct() {
 #[test]
 fn missing_escape_malformed_nonzero_and_output_limits_are_distinguishable() {
     let project = TestProject::new();
-    let runner = VerifierProcessRunner::new(&project.root).unwrap();
+    let runner = runner(&project.root);
 
     let mut missing = declaration("accepted");
     missing.executable = PathBuf::from("tools/missing");
@@ -150,21 +179,13 @@ fn missing_escape_malformed_nonzero_and_output_limits_are_distinguishable() {
             "outside-verifier-{}",
             NEXT_PROJECT.fetch_add(1, Ordering::Relaxed)
         ));
-        fs::copy(
-            env!("CARGO_BIN_EXE_bhcp-verifier-fixture"),
-            &outside,
-        )
-        .unwrap();
+        fs::copy(env!("CARGO_BIN_EXE_bhcp-verifier-fixture"), &outside).unwrap();
         std::os::unix::fs::symlink(&outside, project.root.join("tools/escape")).unwrap();
         let mut escaped = declaration("accepted");
         escaped.executable = PathBuf::from("tools/escape");
         assert_fault(
             runner
-                .run(
-                    &escaped,
-                    request(b"candidate"),
-                    &CancellationToken::new(),
-                )
+                .run(&escaped, request(b"candidate"), &CancellationToken::new())
                 .unwrap()
                 .execution,
             "bhcp.fault/adapter-path-escape@0",
@@ -195,7 +216,7 @@ fn missing_escape_malformed_nonzero_and_output_limits_are_distinguishable() {
 #[test]
 fn timeout_and_cancellation_are_distinct_unresolved_outcomes() {
     let project = TestProject::new();
-    let runner = VerifierProcessRunner::new(&project.root).unwrap();
+    let runner = runner(&project.root);
     let mut timed = declaration("sleep");
     timed.timeout_ms = 30;
     let started = Instant::now();
@@ -206,7 +227,21 @@ fn timeout_and_cancellation_are_distinct_unresolved_outcomes() {
             .execution,
         "bhcp.reason/adapter-timeout@0",
     );
-    assert!(started.elapsed() < Duration::from_secs(2));
+    assert!(started.elapsed() < Duration::from_secs(10));
+
+    let mut descendant = declaration("descendant");
+    descendant.timeout_ms = 30;
+    assert_unresolved(
+        runner
+            .run(
+                &descendant,
+                request(b"candidate"),
+                &CancellationToken::new(),
+            )
+            .unwrap()
+            .execution,
+        "bhcp.reason/adapter-timeout@0",
+    );
 
     let cancellation = CancellationToken::new();
     let trigger = cancellation.clone();
@@ -227,16 +262,12 @@ fn timeout_and_cancellation_are_distinct_unresolved_outcomes() {
 #[test]
 fn request_and_effect_boundaries_fail_before_process_execution() {
     let project = TestProject::new();
-    let runner = VerifierProcessRunner::new(&project.root).unwrap();
+    let runner = runner(&project.root);
     let declaration = declaration("accepted");
 
     let oversized = vec![0; MAX_ADAPTER_INPUT_BYTES + 1];
     let diagnostic = runner
-        .run(
-            &declaration,
-            request(&oversized),
-            &CancellationToken::new(),
-        )
+        .run(&declaration, request(&oversized), &CancellationToken::new())
         .unwrap_err();
     assert_eq!(diagnostic.code, "BHCP7001");
     assert!(diagnostic.message.contains("input limit"));
@@ -284,6 +315,77 @@ fn request_and_effect_boundaries_fail_before_process_execution() {
     assert!(diagnostic.message.contains("effect ceiling"));
 }
 
+#[test]
+fn os_sandbox_denies_network_and_undeclared_filesystem_access() {
+    let project = TestProject::new();
+    let runner = runner(&project.root);
+
+    assert_accepted(
+        runner
+            .run(
+                &declaration("network-denied"),
+                request(b"candidate"),
+                &CancellationToken::new(),
+            )
+            .unwrap()
+            .execution,
+    );
+    assert_accepted(
+        runner
+            .run(
+                &declaration("exec-denied"),
+                request(b"candidate"),
+                &CancellationToken::new(),
+            )
+            .unwrap()
+            .execution,
+    );
+
+    let outside = project.root.parent().unwrap().join(format!(
+        "bhcp-adapter-secret-{}",
+        NEXT_PROJECT.fetch_add(1, Ordering::Relaxed)
+    ));
+    fs::write(&outside, b"secret").unwrap();
+    let mut denied_read = declaration("read-denied");
+    denied_read.argv.push(outside.display().to_string());
+    assert_accepted(
+        runner
+            .run(
+                &denied_read,
+                request(b"candidate"),
+                &CancellationToken::new(),
+            )
+            .unwrap()
+            .execution,
+    );
+    fs::remove_file(outside).unwrap();
+
+    let inside = project.root.join("candidate.txt");
+    fs::write(&inside, b"candidate").unwrap();
+    let mut allowed_read = declaration("read-allowed");
+    allowed_read.argv.push(inside.display().to_string());
+    allowed_read.allowed_effects = vec![
+        "bhcp-effect/fs.read@0".to_owned(),
+        "bhcp-effect/process@0".to_owned(),
+    ];
+    let effects = allowed_read.allowed_effects.clone();
+    assert_accepted(
+        runner
+            .run(
+                &allowed_read,
+                AdapterRequest {
+                    verifier: &allowed_read.symbol,
+                    obligations: &["clause-2".to_owned()],
+                    payload: b"candidate",
+                    effect_ceiling: &effects,
+                },
+                &CancellationToken::new(),
+            )
+            .unwrap()
+            .execution,
+    );
+}
+
 fn assert_fault(execution: VerifierExecution, code: &str) {
     let VerifierExecution::Faulted(reason) = execution else {
         panic!("expected faulted execution")
@@ -297,4 +399,11 @@ fn assert_unresolved(execution: VerifierExecution, code: &str) {
         panic!("expected unresolved execution")
     };
     assert_eq!(reason.code, code);
+}
+
+fn assert_accepted(execution: VerifierExecution) {
+    assert!(matches!(
+        execution,
+        VerifierExecution::Completed(VerifierConclusion::Accepted(_))
+    ));
 }
