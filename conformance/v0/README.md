@@ -220,3 +220,11 @@ forms MUST lower to the same meaning.
 | EXT-02 | A supported native extension with a payload schema is present. | Must-understand node, rules, and identity remain in semantic IR; a native descriptor cannot provide a derived lowering. |
 | EXT-03 | An unsupported native extension is present. | Artifact rejected before planning. |
 | EXT-04 | An extension attempts to override core meaning or policy. | Descriptor/program rejected. |
+
+`tests/waiver_contract.rs` makes the WAV-01/WAV-02 decision boundary finite and
+executable before waiver application exists. It pins exact source-rule and weakening
+matching, subset/superset scopes, issuance and both half-open time edges, direct and
+delegated issuer chains, authorization and audit presence, non-waivable rules, all
+six typed change categories, and atomic rejection. The checked-in waiver root fixture
+uses the same closed CDDL shapes; runtime application remains deferred to its
+dedicated implementation issue.

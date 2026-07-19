@@ -1,13 +1,41 @@
 {
   "version": "bhcp/v0",
   "features": [],
+  "authorization": [{
+    "scheme": "example/signature.ed25519@0",
+    "issuer": "security-team",
+    "subject": {
+      "media_type": "application/vnd.bhcp.waiver+cbor",
+      "size": 0,
+      "digests": [{"algorithm": "bhcp.hash/sha3-512@0", "digest": h'00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000'}]
+    },
+    "signature": h'00'
+  }],
   "kind": "waiver",
   "symbol": "example/waiver@0",
-  "rules": [["example/policy@0", "rule-1"]],
-  "scope": {"repository": "example"},
-  "weakening": {"limit": "attempts"},
+  "targets": [{
+    "rule": ["example/policy@0", "rule-1"],
+    "scope": {"goals": ["example/goal.deploy@0"]},
+    "weakening": {
+      "category": "limit",
+      "operation": "loosen",
+      "from": {
+        "dimension": "example/dimension.attempts@0",
+        "unit": "example/unit.count@0",
+        "maximum": ["integer", 3],
+        "scope": {"goals": ["example/goal.deploy@0"]}
+      },
+      "to": {
+        "dimension": "example/dimension.attempts@0",
+        "unit": "example/unit.count@0",
+        "maximum": ["integer", 4],
+        "scope": {"goals": ["example/goal.deploy@0"]}
+      }
+    }
+  }],
   "justification": "Temporary migration",
-  "issuer": "release-manager",
+  "issuer": "security-team",
+  "authority_chain": [],
   "issued_at": 0("2026-07-16T00:00:00Z"),
   "not_before": 0("2026-07-16T00:00:00Z"),
   "expires_at": 0("2026-07-17T00:00:00Z"),

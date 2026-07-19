@@ -25,7 +25,9 @@ fn policy_rules_have_closed_category_operation_value_shapes() {
         "\"form\": \"effective\"",
         "\"source_layers\": [* policy-source-layer]",
         "\"rule_provenance\": [* policy-rule-provenance]",
-        "\"rules\": [1* source-rule-identity]",
+        "\"targets\": [1* waiver-target]",
+        "\"weakening\": waiver-weakening",
+        "waiver-weakening = remove-requirement-waiver / remove-evidence-waiver",
     ] {
         assert!(
             schema.contains(rule),

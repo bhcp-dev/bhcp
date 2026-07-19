@@ -1477,12 +1477,75 @@ impl RuleProvenance {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
+pub struct AppliedWaiver {
+    pub waiver: ArtifactReference,
+    pub targets: Vec<SourceRuleIdentity>,
+    pub decision_time: String,
+}
+
+impl AppliedWaiver {
+    fn from_value(value: &Value) -> Result<Self> {
+        let entries = map_entries(value, "applied waiver")?;
+        ensure_fields(
+            entries,
+            &["waiver", "targets", "decision_time"],
+            "applied waiver",
+        )?;
+        let applied = Self {
+            waiver: ArtifactReference::from_value(required(entries, "waiver", "applied waiver")?)?,
+            targets: array_values(
+                required(entries, "targets", "applied waiver")?,
+                "applied waiver targets",
+            )?
+            .iter()
+            .map(SourceRuleIdentity::from_value)
+            .collect::<Result<Vec<_>>>()?,
+            decision_time: policy_timestamp(
+                required(entries, "decision_time", "applied waiver")?,
+                "applied waiver decision_time",
+            )?,
+        };
+        applied.validate()?;
+        Ok(applied)
+    }
+
+    fn to_value(&self) -> Value {
+        Value::map([
+            ("waiver", self.waiver.to_value()),
+            (
+                "targets",
+                Value::Array(
+                    self.targets
+                        .iter()
+                        .map(SourceRuleIdentity::to_value)
+                        .collect(),
+                ),
+            ),
+            (
+                "decision_time",
+                Value::Tag(0, Box::new(text(&self.decision_time))),
+            ),
+        ])
+    }
+
+    fn validate(&self) -> Result<()> {
+        self.waiver.validate()?;
+        if self.targets.is_empty() || !self.targets.windows(2).all(|pair| pair[0] < pair[1]) {
+            return Err(invalid(
+                "applied waiver targets must be a non-empty sorted set",
+            ));
+        }
+        validate_policy_timestamp(&self.decision_time, "applied waiver decision_time")
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct EffectivePolicyDocument {
     pub header: PolicyHeader,
     pub effective: EffectivePolicy,
     pub source_layers: Vec<PolicySourceLayer>,
     pub rule_provenance: Vec<RuleProvenance>,
-    pub waivers: Option<Vec<ArtifactReference>>,
+    pub waivers: Option<Vec<AppliedWaiver>>,
 }
 
 impl EffectivePolicyDocument {
@@ -1536,7 +1599,7 @@ impl EffectivePolicyDocument {
                 .map(|value| {
                     array_values(value, "effective policy waivers")?
                         .iter()
-                        .map(ArtifactReference::from_value)
+                        .map(AppliedWaiver::from_value)
                         .collect::<Result<Vec<_>>>()
                 })
                 .transpose()?,
@@ -1573,7 +1636,7 @@ impl EffectivePolicyDocument {
         if let Some(waivers) = &self.waivers {
             entries.push((
                 "waivers".to_owned(),
-                Value::Array(waivers.iter().map(ArtifactReference::to_value).collect()),
+                Value::Array(waivers.iter().map(AppliedWaiver::to_value).collect()),
             ));
         }
         Value::owned_map(entries)
@@ -1638,7 +1701,7 @@ impl EffectivePolicyDocument {
             validate_values_sorted_unique(
                 &waivers
                     .iter()
-                    .map(ArtifactReference::to_value)
+                    .map(AppliedWaiver::to_value)
                     .collect::<Vec<_>>(),
                 "effective policy waivers",
             )?;
@@ -2795,6 +2858,64 @@ fn text_value<'a>(value: &'a Value, context: &str) -> Result<&'a str> {
         Value::Text(value) => Ok(value),
         _ => Err(invalid(format!("{context} must be text"))),
     }
+}
+
+fn policy_timestamp(value: &Value, context: &str) -> Result<String> {
+    let Value::Tag(0, item) = value else {
+        return Err(invalid(format!(
+            "{context} must be a tag-0 RFC 3339 timestamp"
+        )));
+    };
+    let timestamp = text_value(item, context)?.to_owned();
+    validate_policy_timestamp(&timestamp, context)?;
+    Ok(timestamp)
+}
+
+fn validate_policy_timestamp(value: &str, context: &str) -> Result<()> {
+    let bytes = value.as_bytes();
+    let punctuation = [
+        (4, b'-'),
+        (7, b'-'),
+        (10, b'T'),
+        (13, b':'),
+        (16, b':'),
+        (19, b'Z'),
+    ];
+    let valid_shape = bytes.len() == 20
+        && punctuation
+            .iter()
+            .all(|(index, expected)| bytes[*index] == *expected)
+        && bytes.iter().enumerate().all(|(index, byte)| {
+            punctuation.iter().any(|(position, _)| *position == index) || byte.is_ascii_digit()
+        });
+    if !valid_shape {
+        return Err(invalid(format!(
+            "{context} must use canonical UTC second precision"
+        )));
+    }
+    let number = |range: std::ops::Range<usize>| -> u32 {
+        value[range]
+            .parse()
+            .expect("timestamp shape contains only ASCII digits")
+    };
+    let year = number(0..4);
+    let month = number(5..7);
+    let day = number(8..10);
+    let hour = number(11..13);
+    let minute = number(14..16);
+    let second = number(17..19);
+    let leap = year.is_multiple_of(4) && (!year.is_multiple_of(100) || year.is_multiple_of(400));
+    let days = match month {
+        1 | 3 | 5 | 7 | 8 | 10 | 12 => 31,
+        4 | 6 | 9 | 11 => 30,
+        2 if leap => 29,
+        2 => 28,
+        _ => 0,
+    };
+    if day == 0 || day > days || hour > 23 || minute > 59 || second > 60 {
+        return Err(invalid(format!("{context} is not a valid UTC date-time")));
+    }
+    Ok(())
 }
 
 fn required_bool(entries: &[(String, Value)], key: &str, context: &str) -> Result<bool> {

@@ -571,7 +571,7 @@ effective-policy-document = {
   "effective": effective-policy,
   "source_layers": [* policy-source-layer],
   "rule_provenance": [* policy-rule-provenance],
-  ? "waivers": [* content-reference]
+  ? "waivers": [* applied-waiver]
 }
 
 effective-policy = {
@@ -626,15 +626,76 @@ policy-rule-provenance = {
   "sources": [1* source-rule-identity]
 }
 
+applied-waiver = {
+  "waiver": content-reference,
+  "targets": [1* source-rule-identity],
+  "decision_time": timestamp
+}
+
+waiver-target = {
+  "rule": source-rule-identity,
+  ? "scope": policy-scope,
+  "weakening": waiver-weakening
+}
+
+waiver-weakening = remove-requirement-waiver / remove-evidence-waiver
+                  / allow-prohibition-waiver / broaden-capability-waiver
+                  / loosen-limit-waiver / weaken-type-mode-waiver
+remove-requirement-waiver = {
+  "category": "requirement",
+  "operation": "remove",
+  "value": requirement-policy-value
+}
+remove-evidence-waiver = {
+  "category": "evidence",
+  "operation": "remove",
+  "value": evidence-policy-value
+}
+allow-prohibition-waiver = {
+  "category": "prohibition",
+  "operation": "allow",
+  "value": capability-policy-value
+}
+broaden-capability-waiver = {
+  "category": "capability",
+  "operation": "broaden",
+  "from": capability-policy-value,
+  "to": capability-policy-value
+}
+loosen-limit-waiver = {
+  "category": "limit",
+  "operation": "loosen",
+  "from": limit-policy-value,
+  "to": limit-policy-value
+}
+weaken-type-mode-waiver = {
+  "category": "type-mode",
+  "operation": "weaken",
+  "from": type-mode,
+  "to": type-mode
+}
+
+waiver-delegation = {
+  "delegator": tstr,
+  "delegate": tstr,
+  "authorization": content-reference
+}
+
+; Waivers are authorization artifacts, not standalone semantic documents. Their
+; artifact ID covers the complete map except `artifact_id`; semantic effects appear
+; only in the post-waiver effective-policy `effective` member.
 waiver-document = {
-  document-header,
+  "version": "bhcp/v0",
+  "features": [* feature-id],
+  ? "artifact_id": artifact-id,
+  ? "provenance": provenance,
+  "authorization": [1* authorization],
   "kind": "waiver",
   "symbol": symbol-id,
-  "rules": [1* source-rule-identity],
-  "scope": value,
-  "weakening": value,
+  "targets": [1* waiver-target],
   "justification": tstr,
   "issuer": tstr,
+  "authority_chain": [* waiver-delegation],
   "issued_at": timestamp,
   "not_before": timestamp,
   "expires_at": timestamp,

@@ -150,6 +150,43 @@ fn effective_policy() -> Value {
     Value::owned_map(entries)
 }
 
+fn artifact_reference() -> Value {
+    Value::map([
+        ("media_type", text("application/vnd.bhcp.waiver+cbor")),
+        ("size", Value::Integer(0)),
+        (
+            "digests",
+            array([Value::map([
+                ("algorithm", text("bhcp.hash/sha3-512@0")),
+                ("digest", Value::Bytes(vec![0; 64])),
+            ])]),
+        ),
+    ])
+}
+
+fn effective_policy_with_waivers(waivers: Value) -> Value {
+    let Value::Map(mut entries) = effective_policy() else {
+        unreachable!()
+    };
+    entries.retain(|(key, _)| key != "artifact_id");
+    entries.push(("waivers".to_owned(), waivers));
+    let without_artifact = Value::owned_map(entries);
+    let artifact_id = artifact_hash_with(&without_artifact, HashAlgorithm::default()).unwrap();
+    let Value::Map(mut entries) = without_artifact else {
+        unreachable!()
+    };
+    entries.push(("artifact_id".to_owned(), artifact_id.to_value()));
+    Value::owned_map(entries)
+}
+
+fn applied_waiver(targets: Value, decision_time: Value) -> Value {
+    Value::map([
+        ("waiver", artifact_reference()),
+        ("targets", targets),
+        ("decision_time", decision_time),
+    ])
+}
+
 #[test]
 fn every_layer_and_typed_rule_round_trips_deterministically() {
     for (layer, expected_layer) in [
@@ -228,6 +265,89 @@ fn effective_policy_validates_semantic_and_artifact_identity() {
         error.message,
         "effective policy artifact_id does not match document"
     );
+}
+
+#[test]
+fn effective_policy_round_trips_typed_applied_waiver_audit_entries() {
+    let applied = applied_waiver(
+        array([
+            array([text("example/policy.org@0"), text("a-rule")]),
+            array([text("example/policy.org@0"), text("b-rule")]),
+        ]),
+        Value::Tag(0, Box::new(text("2026-07-19T13:00:00Z"))),
+    );
+    let value = effective_policy_with_waivers(array([applied]));
+    let document = PolicyDocument::from_value(&value).unwrap();
+    let PolicyDocument::Effective(effective) = &document else {
+        panic!("effective policy parsed as source")
+    };
+    let waiver = &effective.waivers.as_ref().unwrap()[0];
+    assert_eq!(waiver.targets.len(), 2);
+    assert_eq!(waiver.decision_time, "2026-07-19T13:00:00Z");
+    assert_eq!(document.to_value(true), value);
+    assert_eq!(
+        PolicyDocument::from_cbor(&document.to_cbor(true).unwrap()).unwrap(),
+        document
+    );
+
+    let plain = PolicyDocument::from_value(&effective_policy()).unwrap();
+    let later =
+        PolicyDocument::from_value(&effective_policy_with_waivers(array([applied_waiver(
+            array([
+                array([text("example/policy.org@0"), text("a-rule")]),
+                array([text("example/policy.org@0"), text("b-rule")]),
+            ]),
+            Value::Tag(0, Box::new(text("2026-07-19T14:00:00Z"))),
+        )])))
+        .unwrap();
+    let (PolicyDocument::Effective(plain), PolicyDocument::Effective(later)) = (&plain, &later)
+    else {
+        unreachable!()
+    };
+    assert_eq!(plain.header.semantic_id, effective.header.semantic_id);
+    assert_eq!(effective.header.semantic_id, later.header.semantic_id);
+    assert_ne!(plain.header.artifact_id, effective.header.artifact_id);
+    assert_ne!(effective.header.artifact_id, later.header.artifact_id);
+}
+
+#[test]
+fn malformed_applied_waiver_audit_entries_fail_closed() {
+    let target = array([text("example/policy.org@0"), text("a-rule")]);
+    for (applied, expected) in [
+        (
+            applied_waiver(
+                array([]),
+                Value::Tag(0, Box::new(text("2026-07-19T13:00:00Z"))),
+            ),
+            "applied waiver targets must be a non-empty sorted set",
+        ),
+        (
+            applied_waiver(
+                array([target.clone(), target]),
+                Value::Tag(0, Box::new(text("2026-07-19T13:00:00Z"))),
+            ),
+            "applied waiver targets must be a non-empty sorted set",
+        ),
+        (
+            applied_waiver(
+                array([array([text("example/policy.org@0"), text("a-rule")])]),
+                text("2026-07-19T13:00:00Z"),
+            ),
+            "applied waiver decision_time must be a tag-0 RFC 3339 timestamp",
+        ),
+        (
+            applied_waiver(
+                array([array([text("example/policy.org@0"), text("a-rule")])]),
+                Value::Tag(0, Box::new(text("2026-02-30T13:00:00Z"))),
+            ),
+            "applied waiver decision_time is not a valid UTC date-time",
+        ),
+    ] {
+        let error = PolicyDocument::from_value(&effective_policy_with_waivers(array([applied])))
+            .unwrap_err();
+        assert_eq!(error.code, "BHCP8001");
+        assert_eq!(error.message, expected);
+    }
 }
 
 #[test]
