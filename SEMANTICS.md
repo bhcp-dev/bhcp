@@ -839,7 +839,7 @@ accepted, so conflicts never depend on which spelling appears first in the input
 
 Formatting is not a token mapping. It is the closed presentation record
 `{ indent_width, line_width, final_newline }`, where indentation is 0 through 16
-ASCII spaces, line width is 40 through 512 columns, and the final-newline choice is
+ASCII spaces, line width is 1 through 512 columns, and the final-newline choice is
 Boolean. A formatter may add or remove only insignificant whitespace according to
 that record; it MUST NOT change the normalized token stream.
 

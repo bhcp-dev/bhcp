@@ -91,7 +91,7 @@ fn punctuation(category: Category) -> bool {
 }
 
 fn formatting_valid(indent_width: u8, line_width: u16) -> bool {
-    indent_width <= 16 && (40..=512).contains(&line_width)
+    indent_width <= 16 && (1..=512).contains(&line_width)
 }
 
 fn resolve_syntax(
@@ -418,10 +418,10 @@ fn syntax_resolution_vectors_pin_safe_overrides_and_every_conflict_class() {
         ),
     ]);
     assert_eq!(resolve_syntax("a", &cycle), Err("inheritance-cycle"));
-    assert!(formatting_valid(0, 40));
+    assert!(formatting_valid(0, 1));
     assert!(formatting_valid(16, 512));
     assert!(!formatting_valid(17, 100));
-    assert!(!formatting_valid(2, 39));
+    assert!(!formatting_valid(2, 0));
     assert!(!formatting_valid(2, 513));
 }
 
@@ -567,7 +567,7 @@ fn semantics_and_wire_contract_name_the_closed_decision_boundaries() {
         "alias-syntax-mapping = {",
         "formatting-rules = {",
         "\"indent_width\": 0..16",
-        "\"line_width\": 40..512",
+        "\"line_width\": 1..512",
         "\"final_newline\": bool",
     ] {
         assert!(schema.contains(shape), "missing {shape}");
