@@ -8,7 +8,6 @@ use bhcp::experiment::{
     JudgeCommand,
 };
 
-const EXPERIMENT_ID: &str = "contextual-policy-multiseed-001";
 const ARMS: [&str; 5] = ["seed-01", "seed-02", "seed-03", "seed-04", "seed-05"];
 
 fn main() {
@@ -26,6 +25,13 @@ fn run() -> Result<(), String> {
     let mode = arguments[0]
         .to_str()
         .ok_or_else(|| "mode is not UTF-8".to_owned())?;
+    let (experiment_id, should_run) = match mode {
+        "freeze-001" => ("contextual-policy-multiseed-001", false),
+        "run-001" => ("contextual-policy-multiseed-001", true),
+        "freeze-002" => ("contextual-policy-multiseed-002", false),
+        "run-002" => ("contextual-policy-multiseed-002", true),
+        _ => return Err("mode must be freeze-001, run-001, freeze-002, or run-002".to_owned()),
+    };
     let driver = existing_file(&arguments[1], "driver")?;
     let codex = existing_file(&arguments[2], "Codex")?;
     let codex_home = existing_directory(&arguments[3], "Codex home")?;
@@ -38,6 +44,7 @@ fn run() -> Result<(), String> {
     let fixture =
         PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("experiments/contextual-policy-agent");
     let plan = plan(
+        experiment_id,
         &fixture,
         &scratch,
         &driver,
@@ -53,9 +60,9 @@ fn run() -> Result<(), String> {
     println!("plan_digest={}", frozen.plan_digest);
     println!("fixture_digest={}", frozen.fixture_digest);
     println!("run_order={}", frozen.run_order.join(","));
-    match mode {
-        "freeze" if arguments.len() == 10 => Ok(()),
-        "run" if arguments.len() == 11 => {
+    match (should_run, arguments.len()) {
+        (false, 10) => Ok(()),
+        (true, 11) => {
             let output = absolute_path(&arguments[10], "output")?;
             if output.exists() {
                 return Err("output directory already exists".to_owned());
@@ -70,7 +77,7 @@ fn run() -> Result<(), String> {
                 .map_err(|error| error.message)?;
             for arm in &ARMS {
                 let candidate = scratch
-                    .join(EXPERIMENT_ID)
+                    .join(experiment_id)
                     .join("workspaces")
                     .join(arm)
                     .join("subject/src/lib.rs");
@@ -82,12 +89,13 @@ fn run() -> Result<(), String> {
             }
             Ok(())
         }
-        _ => Err("mode must be freeze without OUTPUT or run with OUTPUT".to_owned()),
+        _ => Err("freeze modes omit OUTPUT and run modes require OUTPUT".to_owned()),
     }
 }
 
 #[allow(clippy::too_many_arguments)]
 fn plan(
+    experiment_id: &str,
     fixture: &Path,
     scratch: &Path,
     driver: &Path,
@@ -100,7 +108,7 @@ fn plan(
     cargo: &Path,
 ) -> ExperimentPlan {
     let mut plan = ExperimentPlan::new(
-        EXPERIMENT_ID,
+        experiment_id,
         fixture,
         scratch,
         ExperimentPins {

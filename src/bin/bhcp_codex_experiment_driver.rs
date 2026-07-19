@@ -97,6 +97,7 @@ fn run() -> Result<(), String> {
         .env("HOME", home)
         .env("CODEX_HOME", codex_home)
         .env("CARGO_HOME", cargo_home)
+        .env("CARGO_TARGET_DIR", &target)
         .env("RUSTUP_HOME", rustup_home)
         .env("RUSTUP_TOOLCHAIN", rust_toolchain)
         .env("PATH", path)

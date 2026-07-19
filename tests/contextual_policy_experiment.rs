@@ -51,7 +51,7 @@ fn copy_fixture_file(source: &Path, destination: &Path) {
     fs::copy(source, destination).unwrap();
 }
 
-fn replay_candidate(patch_name: &str, expected_blob: &str, accepted: bool) {
+fn replay_candidate(result_directory: &str, patch_name: &str, expected_blob: &str, accepted: bool) {
     let source = experiment();
     let replay = std::env::temp_dir()
         .join(format!(
@@ -77,7 +77,10 @@ fn replay_candidate(patch_name: &str, expected_blob: &str, accepted: bool) {
         copy_fixture_file(&source.join(relative), &replay.join(relative));
     }
 
-    let patch = source.join("results/pilot-006").join(patch_name);
+    let patch = source
+        .join("results")
+        .join(result_directory)
+        .join(patch_name);
     let applied = Command::new("git")
         .args(["apply", "--no-index", "--unsafe-paths"])
         .arg(&patch)
@@ -87,10 +90,15 @@ fn replay_candidate(patch_name: &str, expected_blob: &str, accepted: bool) {
     assert!(applied.status.success(), "{}", output_text(&applied));
     assert_eq!(git_blob(&replay.join("subject/src/lib.rs")), expected_blob);
 
-    let public = cargo_test(&replay.join("subject/Cargo.toml"), "replays");
+    let target_name = format!(
+        "{}-{}",
+        result_directory,
+        patch_name.trim_end_matches(".patch")
+    );
+    let public = cargo_test(&replay.join("subject/Cargo.toml"), &target_name);
     assert!(public.status.success(), "{}", output_text(&public));
 
-    let oracle = cargo_test(&replay.join("oracle/Cargo.toml"), "replays");
+    let oracle = cargo_test(&replay.join("oracle/Cargo.toml"), &target_name);
     assert_eq!(
         oracle.status.success(),
         accepted,
@@ -307,7 +315,7 @@ fn pilot_006_preserves_the_negative_result_and_latest_skill_follow_up() {
             true,
         ),
     ] {
-        replay_candidate(patch, blob, accepted);
+        replay_candidate("pilot-006", patch, blob, accepted);
     }
 }
 
@@ -339,4 +347,14 @@ fn multiseed_001_is_registered_against_the_exact_evaluated_skill() {
     assert!(registration.contains("Codex CLI exposes no numeric model seed"));
     assert!(registration.contains("`claimed_success=false` is the evidence-calibrated claim"));
     assert!(registration.contains("No hypothesis test, confidence interval, causal skill effect"));
+
+    for (patch, blob) in [
+        ("seed-01.patch", "0b384ef12340c64d6f460bd54e6a4d0f181bd780"),
+        ("seed-02.patch", "5ae26038f167a730941c65b5e6eb05a9b4d4d09c"),
+        ("seed-03.patch", "395c841a8299d28e3d856a502503c06b63fc36c9"),
+        ("seed-04.patch", "9b2eaf3e3f36e605558181bbb931c08b4e770045"),
+        ("seed-05.patch", "33784bf818a9cbef18906f9d70fc7926c8d9f148"),
+    ] {
+        replay_candidate("multiseed-001", patch, blob, true);
+    }
 }
