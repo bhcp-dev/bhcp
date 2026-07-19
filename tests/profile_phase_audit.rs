@@ -51,6 +51,19 @@ fn every_phase_four_acceptance_claim_names_executable_evidence() {
         claims_by_issue.iter().all(|(_, claims)| claims.len() == 3),
         "every Phase 4 issue must expose exactly three acceptance claims",
     );
+
+    for (issue, pull_request, merge) in [
+        (41, 73, "31fe6421da73c2f56a06d471afe4010bd9c782e5"),
+        (42, 74, "46f1773a898fe714eaff9fac40ce3006d2d43db3"),
+        (43, 75, "bf96d72cb731a660718f8281065c1c6c28764882"),
+        (44, 76, "7b7475aae72529d83f86ff276ae9770222bbc6a5"),
+        (45, 77, "5caa7c750ebfe32f58bdc3e7ab257b6c0d583627"),
+        (46, 78, "2440a83f00f58fa2a93c4f0bbc71473a7fafa6a4"),
+        (47, 79, "e76e50ce7720ca8c09d89edacd5fde3e3cffef51"),
+        (48, 80, "7084f6e6a1a1a687cc1ba746f8ac10e194301000"),
+    ] {
+        assert!(report.contains(&format!("| #{issue} | #{pull_request} | `{merge}` |")));
+    }
 }
 
 #[test]

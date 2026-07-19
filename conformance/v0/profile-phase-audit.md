@@ -43,6 +43,22 @@ maturity without creating another semantic contract.
 | #49 | Arbitrary grammars, parser plugins, and unrestricted macros remain explicit non-goals. | [`maturity_and_closed_profile_non_goals_remain_consistent`](../../tests/profile_phase_audit.rs) |
 | #49 | Repository maturity statements and local evidence links agree. | [`phase_four_report_local_links_resolve`](../../tests/profile_phase_audit.rs) |
 
+## Reviewed delivery ledger
+
+| Issue | Pull request | Squash merge |
+| --- | --- | --- |
+| #41 | #73 | `31fe6421da73c2f56a06d471afe4010bd9c782e5` |
+| #42 | #74 | `46f1773a898fe714eaff9fac40ce3006d2d43db3` |
+| #43 | #75 | `bf96d72cb731a660718f8281065c1c6c28764882` |
+| #44 | #76 | `7b7475aae72529d83f86ff276ae9770222bbc6a5` |
+| #45 | #77 | `5caa7c750ebfe32f58bdc3e7ab257b6c0d583627` |
+| #46 | #78 | `2440a83f00f58fa2a93c4f0bbc71473a7fafa6a4` |
+| #47 | #79 | `e76e50ce7720ca8c09d89edacd5fde3e3cffef51` |
+| #48 | #80 | `7084f6e6a1a1a687cc1ba746f8ac10e194301000` |
+
+Issue #49 is this audit and remains intentionally absent from the delivered ledger
+until its exact reviewed head is merged and verified on `main`.
+
 ## Consistency result
 
 - [README](../../README.md) and [VISION](../../VISION.md) describe the implemented
@@ -55,12 +71,20 @@ maturity without creating another semantic contract.
 - [AGENTS.md](../../AGENTS.md) and the
   [project-loop profile](../../.codex/project-profile.md) retain the same authority,
   review, merge, and post-merge consistency contract.
+- Wiki [Purpose](https://github.com/bhcp-dev/bhcp/wiki/Purpose),
+  [Architecture](https://github.com/bhcp-dev/bhcp/wiki/Architecture-and-Approaches),
+  [Development](https://github.com/bhcp-dev/bhcp/wiki/Development-and-Operations),
+  [Decisions](https://github.com/bhcp-dev/bhcp/wiki/Decisions-and-Interesting-Bits),
+  and [Roadmap](https://github.com/bhcp-dev/bhcp/wiki/Roadmap-and-Agentic-Workflow)
+  publish the implemented evidence through #48; the #49 completion result is a
+  post-merge reconciliation step.
 - Live issue inspection found #41–#48 closed with `status:done`, #49 as the sole
   Phase 4 audit in review, and no open native blocker. Pull requests
   [#73](https://github.com/bhcp-dev/bhcp/pull/73) through
   [#80](https://github.com/bhcp-dev/bhcp/pull/80) are the reviewed squash merges for
-  the implementation/evidence chain. The milestone should close only after #49 is
-  reviewed, merged, reconciled to `status:done`, and green on `main`.
+  the implementation/evidence chain. The
+  [Phase 4 milestone](https://github.com/bhcp-dev/bhcp/milestone/4) should close only
+  after #49 is reviewed, merged, reconciled to `status:done`, and green on `main`.
 
 ## Explicit non-goals and residual boundary
 
