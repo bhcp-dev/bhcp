@@ -12,7 +12,7 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use crate::diagnostic::{Diagnostic, Result};
-use crate::hash::{HashAlgorithm, format_hash, hash_value};
+use crate::hash::{HashAlgorithm, format_hash, hash_reader, hash_value};
 use crate::value::Value;
 
 #[cfg(unix)]
@@ -1422,9 +1422,11 @@ fn path_text(path: &Path) -> Result<String> {
 }
 
 fn digest_file(path: &Path) -> Result<String> {
-    let bytes = fs::read(path)
+    let file = fs::File::open(path)
         .map_err(|error| failure(format!("cannot read experiment input: {error}")))?;
-    Ok(format_hash(&HashAlgorithm::default().hash(&bytes)))
+    let hash = hash_reader(file)
+        .map_err(|error| failure(format!("cannot read experiment input: {error}")))?;
+    Ok(format_hash(&hash))
 }
 
 fn digest_bytes(bytes: &[u8]) -> String {
