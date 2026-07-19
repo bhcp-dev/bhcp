@@ -20,31 +20,41 @@ and exact arguments;
 - the complete fixture tree, including the unchanged withheld oracle.
 
 `ExperimentPlan::freeze` deterministically returns the plan digest, fixture
-digest, and run order before any process starts. Changing an input, pin, arm
-order, executable, judge, or limit changes the plan digest. The controller
-rechecks that frozen value before every arm and after the run.
+digest, and run order before any process starts. Tree identities use typed,
+canonical entries for every directory, path, and file body; delimiter-shaped
+file bytes cannot alias another tree. Changing an input, pin, arm order,
+executable, judge, or limit changes the plan digest. The controller rechecks
+that frozen value before every arm and after the run.
 
 ## Isolated session lifecycle
 
-For every arm, the controller creates a new absent workspace, copies only the
-fixture's `subject/`, prompt, and declared contract files, and records byte-level
-input and subject-tree identities. Symbolic links and unsupported file types are
-rejected. Agent environment inheritance is cleared; the four pins and prompt
-path are injected explicitly. The process runs in its own process group with a
-pinned timeout and bounded stdout/stderr capture.
+For every arm, the controller exclusively creates a previously absent plan and
+workspace tree below the resolved scratch root, copies only the fixture's
+`subject/`, prompt, and declared contract files, and records byte-level input
+and subject-tree identities. A preplanted arm or target symlink cannot redirect
+writes. Symbolic links and unsupported file types are rejected. Agent
+environment inheritance is cleared; the four pins, prompt path, and a
+controller-owned Cargo target path are injected explicitly. The process runs in
+its own process group with a pinned timeout and combined stdout/stderr ceiling;
+crossing that ceiling stops the group immediately.
 
 The oracle is absent until the agent process has stopped. An early `oracle/`, a
 changed prompt or contract, a change outside the allowlist, an unexpected empty
 directory, a pin mismatch, timeout, output overflow, non-zero exit, or incomplete
-result rejects the session. A process group that remains active after its driver
-exits is killed and rejected as incomplete. Generated Cargo `target/` output is ignored for
-contamination purposes and remains outside repository artifacts.
+result rejects the session. The process group is probed after its driver exits
+even when capture pipes have already closed; surviving members are killed and
+the session is rejected as incomplete. Agent and judge Cargo output is directed
+to controller-owned target directories outside candidate trees. Every
+candidate path—including a directory named `target`—remains part of identity
+and contamination checks.
 
-Only after a complete session does the controller copy the exact frozen oracle
-and run the same ordered judges for every arm. At least one judge must be explicitly
-registered as using that oracle. Cargo is forced offline and uses
-a controller-owned target directory outside the candidate subject. A judge that
-changes the candidate or oracle contaminates the session even if it exits zero.
+Only after a complete session does the controller create an isolated candidate
+view for each ordered judge. Non-oracle judges receive no oracle path; only a
+judge explicitly registered with `uses_oracle` receives an exact copy of the
+frozen oracle. Judge environments are cleared and rebuilt with only the fixed
+tool directory plus `/usr/bin:/bin`, offline Cargo mode, and a controller-owned
+target directory. A judge that changes its candidate or oracle view
+contaminates the session even if it exits zero.
 
 ## Agent result protocol
 

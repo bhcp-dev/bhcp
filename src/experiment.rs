@@ -6,6 +6,8 @@ use std::fs::{self, OpenOptions};
 use std::io::{Read, Write};
 use std::path::{Component, Path, PathBuf};
 use std::process::{Command, ExitStatus, Stdio};
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -118,19 +120,49 @@ fn run_bounded(command: &mut Command, timeout: Duration, limit: usize) -> Result
         .stderr
         .take()
         .ok_or_else(|| failure("experiment process stderr was not captured"))?;
-    let stdout_reader = thread::spawn(move || read_bounded(stdout, limit));
-    let stderr_reader = thread::spawn(move || read_bounded(stderr, limit));
+    let bytes_seen = Arc::new(AtomicUsize::new(0));
+    let overflow_signal = Arc::new(AtomicBool::new(false));
+    let stdout_reader = {
+        let bytes_seen = Arc::clone(&bytes_seen);
+        let overflow_signal = Arc::clone(&overflow_signal);
+        thread::spawn(move || read_bounded(stdout, limit, bytes_seen, overflow_signal))
+    };
+    let stderr_reader = {
+        let bytes_seen = Arc::clone(&bytes_seen);
+        let overflow_signal = Arc::clone(&overflow_signal);
+        thread::spawn(move || read_bounded(stderr, limit, bytes_seen, overflow_signal))
+    };
     let started = Instant::now();
     let mut timed_out = false;
     let mut orphaned = false;
     let status = loop {
+        if overflow_signal.load(Ordering::Acquire) {
+            #[cfg(unix)]
+            if killpg(Pid::from_raw(child.id() as i32), Signal::SIGKILL).is_err() {
+                child.kill().map_err(|error| {
+                    failure(format!("cannot stop output-flooding process: {error}"))
+                })?;
+            }
+            #[cfg(not(unix))]
+            child.kill().map_err(|error| {
+                failure(format!("cannot stop output-flooding process: {error}"))
+            })?;
+            break child.wait().map_err(|error| {
+                failure(format!("cannot reap output-flooding process: {error}"))
+            })?;
+        }
         if let Some(status) = child
             .try_wait()
             .map_err(|error| failure(format!("cannot poll experiment process: {error}")))?
         {
             #[cfg(unix)]
-            if !stdout_reader.is_finished() || !stderr_reader.is_finished() {
-                orphaned = killpg(Pid::from_raw(child.id() as i32), Signal::SIGKILL).is_ok();
+            if killpg(Pid::from_raw(child.id() as i32), None).is_ok() {
+                orphaned = true;
+                killpg(Pid::from_raw(child.id() as i32), Signal::SIGKILL).map_err(|error| {
+                    failure(format!(
+                        "cannot stop orphaned experiment process group: {error}"
+                    ))
+                })?;
             }
             break status;
         }
@@ -160,8 +192,10 @@ fn run_bounded(command: &mut Command, timeout: Duration, limit: usize) -> Result
         .join()
         .map_err(|_| failure("experiment stderr reader panicked"))?
         .map_err(|error| failure(format!("cannot read experiment stderr: {error}")))?;
-    let overflowed =
-        stdout_overflow || stderr_overflow || stdout.len().saturating_add(stderr.len()) > limit;
+    let overflowed = overflow_signal.load(Ordering::Acquire)
+        || stdout_overflow
+        || stderr_overflow
+        || stdout.len().saturating_add(stderr.len()) > limit;
     Ok(BoundedOutput {
         status,
         stdout,
@@ -172,7 +206,12 @@ fn run_bounded(command: &mut Command, timeout: Duration, limit: usize) -> Result
     })
 }
 
-fn read_bounded(mut reader: impl Read, limit: usize) -> std::io::Result<(Vec<u8>, bool)> {
+fn read_bounded(
+    mut reader: impl Read,
+    limit: usize,
+    bytes_seen: Arc<AtomicUsize>,
+    overflow_signal: Arc<AtomicBool>,
+) -> std::io::Result<(Vec<u8>, bool)> {
     let mut retained = Vec::with_capacity(limit.min(8 * 1_024));
     let mut buffer = [0_u8; 8 * 1_024];
     let mut overflowed = false;
@@ -181,9 +220,13 @@ fn read_bounded(mut reader: impl Read, limit: usize) -> std::io::Result<(Vec<u8>
         if read == 0 {
             break;
         }
-        let remaining = limit.saturating_sub(retained.len());
+        let previous = bytes_seen.fetch_add(read, Ordering::AcqRel);
+        let remaining = limit.saturating_sub(previous);
         retained.extend_from_slice(&buffer[..read.min(remaining)]);
-        overflowed |= read > remaining;
+        if read > remaining {
+            overflowed = true;
+            overflow_signal.store(true, Ordering::Release);
+        }
     }
     Ok((retained, overflowed))
 }
@@ -581,6 +624,13 @@ impl ExperimentReport {
 #[derive(Clone, Copy, Debug, Default)]
 pub struct ExperimentController;
 
+struct RunRoots {
+    workspaces: PathBuf,
+    agent_targets: PathBuf,
+    judge_views: PathBuf,
+    judge_targets: PathBuf,
+}
+
 impl ExperimentController {
     pub fn new() -> Self {
         Self
@@ -617,6 +667,21 @@ impl ExperimentController {
         {
             return Err(failure("oracle source must not be inside the subject tree"));
         }
+        let plan_root = create_exclusive_directory(&scratch, &plan.id, "experiment plan")?;
+        let roots = RunRoots {
+            workspaces: create_exclusive_directory(&plan_root, "workspaces", "workspace root")?,
+            agent_targets: create_exclusive_directory(
+                &plan_root,
+                "agent-targets",
+                "agent target root",
+            )?,
+            judge_views: create_exclusive_directory(&plan_root, "judge-views", "judge view root")?,
+            judge_targets: create_exclusive_directory(
+                &plan_root,
+                "judge-targets",
+                "judge target root",
+            )?,
+        };
 
         let mut outcomes = Vec::with_capacity(plan.arms.len());
         for arm in &plan.arms {
@@ -630,7 +695,7 @@ impl ExperimentController {
                 arm,
                 &fixture,
                 &subject,
-                &scratch,
+                &roots,
                 oracle.as_deref(),
             )?);
         }
@@ -655,16 +720,10 @@ impl ExperimentController {
         arm: &ExperimentArm,
         fixture: &Path,
         subject: &Path,
-        scratch: &Path,
+        roots: &RunRoots,
         oracle: Option<&Path>,
     ) -> Result<ArmOutcome> {
-        let workspace = scratch.join(&plan.id).join(&arm.id);
-        if workspace.exists() {
-            return Err(failure(format!(
-                "arm workspace already exists: {}",
-                workspace.display()
-            )));
-        }
+        let workspace = create_exclusive_directory(&roots.workspaces, &arm.id, "arm workspace")?;
         copy_tree(subject, &workspace.join("subject"))?;
         copy_fixture_file(fixture, &arm.prompt_file, &workspace)?;
         for file in &arm.contract_files {
@@ -676,6 +735,8 @@ impl ExperimentController {
         let agent_executable_digest = digest_file(&arm.executable)?;
 
         let agent_command = command_record(&arm.executable, &arm.arguments)?;
+        let agent_target =
+            create_exclusive_directory(&roots.agent_targets, &arm.id, "agent target directory")?;
         let started = Instant::now();
         let mut command = Command::new(&arm.executable);
         command
@@ -686,7 +747,8 @@ impl ExperimentController {
             .env("BHCP_EXPERIMENT_REASONING", &plan.pins.reasoning)
             .env("BHCP_EXPERIMENT_SANDBOX", &plan.pins.sandbox)
             .env("BHCP_EXPERIMENT_TOOLCHAIN", &plan.pins.toolchain)
-            .env("BHCP_EXPERIMENT_PROMPT", &arm.prompt_file);
+            .env("BHCP_EXPERIMENT_PROMPT", &arm.prompt_file)
+            .env("CARGO_TARGET_DIR", &agent_target);
         let output = run_bounded(
             &mut command,
             Duration::from_millis(plan.limits.timeout_millis),
@@ -788,7 +850,6 @@ impl ExperimentController {
         let mut withheld_oracle_digest = None;
         if let Some(oracle) = oracle {
             withheld_oracle_digest = Some(digest_tree(oracle)?);
-            copy_tree(oracle, &workspace.join("oracle"))?;
             if !plan.judges.iter().any(|judge| judge.uses_oracle) {
                 let mut outcome = reject(
                     RejectionReason::Incomplete,
@@ -800,14 +861,36 @@ impl ExperimentController {
         }
 
         let mut judges = Vec::with_capacity(plan.judges.len());
-        let judge_target = scratch.join("judge-target").join(&plan.id).join(&arm.id);
-        fs::create_dir_all(&judge_target)
-            .map_err(|error| failure(format!("cannot create judge target directory: {error}")))?;
+        let judge_views =
+            create_exclusive_directory(&roots.judge_views, &arm.id, "arm judge view root")?;
+        let judge_targets =
+            create_exclusive_directory(&roots.judge_targets, &arm.id, "arm judge target root")?;
+        let mut judge_contaminated = false;
         for judge in &plan.judges {
+            let judge_workspace = judge_views.join(&judge.name);
+            copy_tree(&workspace, &judge_workspace)?;
+            if judge.uses_oracle {
+                let oracle = oracle.ok_or_else(|| {
+                    failure(format!(
+                        "judge {:?} requires an oracle but none is configured",
+                        judge.name
+                    ))
+                })?;
+                copy_tree(oracle, &judge_workspace.join("oracle"))?;
+            }
+            let judge_target =
+                create_exclusive_directory(&judge_targets, &judge.name, "judge target directory")?;
+            let judge_executable_directory = judge
+                .executable
+                .parent()
+                .ok_or_else(|| failure("judge executable has no parent directory"))?;
+            let judge_path = format!("{}:/usr/bin:/bin", path_text(judge_executable_directory)?);
             let mut command = Command::new(&judge.executable);
             command
                 .args(&judge.arguments)
-                .current_dir(&workspace)
+                .current_dir(&judge_workspace)
+                .env_clear()
+                .env("PATH", judge_path)
                 .env("CARGO_NET_OFFLINE", "true")
                 .env("CARGO_TARGET_DIR", &judge_target);
             let judge_started = Instant::now();
@@ -831,23 +914,28 @@ impl ExperimentController {
                 stderr_digest: digest_bytes(&result.stderr),
                 output: captured,
             });
+            let subject_changed = match digest_tree(&judge_workspace.join("subject")) {
+                Ok(actual) => actual != subject_after,
+                Err(_) => true,
+            };
+            let oracle_changed = if judge.uses_oracle {
+                match &withheld_oracle_digest {
+                    Some(expected) => match digest_tree(&judge_workspace.join("oracle")) {
+                        Ok(actual) => actual != *expected,
+                        Err(_) => true,
+                    },
+                    None => true,
+                }
+            } else {
+                judge_workspace.join("oracle").exists()
+            };
+            judge_contaminated |= subject_changed || oracle_changed;
         }
         let total_elapsed_millis = elapsed_millis(started.elapsed());
-        let oracle_changed = match &withheld_oracle_digest {
-            Some(expected) => match digest_tree(&workspace.join("oracle")) {
-                Ok(actual) => actual != *expected,
-                Err(_) => true,
-            },
-            None => false,
-        };
-        let subject_changed = match digest_tree(&workspace.join("subject")) {
-            Ok(actual) => actual != subject_after,
-            Err(_) => true,
-        };
-        if subject_changed || oracle_changed {
+        if judge_contaminated {
             let mut outcome = reject(
                 RejectionReason::Contaminated,
-                "a judge changed the frozen candidate or withheld oracle".to_owned(),
+                "a judge changed its frozen candidate or oracle view".to_owned(),
             );
             outcome.elapsed_millis = total_elapsed_millis;
             outcome.metrics = Some(metrics);
@@ -998,6 +1086,72 @@ fn validate_relative_file(name: &str, path: &Path) -> Result<()> {
     Ok(())
 }
 
+fn create_exclusive_directory(parent: &Path, name: &str, purpose: &str) -> Result<PathBuf> {
+    validate_component(purpose, name)?;
+    let path = parent.join(name);
+    fs::create_dir(&path).map_err(|error| {
+        if error.kind() == std::io::ErrorKind::AlreadyExists {
+            failure(format!("{purpose} already exists: {}", path.display()))
+        } else {
+            failure(format!("cannot create {purpose}: {error}"))
+        }
+    })?;
+    let metadata = fs::symlink_metadata(&path)
+        .map_err(|error| failure(format!("cannot inspect created {purpose}: {error}")))?;
+    if metadata.file_type().is_symlink() || !metadata.is_dir() {
+        return Err(failure(format!(
+            "created {purpose} is not a real directory"
+        )));
+    }
+    let canonical = fs::canonicalize(&path)
+        .map_err(|error| failure(format!("cannot resolve created {purpose}: {error}")))?;
+    if canonical.parent() != Some(parent) {
+        return Err(failure(format!("created {purpose} escaped its parent")));
+    }
+    Ok(canonical)
+}
+
+fn create_relative_parents(root: &Path, relative: &Path) -> Result<PathBuf> {
+    let mut current = root.to_owned();
+    for component in relative.components() {
+        let Component::Normal(name) = component else {
+            return Err(failure("fixture destination path is not relative"));
+        };
+        let next = current.join(name);
+        match fs::create_dir(&next) {
+            Ok(()) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
+                let metadata = fs::symlink_metadata(&next).map_err(|inspect_error| {
+                    failure(format!("cannot inspect input directory: {inspect_error}"))
+                })?;
+                if metadata.file_type().is_symlink() || !metadata.is_dir() {
+                    return Err(failure(
+                        "fixture destination parent is not a real directory",
+                    ));
+                }
+            }
+            Err(error) => {
+                return Err(failure(format!("cannot create input directory: {error}")));
+            }
+        }
+        current = next;
+    }
+    Ok(current)
+}
+
+fn copy_regular_file(source: &Path, destination: &Path) -> Result<()> {
+    let mut input = fs::File::open(source)
+        .map_err(|error| failure(format!("cannot open fixture file: {error}")))?;
+    let mut output = OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(destination)
+        .map_err(|error| failure(format!("cannot create fixture file: {error}")))?;
+    std::io::copy(&mut input, &mut output)
+        .map_err(|error| failure(format!("cannot copy fixture file: {error}")))?;
+    Ok(())
+}
+
 fn copy_fixture_file(fixture: &Path, relative: &Path, workspace: &Path) -> Result<()> {
     let source = fixture.join(relative);
     let metadata = fs::symlink_metadata(&source).map_err(|error| {
@@ -1016,10 +1170,11 @@ fn copy_fixture_file(fixture: &Path, relative: &Path, workspace: &Path) -> Resul
     let parent = destination
         .parent()
         .ok_or_else(|| failure("fixture input destination has no parent directory"))?;
-    fs::create_dir_all(parent)
-        .map_err(|error| failure(format!("cannot create input directory: {error}")))?;
-    fs::copy(&source, &destination)
-        .map_err(|error| failure(format!("cannot copy fixture input: {error}")))?;
+    let relative_parent = parent
+        .strip_prefix(workspace)
+        .map_err(|_| failure("fixture input destination escaped its workspace"))?;
+    create_relative_parents(workspace, relative_parent)?;
+    copy_regular_file(&source, &destination)?;
     Ok(())
 }
 
@@ -1033,16 +1188,20 @@ fn copy_tree(source: &Path, destination: &Path) -> Result<()> {
         let parent = destination
             .parent()
             .ok_or_else(|| failure("fixture destination has no parent directory"))?;
-        fs::create_dir_all(parent)
-            .map_err(|error| failure(format!("cannot create fixture directory: {error}")))?;
-        fs::copy(source, destination)
-            .map_err(|error| failure(format!("cannot copy fixture file: {error}")))?;
+        let parent_metadata = fs::symlink_metadata(parent)
+            .map_err(|error| failure(format!("cannot inspect fixture destination: {error}")))?;
+        if parent_metadata.file_type().is_symlink() || !parent_metadata.is_dir() {
+            return Err(failure(
+                "fixture destination parent is not a real directory",
+            ));
+        }
+        copy_regular_file(source, destination)?;
         return Ok(());
     }
     if !metadata.is_dir() {
         return Err(failure("fixture tree contains an unsupported file type"));
     }
-    fs::create_dir_all(destination)
+    fs::create_dir(destination)
         .map_err(|error| failure(format!("cannot create fixture directory: {error}")))?;
     let mut entries = fs::read_dir(source)
         .map_err(|error| failure(format!("cannot read fixture directory: {error}")))?
@@ -1078,12 +1237,6 @@ fn snapshot_entries(
             .strip_prefix(root)
             .map_err(|_| failure("workspace entry escaped its root"))?
             .to_owned();
-        if relative
-            .components()
-            .any(|component| component.as_os_str() == OsStr::new("target"))
-        {
-            continue;
-        }
         let metadata = fs::symlink_metadata(&path)
             .map_err(|error| failure(format!("cannot inspect experiment file: {error}")))?;
         if metadata.file_type().is_symlink() {
@@ -1106,26 +1259,32 @@ fn snapshot_entries(
 }
 
 fn digest_tree(root: &Path) -> Result<String> {
-    let mut files = Vec::new();
-    collect_files(root, root, &mut files)?;
-    let mut bytes = Vec::new();
-    for file in files {
-        if file
-            .components()
-            .any(|component| component.as_os_str() == OsStr::new("target"))
-        {
-            continue;
-        }
-        bytes.extend_from_slice(file.to_string_lossy().as_bytes());
-        bytes.push(0);
-        bytes.extend_from_slice(
-            &fs::read(root.join(&file)).map_err(|error| {
-                failure(format!("cannot read experiment subject file: {error}"))
-            })?,
-        );
-        bytes.push(0xff);
-    }
-    Ok(format_hash(&HashAlgorithm::default().hash(&bytes)))
+    let mut entries = Vec::new();
+    collect_tree_entries(root, root, &mut entries)?;
+    let entries = entries
+        .into_iter()
+        .map(|(path, contents)| {
+            Ok(Value::map([
+                (
+                    "kind",
+                    Value::Text(
+                        if contents.is_some() {
+                            "file"
+                        } else {
+                            "directory"
+                        }
+                        .to_owned(),
+                    ),
+                ),
+                ("path", Value::Text(path_text(&path)?)),
+                ("contents", Value::Bytes(contents.unwrap_or_default())),
+            ]))
+        })
+        .collect::<Result<Vec<_>>>()?;
+    Ok(format_hash(&hash_value(
+        &Value::Array(entries),
+        HashAlgorithm::default(),
+    )?))
 }
 
 fn plan_digest(plan: &ExperimentPlan, fixture_digest: &str) -> Result<String> {
@@ -1262,7 +1421,11 @@ fn markdown_command(command: &[String]) -> String {
         .join(" ")
 }
 
-fn collect_files(root: &Path, current: &Path, output: &mut Vec<PathBuf>) -> Result<()> {
+fn collect_tree_entries(
+    root: &Path,
+    current: &Path,
+    output: &mut Vec<(PathBuf, Option<Vec<u8>>)>,
+) -> Result<()> {
     let mut entries = fs::read_dir(current)
         .map_err(|error| failure(format!("cannot inspect experiment workspace: {error}")))?
         .collect::<std::io::Result<Vec<_>>>()
@@ -1274,23 +1437,25 @@ fn collect_files(root: &Path, current: &Path, output: &mut Vec<PathBuf>) -> Resu
         if metadata.file_type().is_symlink() {
             return Err(failure("experiment workspace contains a symbolic link"));
         }
+        let relative = entry
+            .path()
+            .strip_prefix(root)
+            .map_err(|_| failure("experiment entry escaped its root"))?
+            .to_owned();
         if metadata.is_dir() {
-            collect_files(root, &entry.path(), output)?;
+            output.push((relative, None));
+            collect_tree_entries(root, &entry.path(), output)?;
         } else if metadata.is_file() {
-            output.push(
-                entry
-                    .path()
-                    .strip_prefix(root)
-                    .map_err(|_| failure("experiment entry escaped its root"))?
-                    .to_owned(),
-            );
+            let contents = fs::read(entry.path())
+                .map_err(|error| failure(format!("cannot read experiment file: {error}")))?;
+            output.push((relative, Some(contents)));
         } else {
             return Err(failure(
                 "experiment workspace contains an unsupported file type",
             ));
         }
     }
-    output.sort();
+    output.sort_by(|left, right| left.0.cmp(&right.0));
     Ok(())
 }
 
