@@ -280,7 +280,7 @@ pub struct ProfilePreamble {
 }
 
 pub fn scan_profile_preamble(source: &[u8], source_name: &str) -> Result<ProfilePreamble> {
-    std::str::from_utf8(source).map_err(|_| {
+    let decoded = std::str::from_utf8(source).map_err(|_| {
         preamble_error(
             "profile-selected source must be valid UTF-8",
             source_name,
@@ -290,12 +290,17 @@ pub fn scan_profile_preamble(source: &[u8], source_name: &str) -> Result<Profile
     })?;
 
     let bom_length = usize::from(source.starts_with(UTF8_BOM)) * UTF8_BOM.len();
-    if source[bom_length..].starts_with(UTF8_BOM) {
+    if let Some(relative) = source[bom_length..]
+        .windows(UTF8_BOM.len())
+        .position(|window| window == UTF8_BOM)
+    {
+        let offset = bom_length + relative;
+        let (line, column) = source_point(decoded, offset);
         return Err(preamble_error(
-            "the UTF-8 BOM may occur at most once and only at byte zero",
+            "the UTF-8 BOM may occur only once at byte zero",
             source_name,
-            1,
-            1,
+            line,
+            column,
         ));
     }
 
@@ -362,7 +367,7 @@ pub fn scan_profile_preamble(source: &[u8], source_name: &str) -> Result<Profile
     }
 
     let mut masked = source.to_vec();
-    for byte in &mut masked[..body_start] {
+    for byte in &mut masked[bom_length..body_start] {
         if *byte != b'\n' {
             *byte = b' ';
         }
@@ -374,6 +379,18 @@ pub fn scan_profile_preamble(source: &[u8], source_name: &str) -> Result<Profile
         body_start,
         had_preamble,
     })
+}
+
+fn source_point(source: &str, byte_offset: usize) -> (usize, usize) {
+    let prefix = &source[..byte_offset];
+    let line = prefix.bytes().filter(|byte| *byte == b'\n').count() + 1;
+    let column = prefix
+        .rsplit_once('\n')
+        .map_or(prefix, |(_, tail)| tail)
+        .chars()
+        .count()
+        + 1;
+    (line, column)
 }
 
 fn valid_profile_symbol(value: &[u8]) -> bool {
@@ -458,10 +475,9 @@ pub fn parse_canonical(
 }
 
 fn lex(source: &str, source_name: &str) -> Result<Vec<Token>> {
-    if source
-        .chars()
-        .any(|character| !character.is_ascii() && character != '§')
-    {
+    if source.chars().enumerate().any(|(index, character)| {
+        !character.is_ascii() && character != '§' && !(index == 0 && character == '\u{feff}')
+    }) {
         return Err(Diagnostic::new(
             "BHCP0002",
             "dependency-free canonical source currently accepts ASCII plus the precomposed § sigil; unsupported Unicode is rejected",
@@ -472,7 +488,11 @@ fn lex(source: &str, source_name: &str) -> Result<Vec<Token>> {
     }
     let characters: Vec<char> = source.chars().collect();
     let mut tokens = Vec::new();
-    let (mut index, mut byte, mut line, mut column) = (0usize, 0usize, 1usize, 1usize);
+    let (mut index, mut byte, mut line, mut column) = if characters.first() == Some(&'\u{feff}') {
+        (1usize, UTF8_BOM.len(), 1usize, 1usize)
+    } else {
+        (0usize, 0usize, 1usize, 1usize)
+    };
     let point = |byte, line, column| Point { byte, line, column };
     let advance =
         |index: &mut usize, byte: &mut usize, line: &mut usize, column: &mut usize| -> char {

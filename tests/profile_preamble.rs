@@ -73,6 +73,10 @@ fn omission_explicit_canonical_and_bom_select_exactly_one_profile() {
     assert_eq!(selected.profile, CANONICAL_PROFILE);
     assert_eq!(selected.body_start, 3);
     assert!(!selected.had_preamble);
+    let ast = parse_source(&bom_only, "bom-only.bhcp").unwrap();
+    assert_eq!(ast.root.span.start.byte, 3);
+    assert_eq!(ast.root.span.start.line, 1);
+    assert_eq!(ast.root.span.start.column, 1);
 }
 
 #[test]
@@ -160,36 +164,41 @@ fn malformed_truncated_aliased_and_non_ascii_preambles_fail_stably() {
 }
 
 #[test]
-fn duplicate_misplaced_and_repeated_bom_directives_name_their_source_line() {
-    for (name, source, line) in [
+fn duplicate_misplaced_and_repeated_bom_directives_name_their_source_point() {
+    for (name, source, line, column) in [
         (
             "duplicate",
             format!(
                 "#!bhcp-profile {CANONICAL_PROFILE}\n#!bhcp-profile {CANONICAL_PROFILE}\n{PROGRAM}"
             ),
             2,
+            1,
         ),
         (
             "misplaced",
             format!("\n#!bhcp-profile {CANONICAL_PROFILE}\n{PROGRAM}"),
             2,
+            1,
         ),
         (
             "indented",
             format!("  #!bhcp-profile {CANONICAL_PROFILE}\n{PROGRAM}"),
             1,
+            3,
         ),
         (
             "after-source",
             format!("{PROGRAM}#!bhcp-profile {CANONICAL_PROFILE}\n"),
             2,
+            1,
         ),
-        ("duplicate-bom", format!("\u{feff}\u{feff}{PROGRAM}"), 1),
+        ("duplicate-bom", format!("\u{feff}\u{feff}{PROGRAM}"), 1, 2),
+        ("late-bom", format!("{PROGRAM}\u{feff}"), 2, 1),
     ] {
         let diagnostic = scan_profile_preamble(source.as_bytes(), name).unwrap_err();
         assert_eq!(diagnostic.code, "BHCP0003", "{name}");
         assert_eq!(diagnostic.line, line, "{name}");
-        assert!(matches!(diagnostic.column, 1 | 3), "{name}");
+        assert_eq!(diagnostic.column, column, "{name}");
     }
 }
 
