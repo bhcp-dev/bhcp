@@ -109,7 +109,7 @@ must remain aligned when their shared contract changes.
 
 ## Remote CI gates
 
-Required check candidates established by issue #12:
+Required checks established by issue #12 and enforced on `main`:
 
 - `Rust quality / Format`
 - `Rust quality / Clippy`
