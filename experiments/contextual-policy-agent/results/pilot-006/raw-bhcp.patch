@@ -1,0 +1,63 @@
+diff --git a/src/lib.rs b/src/lib.rs
+index 3f126bf..b016d1e 100644
+--- a/src/lib.rs
++++ b/src/lib.rs
+@@ -67,17 +67,17 @@ impl Policy {
+ 
+     #[must_use]
+     pub fn decide(&self, tenant: &str, subject: &str, action: &str, resource: &str) -> Decision {
+-        let _requested_tenant = tenant;
+         let selected = self
+             .rules
+             .iter()
+             .filter(|rule| {
+                 rule.enabled
++                    && rule.tenant == tenant
+                     && pattern_matches(&rule.subject, subject)
+                     && pattern_matches(&rule.action, action)
+                     && pattern_matches(&rule.resource, resource)
+             })
+-            .max_by_key(|rule| (specificity_score(rule), rule.priority));
++            .max_by(compare_rules);
+ 
+         match selected {
+             Some(rule) => Decision {
+@@ -96,13 +96,28 @@ fn pattern_matches(pattern: &str, value: &str) -> bool {
+     pattern == "*" || pattern == value
+ }
+ 
+-fn specificity_score(rule: &Rule) -> usize {
+-    [
+-        rule.subject.as_str(),
+-        rule.action.as_str(),
+-        rule.resource.as_str(),
+-    ]
+-    .into_iter()
+-    .filter(|pattern| *pattern != "*")
+-    .count()
++fn compare_rules(left: &&Rule, right: &&Rule) -> std::cmp::Ordering {
++    specificity_tuple(left).cmp(&specificity_tuple(right))
++}
++
++fn specificity_tuple(rule: &Rule) -> (u8, u8, u8, i32, u8, std::cmp::Reverse<&str>) {
++    (
++        specificity_bit(&rule.resource),
++        specificity_bit(&rule.subject),
++        specificity_bit(&rule.action),
++        rule.priority,
++        effect_rank(rule.effect),
++        std::cmp::Reverse(rule.id.as_str()),
++    )
++}
++
++fn specificity_bit(pattern: &str) -> u8 {
++    u8::from(pattern != "*")
++}
++
++fn effect_rank(effect: Effect) -> u8 {
++    match effect {
++        Effect::Allow => 0,
++        Effect::Deny => 1,
++    }
+ }
+
