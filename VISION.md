@@ -125,8 +125,11 @@ engine, and makes that resolution inspectable before elaboration. Lowering remai
 NFC-aware and span-preserving without a profile callback. The formatter now renders
 canonical or custom source through the resolved bounded layout, retains comments,
 maps canonical tokens back to the selected surface, and proves an idempotent exact-token
-round trip before returning bytes. The adversarial profile corpus is the next
-presentation safety stage; an unregistered custom profile still fails closed.
+round trip before returning bytes. The adversarial corpus now proves ambiguous aliases,
+recursive mappings, core capture/rebinding, executable parser or macro payloads, and
+semantic overrides fail atomically with auditable mapping diagnostics. Cross-layout
+semantic-equivalence conformance is the next presentation stage; an unregistered
+custom profile still fails closed.
 
 ## Effects, policy, and evidence
 
