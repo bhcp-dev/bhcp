@@ -105,11 +105,14 @@ fn render_policy(artifact: &Value, output: &mut String) {
                     let id = text_field(rule, "id").unwrap_or("?");
                     let category = text_field(rule, "category").unwrap_or("?");
                     let operation = text_field(rule, "operation").unwrap_or("?");
-                    let waivable = matches!(rule.get("waivable"), Some(Value::Bool(true)));
+                    let governance = render_policy_governance(rule);
+                    let value = rule
+                        .get("value")
+                        .map(render_value)
+                        .unwrap_or_else(|| "?".to_owned());
                     writeln!(
                         output,
-                        "  [{id}] {category} {operation} {}",
-                        if waivable { "waivable" } else { "nonwaivable" }
+                        "  [{id}] {category} {operation} {governance}: {value}"
                     )
                     .unwrap();
                 }
@@ -146,10 +149,11 @@ fn render_policy(artifact: &Value, output: &mut String) {
                     };
                     writeln!(output, "{category} {}", rules.len()).unwrap();
                     for (index, rule) in rules.iter().enumerate() {
+                        let governance = render_policy_governance(rule);
                         let value = rule.get("value").unwrap_or(rule);
                         writeln!(
                             output,
-                            "effective {category}[{index}] {}",
+                            "effective {category}[{index}] {governance}: {}",
                             render_value(value)
                         )
                         .unwrap();
@@ -159,8 +163,12 @@ fn render_policy(artifact: &Value, output: &mut String) {
                     .get("type_mode")
                     .and_then(|rule| text_field(rule, "value"))
                     .unwrap_or("?");
+                let governance = effective
+                    .get("type_mode")
+                    .map(render_policy_governance)
+                    .unwrap_or_else(|| "?".to_owned());
                 writeln!(output, "type-mode {mode}").unwrap();
-                writeln!(output, "effective type-mode {mode}").unwrap();
+                writeln!(output, "effective type-mode {mode} {governance}").unwrap();
             }
             let provenance = match artifact.get("rule_provenance") {
                 Some(Value::Array(entries)) => entries.as_slice(),
@@ -189,6 +197,16 @@ fn render_policy(artifact: &Value, output: &mut String) {
             }
         }
         _ => writeln!(output, "policy form unknown").unwrap(),
+    }
+}
+
+fn render_policy_governance(rule: &Value) -> String {
+    if !matches!(rule.get("waivable"), Some(Value::Bool(true))) {
+        return "nonwaivable".to_owned();
+    }
+    match rule.get("authorized_issuers") {
+        Some(issuers) => format!("waivable by {}", render_value(issuers)),
+        None => "waivable".to_owned(),
     }
 }
 
