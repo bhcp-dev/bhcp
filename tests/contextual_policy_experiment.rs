@@ -462,3 +462,38 @@ fn multiseed_002_patches_replay_through_static_public_and_oracle_checks() {
         replay_candidate("multiseed-002", patch, blob, true);
     }
 }
+
+#[test]
+fn multiseed_004_preserves_the_registered_negative_result() {
+    let root = experiment();
+    let result = root.join("results/multiseed-004");
+    let registration =
+        fs::read_to_string(root.join("results/multiseed-004-registration.md")).unwrap();
+    let report = fs::read_to_string(result.join("README.md")).unwrap();
+    let controller = fs::read_to_string(result.join("CONTROLLER.md")).unwrap();
+
+    assert!(registration.contains("contextual-policy-multiseed-004"));
+    assert!(registration.contains("never replaced"));
+    assert!(report.contains("**0/5 accepted**"));
+    assert!(report.contains("4/10 oracle invariants"));
+    assert!(report.contains("five unchanged candidates"));
+    assert!(report.contains("5/5 `claimed_success=false`"));
+    assert!(report.contains("median 162,039"));
+    assert!(report.contains("median 66.688 seconds"));
+    assert!(controller.contains(
+        "bhcp.hash/sha3-512@0:4793c47dc2c92336369eb6573d1db010e0735f0a57f583d1c7ed41685eeb0190d060a2c1ac5c37306dd99198dadc9ecb1ce9b50957ff8722430e4b7323187ad5"
+    ));
+
+    let before = "Subject before: `bhcp.hash/sha3-512@0:8dda36d5ccb87f6e777515cabc96f4ca8773fec4bd1b4cdb9a47bfb8056fd2e36f7b0efa86dc2bcc6bc20d1fbc85bd1b5167e10c1eb055bdc7bd64061d0d91d7`";
+    let after = "Subject after: `bhcp.hash/sha3-512@0:8dda36d5ccb87f6e777515cabc96f4ca8773fec4bd1b4cdb9a47bfb8056fd2e36f7b0efa86dc2bcc6bc20d1fbc85bd1b5167e10c1eb055bdc7bd64061d0d91d7`";
+    assert_eq!(controller.matches(before).count(), 5);
+    assert_eq!(controller.matches(after).count(), 5);
+    assert_eq!(controller.matches("Claimed | no").count(), 0);
+    assert_eq!(controller.matches("| no |").count(), 5);
+    assert_eq!(git_blob(&root.join("subject/src/lib.rs")), "3f126bfde1c0e06309686c9c3514548759d650eb");
+
+    for seed in 1..=5 {
+        let patch = result.join(format!("seed-{seed:02}.patch"));
+        assert_eq!(fs::metadata(patch).unwrap().len(), 0);
+    }
+}
