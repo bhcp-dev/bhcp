@@ -1063,22 +1063,67 @@ effective semantic identity and decisions enter semantic IR meaning; the policy
 artifact identity remains audit-only. Waiver application and execution-time
 enforcement remain separate later boundaries.
 
-A waiver is valid only when it:
+A waiver decision is a pure function of the validated pre-waiver effective policy,
+one waiver document, and an injected decision time. An implementation MUST NOT read an ambient clock,
+infer a time from provenance, or reuse a prior validity result. The
+caller supplies one normalized RFC 3339 decision timestamp for the whole atomic
+application and the effective artifact retains it in the applied-waiver audit entry.
 
-- identifies exact `(source-policy-symbol, rule-id)` rules and scope;
-- states the precise weakening and justification;
-- is issued by an authority permitted by the waived rule;
-- starts no earlier than issuance and has an expiry;
-- is unexpired at every affected decision;
-- carries authorization material and is auditable; and
-- does not waive a rule declared non-waivable.
+Every waiver target contains one exact source-rule identity
+`(source-policy-symbol, rule-id)`, an optional application scope, and exactly one of
+these closed typed changes:
 
-Invalid, expired, overbroad, or unauthorized waivers are rejected, not ignored.
-Waiver application never edits or erases a source document. It records the waiver in
-the effective artifact and removes only the authorized weakening from the semantic
-join. Waiving a collapsed restriction requires authorization from every contributing
-source rule affected by the weakening. A waiver cannot manufacture a capability or
+| category | waiver operation | exact payload |
+| --- | --- | --- |
+| requirement | `remove` | the complete `requirement-policy-value` being removed |
+| evidence | `remove` | the complete `evidence-policy-value` being removed |
+| prohibition | `allow` | the complete prohibited `capability-policy-value` being allowed |
+| capability | `broaden` | exact `from` and `to` capability policy values |
+| limit | `loosen` | exact `from` and `to` limit policy values |
+| type-mode | `weaken` | exact `from` and `to` type modes |
+
+The target list is non-empty, canonically sorted, and unique. A target MUST resolve
+to the named source rule and the stated category/value before any weakening is
+considered. Its application scope MUST be no broader than both the source
+restriction and the exact change, using the policy-scope subset rules above. The
+`from` value MUST equal the restriction at that source-rule boundary, and the `to`
+value MUST equal the attempted later-layer weakening; a partial, wildcard, inferred,
+or more permissive change is invalid. A waiver cannot manufacture a capability or
 otherwise exceed the restriction-free identity policy.
+
+The document issuer is authorized when it is directly present in every affected
+source rule's effective `authorized_issuers` intersection, or when a finite
+`authority_chain` begins at such an issuer and ends at the document issuer. Each
+delegation names an exact delegator and delegate and carries a content reference to
+its authorization evidence. Adjacent links MUST connect exactly; principals MUST
+not repeat; every referenced authorization and the waiver document's non-empty
+`authorization` array MUST validate. Empty issuer intersections and any target with
+`waivable = false` are non-waivable regardless of a delegation chain.
+
+The interval MUST satisfy `issued_at <= not_before < expires_at`. A waiver is active
+only on the half-open interval `[not_before, expires_at)`: equality at `not_before`
+is valid and equality at `expires_at` is expired. The injected decision time is used
+for every target; mixed-time or partially active application is forbidden. The
+justification MUST be non-empty, and `audit_reference` MUST be a valid non-empty
+content reference.
+
+An invalid waiver aborts the entire policy application with no effective artifact;
+it is never ignored, narrowed heuristically, or applied to a valid subset of targets.
+Waiver application never edits or erases a source document. Waiving a collapsed
+restriction requires exact targets and authorization for every contributing source
+rule affected by the weakening.
+
+A waiver document is an authorization artifact and MUST omit `semantic_id`. Its
+artifact ID commits to the complete document except `artifact_id`, including symbol,
+targets, issuer and delegation chain, validity interval, justification,
+authorization, and audit reference. The post-waiver effective policy semantic ID
+still commits only to its normalized `effective` member: a successfully weakened
+restriction changes semantic identity, while alternate valid issuer, time, signature,
+or audit material that yields the same effective restrictions does not. That waiver metadata changes artifact identity,
+and the effective artifact retains the waiver
+reference, exact targets, and injected decision time. At a later time an expired
+waiver supplied for application is rejected; omitting it yields the ordinary stricter
+policy and therefore its ordinary semantic identity.
 
 ### S9.3 Extensions
 

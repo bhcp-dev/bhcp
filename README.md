@@ -455,8 +455,18 @@ policy-obligation-to-verifier registry bindings and retain source-layer provenan
 the evidence bundle. The manifest-driven `conformance/v0/policy` suite pins the full
 four-layer no-waiver composite, equivalent and meaningful-change identities, every
 weakening diagnostic, source/CBOR CLI parity, schema round trips, and the resulting
-per-goal enforcement decision. Waiver validation and broader execution-time
-enforcement remain later Phase 3 work.
+per-goal enforcement decision.
+
+The normative waiver boundary is now fully typed without claiming application is
+implemented. A waiver names exact source-rule targets and category-specific changes,
+uses policy-scope subset matching, carries direct or acyclic delegated issuer
+authority plus authorization and audit material, and is evaluated atomically at one
+injected time over `[not_before, expires_at)`. The waiver itself is artifact-only;
+the normalized post-waiver effective restriction determines semantic identity. The
+finite boundary vectors and [threat model](THREAT_MODEL.md) pin invalid intervals,
+scope amplification, substitution, broken delegation, missing audit/authorization,
+and non-waivable downgrade as rejection. Scoped waiver application and broader
+execution-time enforcement remain later Phase 3 work.
 
 Policy composition fails atomically with an auditable diagnostic: `BHCP8101`
 capability widening, `BHCP8102` limit loosening, `BHCP8103` type-mode weakening,

@@ -44,6 +44,7 @@ impl Scope {
 #[derive(Clone, Debug, Eq, PartialEq)]
 enum Weakening {
     RemoveRequirement(&'static str),
+    RemoveEvidence(&'static str),
     AllowProhibitedEffect(&'static str),
     BroadenCapability {
         effect: &'static str,
@@ -311,6 +312,7 @@ fn every_weakening_category_has_a_closed_typed_shape() {
     let broad = Scope::new(Some(&["example/goal.a@0", "example/goal.b@0"]), None, None);
     let values = [
         Weakening::RemoveRequirement("example/requirement.review@0"),
+        Weakening::RemoveEvidence("example/obligation.review@0"),
         Weakening::AllowProhibitedEffect("bhcp-effect/network@0"),
         Weakening::BroadenCapability {
             effect: "bhcp-effect/fs.read@0",
@@ -328,7 +330,7 @@ fn every_weakening_category_has_a_closed_typed_shape() {
             to: "infer-strict",
         },
     ];
-    assert_eq!(values.len(), 5);
+    assert_eq!(values.len(), 6);
 }
 
 #[test]
@@ -357,8 +359,10 @@ fn semantics_schema_fixture_and_threat_model_publish_one_boundary() {
     ] {
         assert!(schema.contains(required), "CDDL omitted {required}");
     }
-    assert!(!schema.contains("\"scope\": value"));
-    assert!(!schema.contains("\"weakening\": value"));
+    let waiver_schema =
+        &schema[schema.find("waiver-target =").unwrap()..schema.find("extension-rules =").unwrap()];
+    assert!(!waiver_schema.contains("\"scope\": value"));
+    assert!(!waiver_schema.contains("\"weakening\": value"));
 
     let fixture =
         parse_diagnostic(&fs::read_to_string("schemas/v0/examples/waiver.diag").unwrap()).unwrap();

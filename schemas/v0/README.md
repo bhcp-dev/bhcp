@@ -48,6 +48,14 @@ IR document support, requires the core feature, advertises the complete self-hos
 obligation-graph construction unsupported. The goal-algebra conformance harness
 validates that distinction alongside the fixed 17-root inventory.
 
+The waiver root is an authorization artifact with no standalone `semantic_id`. Its
+non-empty target list pairs exact source-rule identities and optional policy scopes
+with one of six closed category-specific weakening shapes. Direct or delegated issuer
+authority, half-open timestamps, authorization material, justification, and the audit
+reference enter artifact identity. Effective policy records retain the waiver
+reference, exact targets, and injected decision time, while semantic identity remains
+the normalized post-waiver `effective` member.
+
 Self-hosted lowerers use compile-time-only `meta-type` values. A lowerer receives a
 typed `derived-form-shape` and returns an ID-free `network-shape`; both use
 source-independent resolved children and expressions. Each derived child exposes its
