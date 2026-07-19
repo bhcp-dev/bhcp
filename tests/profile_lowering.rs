@@ -230,6 +230,14 @@ fn invalid_effective_maps_fail_before_accepting_any_program_token() {
             )]),
         ),
         (
+            "token-capture",
+            syntax(vec![mapping(
+                SyntaxMappingCategory::Alias,
+                "example/condition@0",
+                "if",
+            )]),
+        ),
+        (
             "invalid-surface",
             syntax(vec![mapping(
                 SyntaxMappingCategory::Keyword,
