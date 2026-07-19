@@ -1,0 +1,14 @@
+§goal example/Malware@0 {
+    §output finding: Text;
+}
+
+§goal example/Violation@0 {
+    §output severity: Integer;
+}
+
+§goal example/Clean@0 {
+    §none {
+        malware = example/Malware@0();
+        violation = example/Violation@0();
+    };
+}
