@@ -84,6 +84,14 @@ content references, deterministic artifact identity, and canonical timestamp tag
 before emission. This does not claim the still-deferred general obligation/execution
 graph builders or full CDDL instance evaluation.
 
+Source and effective `policy-document` values also cross a strongly typed Rust
+boundary. It rejects unknown fields and invalid category/operation/value pairings,
+validates every layer, scope, exact limit, evidence demand, issuer set, source and
+rule identity, checks deterministic ordering, and verifies effective semantic and
+artifact IDs before accepting external deterministic CBOR. Effective rule provenance
+uses `rule_provenance`; the distinct generic document-header `provenance` map remains
+available without a wire-key collision.
+
 The cddl-rs CBOR validator is not used for instances yet: version 0.10.6 misvalidates
 repeated references to controlled aliases used by this schema, including
 `[* feature-id]` where `feature-id` ultimately carries `.regexp`. The normative

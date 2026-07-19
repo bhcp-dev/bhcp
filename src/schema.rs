@@ -4,6 +4,7 @@ use std::collections::HashSet;
 
 use crate::diagnostic::{Diagnostic, Result};
 use crate::model::is_symbol;
+use crate::policy::PolicyDocument;
 use crate::value::Value;
 
 pub fn parse_diagnostic(source: &str) -> Result<Value> {
@@ -45,6 +46,13 @@ pub fn validate_root(value: &Value, expected_kind: &str) -> Result<()> {
         validate_execution_result(value)?;
     } else if expected_kind == "extension-descriptor" {
         validate_extension_descriptor(value)?;
+    } else if expected_kind == "policy" {
+        PolicyDocument::from_value(value).map_err(|diagnostic| {
+            Diagnostic::plain(
+                "BHCP5002",
+                format!("policy fixture is invalid: {}", diagnostic.message),
+            )
+        })?;
     }
     Ok(())
 }
@@ -134,7 +142,7 @@ fn required_fields(kind: &str) -> &'static [&'static str] {
         ],
         "syntax" => &["symbol", "preamble", "mappings", "formatting"],
         "profile" => &["symbol", "syntax", "policy_overlays", "type_mode"],
-        "policy" => &["symbol", "layer", "rules"],
+        "policy" => &[],
         "waiver" => &[
             "symbol",
             "rules",

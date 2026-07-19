@@ -7,13 +7,6 @@
   "layer": "repository",
   "rules": [
     {
-      "id": "required-static-analysis",
-      "category": "requirement",
-      "operation": "add",
-      "value": {"requirement": "example/requirement/static-analysis@0"},
-      "waivable": false
-    },
-    {
       "id": "network-ceiling",
       "category": "capability",
       "operation": "narrow",
@@ -23,6 +16,13 @@
       },
       "waivable": true,
       "authorized_issuers": ["security-team"]
+    },
+    {
+      "id": "required-static-analysis",
+      "category": "requirement",
+      "operation": "add",
+      "value": {"requirement": "example/requirement/static-analysis@0"},
+      "waivable": false
     },
     {
       "id": "strict-types",
