@@ -13,6 +13,9 @@ selection, issue-to-PR delivery, independent review/merge, and retrospective loo
 - GitHub adapter: `gh`
 - Issue tracker and wiki: GitHub repository features
 - Merge method: head-matched squash, automatic branch deletion
+- Repository merge settings: `allow_auto_merge = true`,
+  `delete_branch_on_merge = true`, `allow_squash_merge = true`,
+  `allow_merge_commit = false`, and `allow_rebase_merge = false`
 - Work branches: `codex/<issue-slug>` from current `origin/main`
 - Worktrees: one fresh isolated worktree per issue
 
@@ -121,17 +124,23 @@ The remote workflow uses the repository mise pin and the same commands. A pull
 request is not mergeable merely because local checks pass. All configured required
 checks must be green for the exact Reviewed head SHA.
 
+Strict required-check mode is enabled on `main`; administrators are included. The
+branch must be current before merge, force pushes and branch deletion are disabled,
+and every review conversation must be resolved. The required contexts are bound to
+the GitHub Actions app, not to author-supplied status names.
+
 ## Pull request, review, and merge
 
-One issue maps to one focused branch and PR. The PR body includes the issue link,
+One issue maps to one focused branch and PR. The PR body includes `Closes #<number>`,
 red-to-green evidence, focused/full commands and results, remote check names,
 documentation/wiki impact, residual risk, and head SHA. Move the issue to
 `status:review` while retaining locks.
 
-The author must not review or merge the PR. A different agent or task reviews the
-exact head, records its identity when GitHub accounts are shared, resolves every
-actionable comment, reruns affected checks plus the full gate, and confirms the
-Reviewed head SHA did not change. Prefer:
+The author must not review or merge the PR. GitHub rejects an author approval, and
+neither an author comment nor green checks count as approval. A different agent or
+task reviews the exact head, records its identity when GitHub accounts are shared,
+resolves every actionable comment, reruns affected checks plus the full gate, and
+confirms the Reviewed head SHA did not change. Prefer:
 
 ```sh
 gh pr merge <number> --repo bhcp-dev/bhcp --squash --auto --delete-branch --match-head-commit <reviewed-head-sha>
