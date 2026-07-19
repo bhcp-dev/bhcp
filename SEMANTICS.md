@@ -955,6 +955,15 @@ There are two distinct identities:
   authorization material, except the artifact ID field itself.
 
 Both hash normalized deterministic-CBOR bytes through an algorithm-tagged registry.
+For an `effective-policy-document`, the semantic projection is exactly its canonical
+`effective` member. The artifact projection is the complete document—including the
+materialized semantic ID, source layers, rule provenance, waivers, features,
+provenance, and authorization—after removing only `artifact_id`. Source enumeration,
+formatting, comments, and diagnostic labels normalize away before either projection;
+retained source provenance and authoring decomposition distinguish only artifacts.
+Implementations MUST use these same projections when materializing and validating
+policy identities.
+
 The default and only algorithm registered by the first executable foundation is
 `bhcp.hash/sha3-512@0`, with a 64-byte digest. A project manifest MAY select another
 registered algorithm; non-default algorithms are discouraged, and an implementation

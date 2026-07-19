@@ -1575,6 +1575,22 @@ impl EffectivePolicyDocument {
         Value::owned_map(entries)
     }
 
+    /// Computes identity from normalized effective policy meaning only.
+    pub fn compute_semantic_id(&self, algorithm: HashAlgorithm) -> Result<HashId> {
+        hash_value(&self.effective.to_value(), algorithm)
+    }
+
+    /// Computes identity from the complete effective policy artifact except its ID.
+    pub fn compute_artifact_id(&self, algorithm: HashAlgorithm) -> Result<HashId> {
+        artifact_hash_with(&self.to_value(false), algorithm)
+    }
+
+    fn materialize_identities(&mut self, algorithm: HashAlgorithm) -> Result<()> {
+        self.header.semantic_id = Some(self.compute_semantic_id(algorithm)?);
+        self.header.artifact_id = Some(self.compute_artifact_id(algorithm)?);
+        Ok(())
+    }
+
     fn validate(&self) -> Result<()> {
         self.header.validate()?;
         self.effective.validate()?;
@@ -1629,16 +1645,20 @@ impl EffectivePolicyDocument {
             .as_ref()
             .ok_or_else(|| invalid("effective policy document requires semantic_id"))?;
         let algorithm = HashAlgorithm::from_id(&semantic_id.algorithm).map_err(policy_error)?;
-        if hash_value(&self.effective.to_value(), algorithm)? != *semantic_id {
+        if self.compute_semantic_id(algorithm)? != *semantic_id {
             return Err(invalid(
                 "effective policy semantic_id does not match effective meaning",
             ));
         }
-        validate_artifact_id(
-            &self.header,
-            &self.to_value(false),
-            "effective policy artifact_id does not match document",
-        )
+        if let Some(artifact_id) = &self.header.artifact_id {
+            let algorithm = HashAlgorithm::from_id(&artifact_id.algorithm).map_err(policy_error)?;
+            if self.compute_artifact_id(algorithm)? != *artifact_id {
+                return Err(invalid(
+                    "effective policy artifact_id does not match document",
+                ));
+            }
+        }
+        Ok(())
     }
 }
 
@@ -2180,11 +2200,10 @@ impl Composition {
             type_mode: type_mode.effective,
         };
         let source_layers = build_source_layers(&sources, algorithm)?;
-        let semantic_id = hash_value(&effective.to_value(), algorithm)?;
         let mut document = EffectivePolicyDocument {
             header: PolicyHeader {
                 features,
-                semantic_id: Some(semantic_id),
+                semantic_id: None,
                 artifact_id: None,
                 provenance: None,
                 authorization: None,
@@ -2194,8 +2213,7 @@ impl Composition {
             rule_provenance: provenance,
             waivers: None,
         };
-        document.header.artifact_id =
-            Some(artifact_hash_with(&document.to_value(false), algorithm)?);
+        document.materialize_identities(algorithm)?;
         document.validate()?;
         Ok(document)
     }
