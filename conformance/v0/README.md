@@ -27,10 +27,10 @@ and a unary gate infers `Excluded | Included<T>` from its child. Obligation-grap
 proof coverage and unlisted scenarios remain normative acceptance requirements, not
 claimed implementation support.
 
-The registered verifier slice additionally executes EVD-01 through EVD-04 for flat
-contract clauses. It does not yet claim general obligation-graph construction,
-process-backed project adapters, freshness windows, signatures, or full proof
-coverage.
+The registered verifier slice additionally executes EVD-01 through EVD-06 for flat
+contract clauses, including capability-bounded project adapters and their deterministic
+evidence mapping. It does not yet claim general obligation-graph construction,
+freshness windows, signatures, or full proof coverage.
 
 The canonical policy parser fixture `fixtures/canonical-policy.bhcp` executes the
 authored source boundary for POL-01: explicit layer and inheritance syntax, stable
@@ -88,6 +88,8 @@ acceptance requirements.
 | EVD-02 | Registered verifiers accept, return accepted counter-evidence, remain inconclusive, or violate their operational contract. | Candidate decisions remain `Accepted | Rejected | Unresolved`; verifier faults remain operationally `Faulted` with partial evidence. |
 | EVD-03 | A required verifier symbol is not registered. | No callback or command is inferred; a required `unsupported` evidence gap leaves its obligations unresolved. |
 | EVD-04 | The same typed candidate, content references, timestamp, registry, and verifier outputs are checked twice. | Strongly validated evidence bundles, payload references, deterministic CBOR bytes, and artifact IDs are identical. |
+| EVD-05 | A process adapter is registered in different registry orders and returns evidence for an explicit verifier target. | The request contains only the deterministic typed candidate and normalized structural targets; bundle bytes and audit-record order are identical, the item names the executable artifact, and provenance names the adapter declaration. |
+| EVD-06 | A process adapter is absent, rejects, remains unresolved, faults, or emits malformed output. | CDDL-valid bundles and human inspection keep unsupported gaps, accepted refutations, unresolved gaps, verifier faults, and malformed-output faults distinct. |
 
 ## Kernel, derived goal algebra, state, and planning
 

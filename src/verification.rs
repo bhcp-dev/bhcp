@@ -3,10 +3,14 @@
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::panic::{AssertUnwindSafe, catch_unwind};
 
+use crate::adapter::{
+    AdapterExecutionRecord, AdapterRequest, CancellationToken, VerifierProcessRunner,
+};
 use crate::cbor::encode_deterministic;
 use crate::diagnostic::{Diagnostic, Result};
 use crate::hash::{HashAlgorithm, artifact_hash_with};
 use crate::kernel::Reason;
+use crate::manifest::VerifierAdapterDeclaration;
 use crate::model::{
     BhcpType, ClauseKind, ContentReference, Expression, ExpressionForm, GoalDefinition, HashId,
     VerifierBinding, is_symbol,
@@ -17,6 +21,7 @@ use crate::value::Value;
 
 const INVALID_VERIFICATION: &str = "BHCP7001";
 const VERIFICATION_FEATURE: &str = "bhcp/feature.verifier-dispatch@0";
+const ADAPTER_EVIDENCE_FEATURE: &str = "bhcp/feature.process-adapter-evidence@0";
 const EXPRESSION_VERIFIER: &str = "bhcp.verifier/expression@0";
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -97,9 +102,17 @@ pub struct VerifierRegistry {
     verifiers: BTreeMap<String, RegisteredVerifier>,
 }
 
-struct RegisteredVerifier {
-    implementation: Box<dyn Verifier>,
-    artifact: ContentReference,
+enum RegisteredVerifier {
+    InProcess {
+        implementation: Box<dyn Verifier>,
+        artifact: ContentReference,
+    },
+    Adapter {
+        runner: VerifierProcessRunner,
+        declaration: VerifierAdapterDeclaration,
+        effect_ceiling: Vec<String>,
+        cancellation: CancellationToken,
+    },
 }
 
 impl VerifierRegistry {
@@ -121,9 +134,47 @@ impl VerifierRegistry {
         artifact.validate()?;
         self.verifiers.insert(
             symbol,
-            RegisteredVerifier {
+            RegisteredVerifier::InProcess {
                 implementation: Box::new(verifier),
                 artifact,
+            },
+        );
+        Ok(())
+    }
+
+    pub fn register_adapter(
+        &mut self,
+        runner: VerifierProcessRunner,
+        declaration: VerifierAdapterDeclaration,
+        mut effect_ceiling: Vec<String>,
+        cancellation: CancellationToken,
+    ) -> Result<()> {
+        let symbol = declaration.symbol.clone();
+        if !is_symbol(&symbol) {
+            return Err(invalid("registered adapter name is not a symbol-id"));
+        }
+        if self.verifiers.contains_key(&symbol) {
+            return Err(invalid(format!(
+                "verifier {symbol:?} is already registered"
+            )));
+        }
+        effect_ceiling.sort();
+        effect_ceiling.dedup();
+        if effect_ceiling
+            .iter()
+            .any(|effect| !is_adapter_effect(effect))
+        {
+            return Err(invalid(
+                "adapter effect ceiling contains an unsupported effect",
+            ));
+        }
+        self.verifiers.insert(
+            symbol,
+            RegisteredVerifier::Adapter {
+                runner,
+                declaration,
+                effect_ceiling,
+                cancellation,
             },
         );
         Ok(())
@@ -196,11 +247,19 @@ pub struct EvidenceItem {
     pub claims: Vec<String>,
     pub produced_at: String,
     pub producer: String,
+    pub provenance_source: Option<ContentReference>,
     pub trust: Vec<String>,
 }
 
 impl EvidenceItem {
     fn to_value(&self) -> Value {
+        let mut provenance = vec![
+            ("producer".to_owned(), Value::Text(self.producer.clone())),
+            ("created_at".to_owned(), timestamp_value(&self.produced_at)),
+        ];
+        if let Some(source) = &self.provenance_source {
+            provenance.push(("source".to_owned(), source.to_value()));
+        }
         Value::map([
             ("id", Value::Text(self.id.clone())),
             ("class", Value::Text(self.evidence_class.clone())),
@@ -212,13 +271,7 @@ impl EvidenceItem {
                 Value::Array(self.claims.iter().cloned().map(Value::Text).collect()),
             ),
             ("produced_at", timestamp_value(&self.produced_at)),
-            (
-                "provenance",
-                Value::map([
-                    ("producer", Value::Text(self.producer.clone())),
-                    ("created_at", timestamp_value(&self.produced_at)),
-                ]),
-            ),
+            ("provenance", Value::owned_map(provenance)),
             (
                 "trust",
                 Value::Array(self.trust.iter().cloned().map(Value::Text).collect()),
@@ -387,6 +440,9 @@ impl EvidenceBundle {
             validate_timestamp(&item.produced_at)?;
             item.verifier_artifact.validate()?;
             item.payload.validate()?;
+            if let Some(source) = &item.provenance_source {
+                source.validate()?;
+            }
         }
         let mut gaps = HashSet::new();
         for gap in &self.gaps {
@@ -458,6 +514,7 @@ pub struct VerificationReport {
     pub bundle_bytes: Vec<u8>,
     pub bundle_hash: HashId,
     pub payloads: Vec<PayloadArtifact>,
+    pub adapter_records: Vec<AdapterExecutionRecord>,
 }
 
 #[derive(Clone, Copy)]
@@ -520,6 +577,7 @@ impl Builder {
         evidence: VerifierEvidence,
         obligations: &[String],
         disposition: ClaimDisposition,
+        provenance_source: Option<ContentReference>,
     ) -> Result<()> {
         let mut evidence = evidence;
         evidence.trust.sort();
@@ -562,6 +620,7 @@ impl Builder {
             claims: claim_ids.clone(),
             produced_at: self.produced_at.clone(),
             producer: verifier.to_owned(),
+            provenance_source,
             trust: evidence.trust,
         });
         for claim_id in claim_ids {
@@ -688,10 +747,13 @@ fn verify(
             } else {
                 ClaimDisposition::Refutes
             },
+            None,
         )?;
     }
 
     let mut faults = Vec::new();
+    let mut adapter_records = Vec::new();
+    let mut used_adapter = false;
     for clause in &goal.clauses {
         let ClauseKind::Verify {
             binding,
@@ -730,35 +792,103 @@ fn verify(
             subject: &request.subject,
             obligations: &targeted,
         };
-        let execution = catch_unwind(AssertUnwindSafe(|| {
-            verifier.implementation.verify(&context)
-        }))
-        .unwrap_or_else(|_| {
-            VerifierExecution::Faulted(Reason {
-                code: "bhcp.fault/verifier-panic@0".to_owned(),
-                message: "registered verifier panicked".to_owned(),
-                details: None,
-            })
-        });
+        let (execution, verifier_artifact, provenance_source) = match verifier {
+            RegisteredVerifier::InProcess {
+                implementation,
+                artifact,
+            } => (
+                catch_unwind(AssertUnwindSafe(|| implementation.verify(&context))).unwrap_or_else(
+                    |_| {
+                        VerifierExecution::Faulted(Reason {
+                            code: "bhcp.fault/verifier-panic@0".to_owned(),
+                            message: "registered verifier panicked".to_owned(),
+                            details: None,
+                        })
+                    },
+                ),
+                Some(artifact.clone()),
+                None,
+            ),
+            RegisteredVerifier::Adapter {
+                runner,
+                declaration,
+                effect_ceiling,
+                cancellation,
+            } => {
+                used_adapter = true;
+                let candidate = encode_deterministic(&Value::map([
+                    ("input", request.input.clone()),
+                    ("output", request.output.clone()),
+                ]))?;
+                match catch_unwind(AssertUnwindSafe(|| {
+                    runner.run(
+                        declaration,
+                        AdapterRequest {
+                            verifier: &binding.verifier,
+                            obligations: &targeted,
+                            payload: &candidate,
+                            effect_ceiling,
+                        },
+                        cancellation,
+                    )
+                })) {
+                    Ok(Ok(run)) => {
+                        let artifact = run
+                            .record
+                            .executable_artifact
+                            .clone()
+                            .unwrap_or_else(|| run.record.registration_artifact.clone());
+                        let provenance = Some(run.record.registration_artifact.clone());
+                        let execution = run.execution;
+                        adapter_records.push(run.record);
+                        (execution, Some(artifact), provenance)
+                    }
+                    Ok(Err(diagnostic)) => (
+                        VerifierExecution::Faulted(Reason {
+                            code: "bhcp.fault/adapter-boundary@0".to_owned(),
+                            message: diagnostic.to_string(),
+                            details: None,
+                        }),
+                        None,
+                        None,
+                    ),
+                    Err(_) => (
+                        VerifierExecution::Faulted(Reason {
+                            code: "bhcp.fault/adapter-runner-panic@0".to_owned(),
+                            message: "registered adapter runner panicked".to_owned(),
+                            details: None,
+                        }),
+                        None,
+                        None,
+                    ),
+                }
+            }
+        };
         match execution {
             VerifierExecution::Completed(VerifierConclusion::Accepted(evidence)) => {
                 validate_declared_evidence(binding, &evidence)?;
                 builder.evidence(
                     &binding.verifier,
-                    verifier.artifact.clone(),
+                    verifier_artifact
+                        .clone()
+                        .expect("accepted verifier execution retains an artifact"),
                     evidence,
                     &targeted,
                     ClaimDisposition::Supports,
+                    provenance_source.clone(),
                 )?;
             }
             VerifierExecution::Completed(VerifierConclusion::Rejected(evidence)) => {
                 validate_declared_evidence(binding, &evidence)?;
                 builder.evidence(
                     &binding.verifier,
-                    verifier.artifact.clone(),
+                    verifier_artifact
+                        .clone()
+                        .expect("rejected verifier execution retains an artifact"),
                     evidence,
                     &targeted,
                     ClaimDisposition::Refutes,
+                    provenance_source.clone(),
                 )?;
             }
             VerifierExecution::Completed(VerifierConclusion::Unresolved { reason, evidence }) => {
@@ -767,10 +897,13 @@ fn verify(
                     validate_declared_evidence(binding, &evidence)?;
                     builder.evidence(
                         &binding.verifier,
-                        verifier.artifact.clone(),
+                        verifier_artifact
+                            .clone()
+                            .expect("unresolved verifier evidence retains an artifact"),
                         evidence,
                         &targeted,
                         ClaimDisposition::Unresolved,
+                        provenance_source.clone(),
                     )?;
                 }
                 builder.gap("missing", &targeted, reason);
@@ -830,8 +963,13 @@ fn verify(
         &request.compilation.ir_bytes,
         HashAlgorithm::default(),
     );
+    let mut features = vec![VERIFICATION_FEATURE.to_owned()];
+    if used_adapter {
+        features.push(ADAPTER_EVIDENCE_FEATURE.to_owned());
+        features.sort();
+    }
     let mut bundle = EvidenceBundle {
-        features: vec![VERIFICATION_FEATURE.to_owned()],
+        features,
         semantic_ir,
         execution_graph: request.execution_graph,
         claims: builder.claims,
@@ -851,6 +989,7 @@ fn verify(
         bundle_bytes,
         bundle_hash,
         payloads: builder.payloads,
+        adapter_records,
     })
 }
 
@@ -1048,6 +1187,16 @@ fn is_evidence_class(value: &str) -> bool {
             | "human-approved"
             | "unresolved"
     ) || is_symbol(value)
+}
+
+fn is_adapter_effect(value: &str) -> bool {
+    matches!(
+        value,
+        "bhcp-effect/clock@0"
+            | "bhcp-effect/fs.read@0"
+            | "bhcp-effect/fs.write@0"
+            | "bhcp-effect/process@0"
+    )
 }
 
 fn validate_declared_evidence(
