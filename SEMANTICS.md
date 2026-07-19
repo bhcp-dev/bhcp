@@ -820,6 +820,15 @@ artifact identity but not semantic identity. Authoring enumeration order is
 canonicalized away. Thus two auditable derivations may have the same effective
 semantic identity without having the same artifact identity.
 
+**Implementation status:** the Rust composer implements this unwaived source-policy
+join. It validates inheritance and source uniqueness, orders layers and sources,
+performs weakening and incompatible-unit checks before joining, canonicalizes empty
+scope universes, intersects capability scopes, selects exact limit minima and the
+strongest type mode, merges effective waivability and issuers restrictively, retains
+deny-wins prohibitions, emits complete rule provenance, and materializes both
+identities. Waiver application and runtime enforcement remain separate later
+boundaries.
+
 A waiver is valid only when it:
 
 - identifies exact `(source-policy-symbol, rule-id)` rules and scope;

@@ -19,6 +19,8 @@ pub fn render_artifact(artifact: &Value, source: Option<&str>) -> String {
     }
     if kind == "semantic-ir" {
         render_semantic_ir(artifact, &mut output);
+    } else if kind == "policy" {
+        render_policy(artifact, &mut output);
     } else {
         if let Some(profile) = text_field(artifact, "profile") {
             writeln!(output, "profile {profile}").unwrap();
@@ -28,6 +30,72 @@ pub fn render_artifact(artifact: &Value, source: Option<&str>) -> String {
         }
     }
     output
+}
+
+fn render_policy(artifact: &Value, output: &mut String) {
+    match text_field(artifact, "form") {
+        Some("source") => {
+            let symbol = text_field(artifact, "symbol").unwrap_or("?");
+            let layer = text_field(artifact, "layer").unwrap_or("?");
+            writeln!(output, "policy source {symbol} layer {layer}").unwrap();
+            if let Some(parent) = text_field(artifact, "extends") {
+                writeln!(output, "extends {parent}").unwrap();
+            }
+            if let Some(Value::Array(rules)) = artifact.get("rules") {
+                for rule in rules {
+                    let id = text_field(rule, "id").unwrap_or("?");
+                    let category = text_field(rule, "category").unwrap_or("?");
+                    let operation = text_field(rule, "operation").unwrap_or("?");
+                    let waivable = matches!(rule.get("waivable"), Some(Value::Bool(true)));
+                    writeln!(
+                        output,
+                        "  [{id}] {category} {operation} {}",
+                        if waivable { "waivable" } else { "nonwaivable" }
+                    )
+                    .unwrap();
+                }
+            }
+        }
+        Some("effective") => {
+            writeln!(output, "policy effective").unwrap();
+            if let Some(Value::Array(layers)) = artifact.get("source_layers") {
+                for layer in layers {
+                    let name = text_field(layer, "layer").unwrap_or("?");
+                    let count = match layer.get("policies") {
+                        Some(Value::Array(policies)) => policies.len(),
+                        _ => 0,
+                    };
+                    writeln!(output, "source-layer {name} {count}").unwrap();
+                }
+            }
+            if let Some(effective) = artifact.get("effective") {
+                for category in [
+                    "requirements",
+                    "evidence",
+                    "prohibitions",
+                    "capabilities",
+                    "limits",
+                ] {
+                    let count = match effective.get(category) {
+                        Some(Value::Array(rules)) => rules.len(),
+                        _ => 0,
+                    };
+                    writeln!(output, "{category} {count}").unwrap();
+                }
+                let mode = effective
+                    .get("type_mode")
+                    .and_then(|rule| text_field(rule, "value"))
+                    .unwrap_or("?");
+                writeln!(output, "type-mode {mode}").unwrap();
+            }
+            let provenance = match artifact.get("rule_provenance") {
+                Some(Value::Array(entries)) => entries.len(),
+                _ => 0,
+            };
+            writeln!(output, "rule-provenance {provenance}").unwrap();
+        }
+        _ => writeln!(output, "policy form unknown").unwrap(),
+    }
 }
 
 fn render_semantic_ir(artifact: &Value, output: &mut String) {

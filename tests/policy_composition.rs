@@ -1,4 +1,5 @@
 use bhcp::hash::HashAlgorithm;
+use bhcp::inspection::render_artifact;
 use bhcp::policy::{
     ExactNumber, PolicyCategory, PolicyDocument, PolicyLayer, SourcePolicyDocument, TypeMode,
     compose_policies,
@@ -13,13 +14,7 @@ fn array(values: impl IntoIterator<Item = Value>) -> Value {
     Value::Array(values.into_iter().collect())
 }
 
-fn rule(
-    id: &str,
-    category: &str,
-    operation: &str,
-    value: Value,
-    issuers: &[&str],
-) -> Value {
+fn rule(id: &str, category: &str, operation: &str, value: Value, issuers: &[&str]) -> Value {
     let mut entries = vec![
         ("id".to_owned(), text(id)),
         ("category".to_owned(), text(category)),
@@ -74,13 +69,7 @@ fn scoped_effect_rule(
             Value::map([("goals", array(goals.iter().map(|goal| text(goal))))]),
         ));
     }
-    rule(
-        id,
-        category,
-        operation,
-        Value::owned_map(value),
-        &[],
-    )
+    rule(id, category, operation, Value::owned_map(value), &[])
 }
 
 fn limit(id: &str, maximum: i64, unit: &str, goals: Option<&[&str]>) -> Value {
@@ -103,6 +92,25 @@ fn limit(id: &str, maximum: i64, unit: &str, goals: Option<&[&str]>) -> Value {
 
 fn type_mode(id: &str, mode: &str) -> Value {
     rule(id, "type-mode", "strengthen", text(mode), &[])
+}
+
+fn exact_limit_source(symbol: &str, maximum: Value) -> SourcePolicyDocument {
+    source(
+        symbol,
+        "team",
+        None,
+        vec![rule(
+            "a-limit",
+            "limit",
+            "tighten",
+            Value::map([
+                ("dimension", text("example/limit.memory@0")),
+                ("unit", text("example/unit.byte@0")),
+                ("maximum", maximum),
+            ]),
+            &[],
+        )],
+    )
 }
 
 fn source(
@@ -180,16 +188,22 @@ fn layers_compose_restrictively_with_canonical_provenance_and_identity() {
                 Some(&["example/goal.b@0"]),
             ),
             limit("c-limit", 5, "example/unit.byte@0", None),
-            type_mode("d-mode", "strict"),
+            scoped_effect_rule(
+                "d-network-capability",
+                "capability",
+                "narrow",
+                "bhcp-effect/network@0",
+                None,
+            ),
+            type_mode("e-mode", "strict"),
         ],
     );
 
-    let document = compose_policies(
-        &[repository.clone(), org.clone()],
-        HashAlgorithm::default(),
-    )
-    .unwrap();
-    document.validate().unwrap();
+    let document =
+        compose_policies(&[repository.clone(), org.clone()], HashAlgorithm::default()).unwrap();
+    PolicyDocument::Effective(document.clone())
+        .validate()
+        .unwrap();
     assert_eq!(
         document
             .source_layers
@@ -206,9 +220,15 @@ fn layers_compose_restrictively_with_canonical_provenance_and_identity() {
     );
     assert_eq!(document.effective.evidence.len(), 1);
     assert_eq!(document.effective.prohibitions.len(), 1);
-    assert_eq!(document.effective.capabilities.len(), 1);
+    assert_eq!(document.effective.capabilities.len(), 2);
+    let fs_read = document
+        .effective
+        .capabilities
+        .iter()
+        .find(|rule| rule.value.effect == "bhcp-effect/fs.read@0")
+        .unwrap();
     assert_eq!(
-        document.effective.capabilities[0]
+        fs_read
             .value
             .scope
             .as_ref()
@@ -217,6 +237,20 @@ fn layers_compose_restrictively_with_canonical_provenance_and_identity() {
             .as_ref()
             .unwrap(),
         &["example/goal.b@0"]
+    );
+    assert!(
+        document
+            .effective
+            .capabilities
+            .iter()
+            .any(|rule| rule.value.effect == "bhcp-effect/network@0")
+    );
+    assert!(
+        document
+            .effective
+            .prohibitions
+            .iter()
+            .any(|rule| rule.value.effect == "bhcp-effect/network@0")
     );
     assert_eq!(
         document.effective.limits[0].value.maximum,
@@ -232,6 +266,17 @@ fn layers_compose_restrictively_with_canonical_provenance_and_identity() {
         .find(|entry| entry.category == PolicyCategory::Requirement)
         .unwrap();
     assert_eq!(requirement_provenance.sources.len(), 2);
+    let outline = render_artifact(
+        &PolicyDocument::Effective(document.clone()).to_value(true),
+        None,
+    );
+    assert!(outline.contains("policy effective"));
+    assert!(outline.contains("source-layer organization 1"));
+    assert!(outline.contains("source-layer repository 1"));
+    assert!(outline.contains("prohibitions 1"));
+    assert!(outline.contains("capabilities 2"));
+    assert!(outline.contains("type-mode strict"));
+    assert!(outline.contains("rule-provenance"));
     let bytes = PolicyDocument::Effective(document.clone())
         .to_cbor(true)
         .unwrap();
@@ -306,7 +351,8 @@ fn overlapping_limit_units_and_invalid_inheritance_fail_closed() {
         None,
         vec![limit("a-limit", 4, "example/unit.word@0", None)],
     );
-    let error = compose_policies(&[base.clone(), wrong_unit], HashAlgorithm::default()).unwrap_err();
+    let error =
+        compose_policies(&[base.clone(), wrong_unit], HashAlgorithm::default()).unwrap_err();
     assert_eq!(error.code, "BHCP8002");
     assert_eq!(
         error.message,
@@ -327,7 +373,10 @@ fn overlapping_limit_units_and_invalid_inheritance_fail_closed() {
     );
 
     let duplicate = compose_policies(&[base.clone(), base], HashAlgorithm::default()).unwrap_err();
-    assert_eq!(duplicate.message, "duplicate policy source example/policy.base@0");
+    assert_eq!(
+        duplicate.message,
+        "duplicate policy source example/policy.base@0"
+    );
 }
 
 #[test]
@@ -399,4 +448,130 @@ fn equivalent_decompositions_have_identical_effective_meaning_but_distinct_artif
     assert_eq!(one.effective, split.effective);
     assert_eq!(one.header.semantic_id, split.header.semantic_id);
     assert_ne!(one.header.artifact_id, split.header.artifact_id);
+}
+
+#[test]
+fn identity_scope_exact_numbers_and_same_layer_units_are_canonical() {
+    let identity = compose_policies(&[], HashAlgorithm::default()).unwrap();
+    assert!(identity.source_layers.is_empty());
+    assert!(identity.rule_provenance.is_empty());
+    assert_eq!(identity.effective.type_mode.value, TypeMode::Dynamic);
+    assert!(!identity.effective.type_mode.waivable);
+
+    let absent_scope = source(
+        "example/policy.a@0",
+        "team",
+        None,
+        vec![requirement(
+            "a-requirement",
+            "example/requirement.lint@0",
+            &[],
+        )],
+    );
+    let empty_scope = source(
+        "example/policy.b@0",
+        "team",
+        None,
+        vec![rule(
+            "a-requirement",
+            "requirement",
+            "add",
+            Value::map([
+                ("requirement", text("example/requirement.lint@0")),
+                ("scope", Value::owned_map(vec![])),
+            ]),
+            &[],
+        )],
+    );
+    let normalized =
+        compose_policies(&[empty_scope, absent_scope], HashAlgorithm::default()).unwrap();
+    assert_eq!(normalized.effective.requirements.len(), 1);
+    assert!(normalized.effective.requirements[0].value.scope.is_none());
+
+    let half = source(
+        "example/policy.half@0",
+        "organization",
+        None,
+        vec![rule(
+            "a-limit",
+            "limit",
+            "tighten",
+            Value::map([
+                ("dimension", text("example/limit.memory@0")),
+                ("unit", text("example/unit.byte@0")),
+                (
+                    "maximum",
+                    array([text("rational"), Value::Integer(1), Value::Integer(2)]),
+                ),
+            ]),
+            &[],
+        )],
+    );
+    let four_tenths = source(
+        "example/policy.decimal@0",
+        "repository",
+        None,
+        vec![rule(
+            "a-limit",
+            "limit",
+            "tighten",
+            Value::map([
+                ("dimension", text("example/limit.memory@0")),
+                ("unit", text("example/unit.byte@0")),
+                (
+                    "maximum",
+                    array([text("decimal"), Value::Integer(4), Value::Integer(-1)]),
+                ),
+            ]),
+            &[],
+        )],
+    );
+    let exact = compose_policies(&[four_tenths, half], HashAlgorithm::default()).unwrap();
+    assert_eq!(
+        exact.effective.limits[0].value.maximum,
+        ExactNumber::Decimal {
+            coefficient: 4,
+            exponent: -1
+        }
+    );
+
+    let rational_half = array([text("rational"), Value::Integer(1), Value::Integer(2)]);
+    let decimal_half = array([text("decimal"), Value::Integer(5), Value::Integer(-1)]);
+    let representation_a = compose_policies(
+        &[
+            exact_limit_source("example/policy.a@0", rational_half.clone()),
+            exact_limit_source("example/policy.b@0", decimal_half.clone()),
+        ],
+        HashAlgorithm::default(),
+    )
+    .unwrap();
+    let representation_b = compose_policies(
+        &[
+            exact_limit_source("example/policy.a@0", decimal_half),
+            exact_limit_source("example/policy.b@0", rational_half),
+        ],
+        HashAlgorithm::default(),
+    )
+    .unwrap();
+    assert_eq!(representation_a.effective, representation_b.effective);
+    assert_eq!(
+        representation_a.header.semantic_id,
+        representation_b.header.semantic_id
+    );
+
+    let mixed_units = source(
+        "example/policy.units@0",
+        "team",
+        None,
+        vec![
+            limit("a-byte", 5, "example/unit.byte@0", None),
+            limit("b-word", 4, "example/unit.word@0", None),
+        ],
+    );
+    assert_eq!(
+        compose_policies(&[mixed_units], HashAlgorithm::default())
+            .unwrap_err()
+            .message,
+        "overlapping limit example/limit.memory@0 uses incompatible units example/unit.byte@0 and example/unit.word@0"
+    );
 }

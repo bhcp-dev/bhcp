@@ -228,9 +228,15 @@ IDs, all six typed category/operation/value forms, waivability, issuer lists, sc
 and canonical parameters are parsed with retained AST spans. Comments, formatting,
 and optional human labels do not enter the policy document. `§waiver`, profile
 attachment shorthand, and expression-valued policy clauses fail closed as deferred
-syntax. This is not yet the complete policy engine: composition, weakening
-diagnostics, waiver validation, enforcement, and inspection remain the Phase 3
-implementation sequence.
+syntax. Validated source documents now compose in fixed organization → team →
+repository → user order. The composer resolves same-layer inheritance, rejects
+missing/cyclic/cross-layer parents and duplicate sources, checks every later
+capability/limit/type-mode rule for weakening before joining, intersects capability
+scopes, takes exact minima and strongest modes, retains deny rules, collapses exact
+duplicates with restrictive waiver governance, and emits canonical source-layer and
+rule provenance plus semantic/artifact identities. Human inspection names the
+effective category counts, type mode, layers, and provenance. Waiver validation,
+runtime enforcement, and richer policy inspection remain later Phase 3 work.
 
 ```bhcp
 §policy example/repository@0 §extends example/base@0 {
