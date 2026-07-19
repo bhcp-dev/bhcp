@@ -522,8 +522,10 @@ source-policy-document = {
   "rules": [* policy-rule]
 }
 
-; The semantic ID commits to `effective` only. Source documents, exact source rule
-; identities, applied waivers, and provenance remain artifact identity.
+; The semantic ID commits to `effective` only. The artifact ID commits to the full
+; effective-policy-document after removing only `artifact_id`; source documents,
+; exact source rule identities, applied waivers, and provenance are therefore
+; artifact-only inputs.
 effective-policy-document = {
   document-header,
   "kind": "policy",

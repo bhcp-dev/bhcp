@@ -59,6 +59,11 @@ Source policy documents carry `form = source`. Canonical effective documents car
 source layers and rule provenance, and keep all 17 root alternatives unchanged by
 remaining under the existing `policy-document` root. The comparison, duplicate,
 waiver, identity, and composition rules are normative in SEMANTICS S9.2.
+For the effective form, the semantic hash projection is exactly `effective`; the
+artifact projection retains every document field except `artifact_id` itself.
+Content-addressed source layers and `rule_provenance` are consequently audit inputs,
+not semantic inputs, while effective waivability and issuer constraints remain
+semantic.
 
 The files in [`examples/`](examples/) use CBOR diagnostic notation and contain at
 least one instance of every root alternative. `examples/manifest.txt` binds each

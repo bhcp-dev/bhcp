@@ -85,6 +85,14 @@ post-quantum preimage margin. [`bhcp-project.toml`](bhcp-project.toml) is the ex
 algorithm-agility boundary: projects may select another algorithm once the Rust
 implementation registers it; unknown selections fail before parsing.
 
+For effective policy documents, semantic identity hashes only the normalized
+`effective` restriction value. Requirements, evidence, effects, limits, type mode,
+waivability, and authorized issuers therefore change it. Source decomposition,
+content-addressed layers, rule provenance, labels, comments, formatting, and source
+enumeration do not. The latter retained audit inputs do enter artifact identity;
+the artifact ID field itself is excluded. The Rust policy API exposes both
+recomputations and validates materialized IDs against the same projections.
+
 The crate uses the `cddl` 0.10.6 parser from cddl-rs to reject malformed RFC 8610
 schemas and the pure-Rust RustCrypto `sha3` 0.12.0 crate for SHA3-512. The BHCP
 compiler, deterministic CBOR codec, and fixture validator remain repository-owned

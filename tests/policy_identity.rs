@@ -24,24 +24,14 @@ fn all_rules_source() -> &'static str {
 fn every_observable_effective_coordinate_changes_semantic_identity() {
     let baseline = all_rules_source();
     let variants = [
-        baseline.replace(
-            "example/requirement.lint@0",
-            "example/requirement.audit@0",
-        ),
-        baseline.replace(
-            "example/obligation.review@0",
-            "example/obligation.audit@0",
-        ),
+        baseline.replace("example/requirement.lint@0", "example/requirement.audit@0"),
+        baseline.replace("example/obligation.review@0", "example/obligation.audit@0"),
         baseline.replace("bhcp-effect/network@0", "bhcp-effect/process.spawn@0"),
         baseline.replace("bhcp-effect/fs.read@0", "bhcp-effect/fs.write@0"),
         baseline.replace("[\"integer\", 5]", "[\"integer\", 4]"),
         baseline.replace("strengthen gradual", "strengthen strict"),
         baseline.replacen("nonwaivable", "waivable by [\"issuer-a\"]", 1),
-        baseline.replacen(
-            "nonwaivable",
-            "waivable by [\"issuer-a\", \"issuer-b\"]",
-            1,
-        ),
+        baseline.replacen("nonwaivable", "waivable by [\"issuer-a\", \"issuer-b\"]", 1),
     ];
 
     let baseline_id = compose(baseline).header.semantic_id.unwrap();
@@ -134,19 +124,28 @@ fn decomposition_and_retained_provenance_are_artifact_only_inputs() {
 fn identity_recomputation_and_algorithm_tags_match_the_materialized_document() {
     let document = compose(all_rules_source());
     assert_eq!(
-        document.compute_semantic_id(HashAlgorithm::default()).unwrap(),
+        document
+            .compute_semantic_id(HashAlgorithm::default())
+            .unwrap(),
         document.header.semantic_id.clone().unwrap()
     );
     assert_eq!(
-        document.compute_artifact_id(HashAlgorithm::default()).unwrap(),
+        document
+            .compute_artifact_id(HashAlgorithm::default())
+            .unwrap(),
         document.header.artifact_id.clone().unwrap()
     );
-    assert_eq!(document.header.semantic_id.as_ref().unwrap().algorithm, SHA3_512);
-    assert_eq!(document.header.artifact_id.as_ref().unwrap().algorithm, SHA3_512);
+    assert_eq!(
+        document.header.semantic_id.as_ref().unwrap().algorithm,
+        SHA3_512
+    );
+    assert_eq!(
+        document.header.artifact_id.as_ref().unwrap().algorithm,
+        SHA3_512
+    );
     assert!(document.source_layers.iter().all(|layer| {
         layer.policies.iter().all(|source| {
-            source.artifact.digests.len() == 1
-                && source.artifact.digests[0].algorithm == SHA3_512
+            source.artifact.digests.len() == 1 && source.artifact.digests[0].algorithm == SHA3_512
         })
     }));
     assert!(
