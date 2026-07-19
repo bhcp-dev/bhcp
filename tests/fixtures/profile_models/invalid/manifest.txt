@@ -1,0 +1,7 @@
+unknown-field.diag profile unknown profile document field
+self-parent.diag syntax must not extend itself
+duplicate-mapping.diag syntax duplicate syntax mapping coordinate
+mapping-order.diag syntax mappings must be sorted
+invalid-formatting.diag syntax formatting line_width must be in 1..=512
+duplicate-overlay.diag profile policy_overlays must contain unique symbols
+invalid-type-mode.diag profile type_mode must be dynamic, gradual, infer-strict, or strict
