@@ -210,6 +210,15 @@ equal-information syntax comparison, and its checked oracle exposes five distinc
 reasonable-but-policy-invalid implementations while retaining two passing control
 invariants.
 
+The v0 policy wire and restriction algebra are now specified in
+[`SEMANTICS.md`](SEMANTICS.md#s92-monotonic-policy) and the CDDL bundle. Six closed
+category/operation/value shapes replace the former unrestricted policy value, and a
+canonical effective policy separates semantic restrictions from retained source
+layers, exact rule provenance, and waiver audit material. This is a normative
+boundary, not yet the executable policy engine: strongly typed Rust document models,
+composition, waiver validation, enforcement, and inspection remain the Phase 3
+implementation sequence.
+
 The trusted composition boundary is deliberately narrow. A network carries its
 structural ID, output type, finite typed children, and reducer symbol—nothing else.
 It carries no behavior kind, quantifier family, guard, dependency list, budget,

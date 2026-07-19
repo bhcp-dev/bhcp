@@ -708,15 +708,98 @@ unrestricted macros, ambiguous aliases, and core-semantic overrides are rejected
 
 ### S9.2 Monotonic policy
 
-Policy layers apply in order: organization, team, repository, user. Composition is
-monotonic. A later layer may add requirements, evidence rules, or prohibitions;
-tighten limits; narrow capabilities; or strengthen type mode. It MUST NOT weaken an
-earlier layer without a valid waiver. Conflicts resolve to the stricter rule; deny
-wins. The elaborated policy and every source layer remain in the artifact.
+Policy source documents apply in this fixed order: organization, team, repository,
+user. Missing layers contribute the identity policy. Multiple documents in one layer
+are ordered by canonical symbol solely for deterministic provenance; their
+restrictions are joined without precedence. A source document symbol MUST be unique
+in an artifact, rule IDs MUST be unique within that document, and the stable identity
+of a source rule is the pair `(source-policy-symbol, rule-id)`. Equal local rule IDs
+in different source documents are distinct. An `extends` chain is expanded before
+layering, MUST stay within one layer, and MUST be acyclic; an inherited rule keeps
+the identity of the document that declared it.
+
+Every category has one closed operation and one typed value:
+
+| category | operation | typed value | restrictive composition |
+| --- | --- | --- | --- |
+| requirement | `add` | requirement symbol, optional scope and canonical parameters | set union |
+| evidence | `add` | obligation symbol, non-empty accepted evidence-class set, positive minimum, optional scope and canonical parameters | set union of independent evidence demands |
+| prohibition | `deny` | effect symbol and optional scope | set union; denial always wins |
+| capability | `narrow` | effect symbol and optional scope | intersection of allowed scopes for the same effect |
+| limit | `tighten` | dimension, unit, non-negative exact maximum, and optional scope | minimum maximum for the same dimension, unit, and scope |
+| type-mode | `strengthen` | `dynamic`, `gradual`, `infer-strict`, or `strict` | maximum in that listed order |
+
+No other category/operation/value combination is a v0 policy rule. Policy parameters
+are compared by their deterministic CBOR value. Evidence-class arrays and all scope
+arrays are sorted sets with unique members. An evidence minimum MUST be greater than
+zero. A limit maximum MUST be an exact non-negative number. Two overlapping limits
+for the same dimension with different units are rejected in v0; implicit unit
+conversion is forbidden.
+
+A policy scope is the product of goal, resource, and operation dimensions. An omitted
+dimension denotes its universe, a present array denotes exactly that set, and an
+empty array makes the scope empty. Scope `A` is no broader than scope `B` exactly when
+each set in `A` is a subset of the corresponding set in `B`, treating omission as the
+universe. Capability narrowing intersects these products coordinate by coordinate.
+An empty intersection is a valid empty capability ceiling, not an error and not an
+implicit grant. A prohibition removes every matching capability regardless of any
+grant, layer, source order, or waiver applied to some other rule.
+
+Exact duplicate effective restrictions collapse. Their provenance is unioned;
+`waivable` is the conjunction of the contributing flags, and, when all are waivable,
+the effective authorized issuer set is the intersection of their non-empty source
+issuer sets. An empty intersection makes the effective restriction non-waivable.
+`authorized_issuers` MUST be absent when `waivable` is false and MUST be a non-empty
+sorted set when it is true. Distinct additive requirements or evidence demands all
+remain active. A statically provable contradiction between requirements is rejected;
+an implementation that cannot prove consistency retains both and reports unresolved
+at enforcement rather than silently choosing one.
+
+Let `P ⊑ Q` mean that `Q` is at least as restrictive as `P`: requirement, evidence,
+and prohibition sets are supersets; every capability ceiling is a subset; every
+comparable maximum is no greater; and type mode is no weaker. This is a product of
+set-inclusion orders, reversed inclusion for capabilities, the exact-number order for
+limits, and the finite type-mode order. Each coordinate is antisymmetric, so the
+strict part is irreflexive and acyclic. The join described above is idempotent,
+commutative, and associative on normalized restrictions. Consequently grouping an
+already validated layer-ordered sequence cannot change its effective policy. The
+ordered monotonicity check MUST still examine every source layer before joining; it
+rejects a `narrow`, `tighten`, or `strengthen` value that is broader, larger, or
+weaker than the applicable earlier value, and implementations MUST NOT regroup inputs
+to hide that invalid attempt. Source-layer groups, policy references within each
+group, and provenance source sets are canonically sorted, so input enumeration order
+affects neither identity. Source decomposition, content, and layer assignment remain
+in artifact identity but do not affect the semantic join of accepted restrictions.
+
+The empty effective policy contains no additive demands, prohibitions, capability
+ceilings, limits, source layers, provenance, or waivers. Its materialized type-mode
+entry is `dynamic` and non-waivable because no weakening below `dynamic` exists.
+After valid waivers are applied to their exact source-rule identities, layers are
+joined in order. A later layer that
+states a broader capability, larger limit, weaker type mode, removal, or replacement
+does not override the earlier restriction: it is either an additional restriction,
+an exact duplicate, or a forbidden weakening. Conflicts resolve to the restrictive
+join; deny wins.
+
+`source-policy-document` (`form = source`) is the authored boundary.
+`effective-policy-document` (`form = effective`) is the execution boundary. Its
+`effective` member is canonical: category arrays are sorted and unique and its type
+mode is materialized. Capability rules normalize to at most one intersected ceiling
+per effect. Limit rules normalize by `(dimension, unit, scope)`; distinct overlapping
+scopes remain separate and the minimum applicable maximum governs their overlap.
+The document's `semantic_id` commits only to the `effective` member,
+including effective waivability and issuer constraints. `source_layers` retains
+content-addressed source documents grouped in organization → team → repository →
+user order; `provenance` maps each canonical effective-rule index to sorted source
+rule identities; and applied waiver references are retained. Those fields,
+signatures, timestamps, justifications, and source decomposition contribute to
+artifact identity but not semantic identity. Authoring enumeration order is
+canonicalized away. Thus two auditable derivations may have the same effective
+semantic identity without having the same artifact identity.
 
 A waiver is valid only when it:
 
-- identifies exact rules and scope;
+- identifies exact `(source-policy-symbol, rule-id)` rules and scope;
 - states the precise weakening and justification;
 - is issued by an authority permitted by the waived rule;
 - starts no earlier than issuance and has an expiry;
@@ -725,6 +808,11 @@ A waiver is valid only when it:
 - does not waive a rule declared non-waivable.
 
 Invalid, expired, overbroad, or unauthorized waivers are rejected, not ignored.
+Waiver application never edits or erases a source document. It records the waiver in
+the effective artifact and removes only the authorized weakening from the semantic
+join. Waiving a collapsed restriction requires authorization from every contributing
+source rule affected by the weakening. A waiver cannot manufacture a capability or
+otherwise exceed the restriction-free identity policy.
 
 ### S9.3 Extensions
 
@@ -962,6 +1050,28 @@ lowering.
     };
 }
 ```
+
+### A.6 Monotonic policy vectors
+
+These examples use `U` for an omitted (universal) scope dimension. They are
+normative semantic vectors; the CDDL diagnostic fixture supplies the positive wire
+shape.
+
+| earlier | later | result | status |
+| --- | --- | --- | --- |
+| requirements `{lint}` | add `{signed-commits}` | `{lint, signed-commits}` | valid |
+| evidence `{static ≥ 1}` | add `{human-approved ≥ 1}` | both independent demands | valid |
+| network operations `{fetch, publish}` | narrow to `{fetch}` | `{fetch}` | valid |
+| network operations `{fetch}` | state `{fetch, publish}` | `{fetch}`; later statement cannot widen | forbidden weakening |
+| attempts ≤ 5 | tighten attempts ≤ 3 | attempts ≤ 3 | valid |
+| attempts ≤ 3 | state attempts ≤ 5 | attempts ≤ 3; later statement cannot loosen | forbidden weakening |
+| `gradual` | strengthen to `strict` | `strict` | valid |
+| `strict` | state `gradual` | `strict`; later statement cannot weaken | forbidden weakening |
+| allow network `{fetch}` | deny network `{fetch}` | denied | valid; deny precedence |
+| time ≤ 10 seconds | time ≤ 500 milliseconds | none | rejected; v0 has no implicit unit conversion |
+| non-waivable deny | waiver naming that rule | none | rejected waiver |
+| source `org/policy@0:r1` and `repo/policy@0:r1` | add both | two distinct source identities | valid |
+| no source documents | identity policy | empty restrictions and non-waivable `dynamic` mode | valid |
 
 ## Appendix B. Vision-to-contract traceability
 

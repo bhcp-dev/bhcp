@@ -429,30 +429,169 @@ profile-document = {
   "type_mode": type-mode
 }
 
-policy-rule = {
+policy-rule = requirement-policy-rule / evidence-policy-rule
+            / prohibition-policy-rule / capability-policy-rule
+            / limit-policy-rule / type-mode-policy-rule
+
+policy-rule-common = (
   "id": ref-id,
-  "category": "requirement" / "limit" / "type-mode" / "evidence"
-            / "prohibition" / "capability",
-  "operation": "add" / "tighten" / "deny" / "narrow" / "strengthen",
-  "value": value,
   "waivable": bool,
   ? "authorized_issuers": [* tstr]
+)
+
+requirement-policy-rule = {
+  policy-rule-common,
+  "category": "requirement",
+  "operation": "add",
+  "value": requirement-policy-value
+}
+evidence-policy-rule = {
+  policy-rule-common,
+  "category": "evidence",
+  "operation": "add",
+  "value": evidence-policy-value
+}
+prohibition-policy-rule = {
+  policy-rule-common,
+  "category": "prohibition",
+  "operation": "deny",
+  "value": capability-policy-value
+}
+capability-policy-rule = {
+  policy-rule-common,
+  "category": "capability",
+  "operation": "narrow",
+  "value": capability-policy-value
+}
+limit-policy-rule = {
+  policy-rule-common,
+  "category": "limit",
+  "operation": "tighten",
+  "value": limit-policy-value
+}
+type-mode-policy-rule = {
+  policy-rule-common,
+  "category": "type-mode",
+  "operation": "strengthen",
+  "value": type-mode
 }
 
-policy-document = {
+requirement-policy-value = {
+  "requirement": symbol-id,
+  ? "scope": policy-scope,
+  ? "parameters": value
+}
+evidence-policy-value = {
+  "obligation": symbol-id,
+  "classes": [1* evidence-class],
+  "minimum": uint,
+  ? "scope": policy-scope,
+  ? "parameters": value
+}
+capability-policy-value = {
+  "effect": symbol-id,
+  ? "scope": policy-scope
+}
+limit-policy-value = {
+  "dimension": symbol-id,
+  "unit": symbol-id,
+  "maximum": exact-number,
+  ? "scope": policy-scope
+}
+
+; Missing scope dimensions denote the universe. Present arrays are sorted sets;
+; an empty array denotes the empty set for that dimension.
+policy-scope = {
+  ? "goals": [* symbol-id],
+  ? "resources": [* symbol-id],
+  ? "operations": [* symbol-id]
+}
+policy-layer = "organization" / "team" / "repository" / "user"
+policy-category = "requirement" / "evidence" / "prohibition"
+                / "capability" / "limit" / "type-mode"
+
+policy-document = source-policy-document / effective-policy-document
+
+source-policy-document = {
   document-header,
   "kind": "policy",
+  "form": "source",
   "symbol": symbol-id,
-  "layer": "organization" / "team" / "repository" / "user",
+  "layer": policy-layer,
   ? "extends": symbol-id,
   "rules": [* policy-rule]
+}
+
+; The semantic ID commits to `effective` only. Source documents, exact source rule
+; identities, applied waivers, and provenance remain artifact identity.
+effective-policy-document = {
+  document-header,
+  "kind": "policy",
+  "form": "effective",
+  "semantic_id": semantic-id,
+  "effective": effective-policy,
+  "source_layers": [* policy-source-layer],
+  "provenance": [* policy-provenance],
+  ? "waivers": [* content-reference]
+}
+
+effective-policy = {
+  "requirements": [* effective-requirement-policy-rule],
+  "evidence": [* effective-evidence-policy-rule],
+  "prohibitions": [* effective-prohibition-policy-rule],
+  "capabilities": [* effective-capability-policy-rule],
+  "limits": [* effective-limit-policy-rule],
+  "type_mode": effective-type-mode-policy-rule
+}
+effective-policy-rule-common = (
+  "waivable": bool,
+  ? "authorized_issuers": [* tstr]
+)
+effective-requirement-policy-rule = {
+  effective-policy-rule-common,
+  "value": requirement-policy-value
+}
+effective-evidence-policy-rule = {
+  effective-policy-rule-common,
+  "value": evidence-policy-value
+}
+effective-prohibition-policy-rule = {
+  effective-policy-rule-common,
+  "value": capability-policy-value
+}
+effective-capability-policy-rule = {
+  effective-policy-rule-common,
+  "value": capability-policy-value
+}
+effective-limit-policy-rule = {
+  effective-policy-rule-common,
+  "value": limit-policy-value
+}
+effective-type-mode-policy-rule = {
+  effective-policy-rule-common,
+  "value": type-mode
+}
+
+policy-source-layer = {
+  "layer": policy-layer,
+  "policies": [1* policy-source]
+}
+policy-source = {
+  "symbol": symbol-id,
+  "artifact": content-reference
+}
+source-rule-identity = [symbol-id, ref-id]
+policy-provenance = {
+  "category": policy-category,
+  "effective_rule": uint,
+  "sources": [1* source-rule-identity]
 }
 
 waiver-document = {
   document-header,
   "kind": "waiver",
   "symbol": symbol-id,
-  "rules": [1* ref-id],
+  "rules": [1* source-rule-identity],
   "scope": value,
   "weakening": value,
   "justification": tstr,

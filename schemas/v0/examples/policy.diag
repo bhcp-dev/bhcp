@@ -2,7 +2,34 @@
   "version": "bhcp/v0",
   "features": [],
   "kind": "policy",
+  "form": "source",
   "symbol": "example/policy@0",
   "layer": "repository",
-  "rules": []
+  "rules": [
+    {
+      "id": "required-static-analysis",
+      "category": "requirement",
+      "operation": "add",
+      "value": {"requirement": "example/requirement/static-analysis@0"},
+      "waivable": false
+    },
+    {
+      "id": "network-ceiling",
+      "category": "capability",
+      "operation": "narrow",
+      "value": {
+        "effect": "bhcp-effect/network@0",
+        "scope": {"operations": ["example/operation/fetch@0"]}
+      },
+      "waivable": true,
+      "authorized_issuers": ["security-team"]
+    },
+    {
+      "id": "strict-types",
+      "category": "type-mode",
+      "operation": "strengthen",
+      "value": "strict",
+      "waivable": false
+    }
+  ]
 }
