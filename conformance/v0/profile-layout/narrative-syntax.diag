@@ -1,0 +1,24 @@
+{
+  "version": "bhcp/v0",
+  "features": [],
+  "kind": "syntax",
+  "symbol": "example/syntax.layout-narrative@0",
+  "preamble": "#!bhcp-profile",
+  "mappings": [
+    {"category": "keyword", "canonical": "ensures", "surface": "promises"},
+    {"category": "keyword", "canonical": "goal", "surface": "objective"},
+    {"category": "keyword", "canonical": "input", "surface": "accepts"},
+    {"category": "keyword", "canonical": "output", "surface": "returns"},
+    {"category": "keyword", "canonical": "requires", "surface": "provided"},
+    {"category": "keyword", "canonical": "verify", "surface": "checked"},
+    {"category": "open-delimiter", "canonical": "{", "surface": "^~"},
+    {"category": "close-delimiter", "canonical": "}", "surface": "~^"},
+    {"category": "terminator", "canonical": ";", "surface": "$"},
+    {"category": "alias", "canonical": "bhcp-verifier/expression@0", "surface": "validation"}
+  ],
+  "formatting": {
+    "indent_width": 6,
+    "line_width": 96,
+    "final_newline": false
+  }
+}

@@ -1,0 +1,9 @@
+§policy example/policy.layout@0 {
+  layer repository;
+  rule required-review "review required": requirement add {
+    requirement: example/requirement.review@0,
+    scope: { goals: [example/Layout@0] },
+    parameters: { enabled: true }
+  } nonwaivable;
+  rule strict-enough: type-mode strengthen infer-strict nonwaivable;
+}
