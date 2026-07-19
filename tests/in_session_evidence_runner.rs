@@ -2,6 +2,9 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
+use bhcp::cbor::decode_deterministic;
+use bhcp::value::Value;
+
 fn fresh_root() -> PathBuf {
     let root = std::env::temp_dir().join(format!(
         "bhcp-in-session-forward-runner-{}",
@@ -81,5 +84,40 @@ fn preparation_freezes_the_adapter_candidate_skill_and_complete_plan() {
     let frozen = run("freeze-001", &root);
     assert!(frozen.status.success());
     assert_eq!(String::from_utf8(frozen.stdout).unwrap(), prepared_output);
+
+    let verify = || {
+        Command::new(env!("CARGO_BIN_EXE_bhcp"))
+            .args([
+                "verify",
+                root.join("prepared/contract.bhcp").to_str().unwrap(),
+                "experiment/InSessionEvidence@0",
+                root.join("prepared/candidate.cbor").to_str().unwrap(),
+                root.join("prepared/subject/src/lib.rs").to_str().unwrap(),
+                "2026-07-19T20:30:00Z",
+            ])
+            .output()
+            .unwrap()
+    };
+    assert_eq!(verify().status.code(), Some(3));
+    fs::write(
+        root.join("prepared/subject/src/lib.rs"),
+        "pub fn public_ready() -> bool {\n    true\n}\n\npub fn oracle_ready() -> bool {\n    true\n}\n\npub fn policy_ready() -> bool {\n    true\n}\n",
+    )
+    .unwrap();
+    let accepted = verify();
+    assert!(
+        accepted.status.success(),
+        "{}",
+        String::from_utf8_lossy(&accepted.stderr)
+    );
+    let bundle = decode_deterministic(&accepted.stdout).unwrap();
+    let Value::Map(statuses) = bundle.get("obligation_status").unwrap() else {
+        panic!("obligation status is not a map")
+    };
+    assert!(
+        statuses
+            .iter()
+            .all(|(_, status)| status == &Value::Text("discharged".to_owned()))
+    );
     fs::remove_dir_all(root).unwrap();
 }
