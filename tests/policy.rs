@@ -125,6 +125,16 @@ fn effective_policy() -> Value {
     let without_artifact = Value::map([
         ("version", text("bhcp/v0")),
         ("features", array([])),
+        (
+            "provenance",
+            Value::map([
+                ("producer", text("example/policy.builder@0")),
+                (
+                    "created_at",
+                    Value::Tag(0, Box::new(text("2026-07-19T00:00:00Z"))),
+                ),
+            ]),
+        ),
         ("kind", text("policy")),
         ("form", text("effective")),
         ("semantic_id", semantic_id.to_value()),
@@ -196,19 +206,100 @@ fn effective_policy_validates_semantic_and_artifact_identity() {
         error.message,
         "effective policy semantic_id does not match effective meaning"
     );
+
+    let value = effective_policy();
+    let Value::Map(mut entries) = value else {
+        unreachable!()
+    };
+    let artifact = entries
+        .iter_mut()
+        .find(|(key, _)| key == "artifact_id")
+        .unwrap();
+    *artifact = (
+        artifact.0.clone(),
+        Value::map([
+            ("algorithm", text("bhcp.hash/sha3-512@0")),
+            ("digest", Value::Bytes(vec![0; 64])),
+        ]),
+    );
+    let error = PolicyDocument::from_value(&Value::owned_map(entries)).unwrap_err();
+    assert_eq!(error.code, "BHCP8001");
+    assert_eq!(
+        error.message,
+        "effective policy artifact_id does not match document"
+    );
 }
 
 #[test]
 fn invalid_category_operation_value_and_unknown_fields_fail_stably() {
     let baseline = source_policy("repository");
-    for (mutated, expected) in [
+    for (index, operation, expected) in [
         (
-            replace_rule_field(&baseline, 0, "operation", text("deny")),
+            0,
+            "deny",
             "policy category \"requirement\" requires operation \"add\"",
         ),
         (
+            1,
+            "deny",
+            "policy category \"evidence\" requires operation \"add\"",
+        ),
+        (
+            2,
+            "add",
+            "policy category \"prohibition\" requires operation \"deny\"",
+        ),
+        (
+            3,
+            "deny",
+            "policy category \"capability\" requires operation \"narrow\"",
+        ),
+        (
+            4,
+            "add",
+            "policy category \"limit\" requires operation \"tighten\"",
+        ),
+        (
+            5,
+            "add",
+            "policy category \"type-mode\" requires operation \"strengthen\"",
+        ),
+    ] {
+        let error = PolicyDocument::from_value(&replace_rule_field(
+            &baseline,
+            index,
+            "operation",
+            text(operation),
+        ))
+        .unwrap_err();
+        assert_eq!(error.code, "BHCP8001");
+        assert_eq!(error.message, expected);
+    }
+
+    for (mutated, expected) in [
+        (
             replace_rule_field(&baseline, 0, "value", text("untyped")),
             "requirement policy value must be a map",
+        ),
+        (
+            replace_rule_field(&baseline, 1, "value", text("untyped")),
+            "evidence policy value must be a map",
+        ),
+        (
+            replace_rule_field(&baseline, 2, "value", text("untyped")),
+            "capability policy value must be a map",
+        ),
+        (
+            replace_rule_field(&baseline, 3, "value", text("untyped")),
+            "capability policy value must be a map",
+        ),
+        (
+            replace_rule_field(&baseline, 4, "value", text("untyped")),
+            "limit policy value must be a map",
+        ),
+        (
+            replace_rule_field(&baseline, 5, "value", text("untyped")),
+            "type-mode policy value must be dynamic, gradual, infer-strict, or strict",
         ),
         (
             add_rule_field(&baseline, 0, "mystery", Value::Bool(true)),
