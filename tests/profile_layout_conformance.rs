@@ -90,12 +90,39 @@ fn substantially_different_checked_in_layouts_preserve_governed_semantic_identit
 
     assert_eq!(symbolic.semantic_hash, narrative.semantic_hash);
     assert_eq!(symbolic.ir.semantic_id, narrative.ir.semantic_id);
+    assert_ne!(symbolic.ir_bytes, narrative.ir_bytes);
+    assert_ne!(symbolic.ir_hash, narrative.ir_hash);
+    assert_ne!(symbolic.ast_bytes, narrative.ast_bytes);
     assert_ne!(symbolic.ast_hash, narrative.ast_hash);
     assert_eq!(symbolic.ast.profile, SYMBOLIC_PROFILE);
     assert_eq!(narrative.ast.profile, NARRATIVE_PROFILE);
     assert_ne!(symbolic.ast.profile, narrative.ast.profile);
     assert_eq!(symbolic.effective_policy, narrative.effective_policy);
     assert!(symbolic.ir.goals[0].policy_decision.is_some());
+
+    for compilation in [&symbolic, &narrative] {
+        let ast = decode_deterministic(&compilation.ast_bytes).unwrap();
+        validate_root(&ast, "canonical-ast").unwrap();
+        assert_eq!(encode_deterministic(&ast).unwrap(), compilation.ast_bytes);
+        let ir = decode_deterministic(&compilation.ir_bytes).unwrap();
+        validate_root(&ir, "semantic-ir").unwrap();
+        assert_eq!(encode_deterministic(&ir).unwrap(), compilation.ir_bytes);
+    }
+
+    let symbolic_resolution = registry
+        .resolve(SYMBOLIC_PROFILE, Default::default())
+        .unwrap();
+    let narrative_resolution = registry
+        .resolve(NARRATIVE_PROFILE, Default::default())
+        .unwrap();
+    assert_eq!(
+        symbolic_resolution.policy_overlays,
+        ["example/policy.layout@0"]
+    );
+    assert_eq!(
+        symbolic_resolution.effective_policy,
+        narrative_resolution.effective_policy
+    );
 
     let artifact_ids = documents
         .iter()
@@ -121,7 +148,10 @@ fn formatting_comments_labels_policy_and_diagnostics_pin_the_identity_boundary()
 
     for (source_name, expected_name) in cases {
         let source = read(&path, source_name);
-        let expected = read(&path, expected_name);
+        let mut expected = read(&path, expected_name);
+        if source_name == "narrative.bhcp" {
+            assert_eq!(expected.pop(), Some('\n'));
+        }
         let formatted = format_source_bytes_with_profile_registry(
             source.as_bytes(),
             source_name,
@@ -129,6 +159,11 @@ fn formatting_comments_labels_policy_and_diagnostics_pin_the_identity_boundary()
         )
         .unwrap();
         assert_eq!(formatted, expected, "{source_name}");
+        assert_eq!(
+            formatted.ends_with('\n'),
+            source_name == "symbolic.bhcp",
+            "{source_name}",
+        );
         assert_eq!(
             format_source_bytes_with_profile_registry(
                 formatted.as_bytes(),
@@ -152,15 +187,38 @@ fn formatting_comments_labels_policy_and_diagnostics_pin_the_identity_boundary()
         )
         .unwrap();
         assert_eq!(before.semantic_hash, after.semantic_hash, "{source_name}");
+        assert_ne!(before.ast_hash, after.ast_hash, "{source_name}");
     }
+
+    let symbolic_source = read(&path, "symbolic.bhcp");
+    let relabeled = symbolic_source
+        .replace("/* symbolic layout */", "/* alternate explanation */")
+        .replace("name supplied", "input is present")
+        .replace("greeting returned", "output is shaped")
+        .replace("machine check", "static expression check");
+    let baseline = compile_source_bytes_with_profile_registry(
+        symbolic_source.as_bytes(),
+        "symbolic.bhcp",
+        &baseline_registry,
+    )
+    .unwrap();
+    let relabeled = compile_source_bytes_with_profile_registry(
+        relabeled.as_bytes(),
+        "symbolic-relabeled.bhcp",
+        &baseline_registry,
+    )
+    .unwrap();
+    assert_eq!(baseline.semantic_hash, relabeled.semantic_hash);
+    assert_ne!(baseline.ir_bytes, relabeled.ir_bytes);
+    assert_ne!(baseline.ir_hash, relabeled.ir_hash);
+    assert_ne!(baseline.ast_hash, relabeled.ast_hash);
 
     let changed_policy = policy.replace(
         "example/requirement.review@0",
         "example/requirement.audit@0",
     );
     let (changed_registry, _) = registry(&changed_policy);
-    let symbolic_source = read(&path, "symbolic.bhcp");
-    let baseline = compile_source_bytes_with_profile_registry(
+    let baseline_policy = compile_source_bytes_with_profile_registry(
         symbolic_source.as_bytes(),
         "symbolic.bhcp",
         &baseline_registry,
@@ -172,8 +230,8 @@ fn formatting_comments_labels_policy_and_diagnostics_pin_the_identity_boundary()
         &changed_registry,
     )
     .unwrap();
-    assert_eq!(baseline.ast_hash, changed.ast_hash);
-    assert_ne!(baseline.semantic_hash, changed.semantic_hash);
+    assert_eq!(baseline_policy.ast_hash, changed.ast_hash);
+    assert_ne!(baseline_policy.semantic_hash, changed.semantic_hash);
 
     let symbolic_error = compile_source_bytes_with_profile_registry(
         "#!bhcp-profile example/profile.layout-symbolic@0\n§aim example/Layout@0^§arg name Text?~"
@@ -189,7 +247,9 @@ fn formatting_comments_labels_policy_and_diagnostics_pin_the_identity_boundary()
     )
     .unwrap_err();
     assert_eq!(symbolic_error.code, narrative_error.code);
+    assert_eq!(symbolic_error.code, "BHCP1001");
     assert_eq!(symbolic_error.message, narrative_error.message);
+    assert_eq!(symbolic_error.message, "expected \":\", found \"Text\"");
     assert_ne!(symbolic_error.source, narrative_error.source);
     assert_ne!(symbolic_error.column, narrative_error.column);
 }

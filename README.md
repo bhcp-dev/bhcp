@@ -143,6 +143,16 @@ and [`profile-lowering-words.bhcp`](conformance/v0/fixtures/profile-lowering-wor
 fixtures compile to the same semantic identity while retaining different profile and
 source-span artifact data.
 
+The checked-in [`profile-layout`](conformance/v0/profile-layout) corpus makes that
+identity boundary concrete for two deliberately different human layouts. The compact
+symbolic profile and the spaced narrative profile select different keyword,
+delimiter, terminator, alias, indentation, width, comment, and diagnostic-label
+presentations for one policy-governed goal. Both retain their selected profile and
+distinct AST/IR artifact identities, yet resolve the same overlay and produce the
+same semantic ID. Their deterministic formatter snapshots, CBOR root round trips,
+policy-change control, and matched parser diagnostic prove the invariance and
+sensitivity rules stated normatively in S9.1.3 of [`SEMANTICS.md`](SEMANTICS.md).
+
 The Rust `profile` model decodes and emits both S9.1 root artifacts through the
 repository deterministic-CBOR codec. It covers every closed mapping category,
 bounded formatting, exact optional parents, ordered unique profile overlays, all

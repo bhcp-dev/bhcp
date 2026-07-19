@@ -127,8 +127,11 @@ canonical or custom source through the resolved bounded layout, retains comments
 maps canonical tokens back to the selected surface, and proves an idempotent exact-token
 round trip before returning bytes. The adversarial corpus now proves ambiguous aliases,
 recursive mappings, core capture/rebinding, executable parser or macro payloads, and
-semantic overrides fail atomically with auditable mapping diagnostics. Cross-layout
-semantic-equivalence conformance is the next presentation stage; an unregistered
+semantic overrides fail atomically with auditable mapping diagnostics. The checked-in
+symbolic and narrative layouts now compile one governed goal through distinct profile
+and artifact identities to the same semantic identity, with formatting, comments,
+labels, overlays, CBOR, and diagnostics pinned at their intended boundaries. The
+presentation-layer completion audit is the remaining Phase 4 stage; an unregistered
 custom profile still fails closed.
 
 ## Effects, policy, and evidence

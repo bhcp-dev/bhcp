@@ -1,1 +1,10 @@
-RED: replace with the deterministic symbolic layout
+#!bhcp-profile example/profile.layout-symbolic@0
+§aim example/Layout@0 ^
+  /* symbolic layout */
+  §arg name: Text?
+  §result greeting: Text?
+  §needs "name supplied": name != ""?
+  §guarantees "greeting returned": greeting ==
+  "Hello, " + name?
+  §prove "machine check": with proof?
+~

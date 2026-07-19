@@ -66,6 +66,14 @@ boundary executable. Ambiguous aliases, recursion, canonical keyword capture, an
 reserved-core rebinding fail before parsing with profile/syntax/mapping/rule context;
 mapped-away source retains its original span; parser, macro, and semantic-override
 artifact fields fail the closed model; and the CLI emits no partial formatted source.
+`tests/profile_layout_conformance.rs` loads the two checked-in syntax/profile roots,
+shared overlay, source forms, and formatter snapshots under `profile-layout/`. The
+compact symbolic and spaced narrative forms retain different selected profiles,
+labels, comments, formatting, AST bytes, IR artifact bytes, and artifact IDs while
+sharing one policy-governed semantic ID. Every syntax, profile, AST, and IR artifact
+round-trips through deterministic CBOR and its CDDL root. A meaningful overlay change
+changes semantic identity; presentation-only edits do not; equivalent malformed forms
+keep the same parser code/message while source and column remain presentation-sensitive.
 
 The registered verifier slice additionally executes EVD-01 through EVD-06 for flat
 contract clauses, including capability-bounded project adapters and their deterministic
@@ -95,6 +103,7 @@ represented only by WAV-01/WAV-02 acceptance requirements.
 | SYN-04 | Canonical or custom source is formatted repeatedly through a validated resolved profile. | Byte-idempotent output; comments and mapped Unicode spellings survive; the canonical token stream, AST shape, semantic IR, and semantic ID remain equivalent. |
 | SYN-05 | An effective profile introduces ambiguous/recursive aliases, captures canonical words, or rebinds reserved core symbols. | `BHCP9002` before program parsing; diagnostic identifies profile, syntax, mapping index, coordinate/surface, and violated rule; no AST/IR/source output. |
 | SYN-06 | A syntax/profile artifact embeds parser code, unrestricted macros, or semantic overrides. | Closed-model `BHCP9001`; no registry activation or later artifact. |
+| SYN-07 | Two checked-in profiles map and format one policy-governed goal with substantially different comments, labels, words, punctuation, widths, and indentation. | Selected profile and artifact IDs differ; resolved overlay, semantic projection, and semantic ID match; all syntax/profile/AST/IR roots round-trip deterministically. |
 | ID-01 | Only whitespace, comments, labels, source spans, or formatting change. | Semantic ID unchanged; artifact ID changes when complete artifact metadata changes. |
 | ID-02 | An observable output field, branch tag, effect, preference, policy, or native extension changes. | Semantic ID changes. |
 | ID-03 | Alpha-equivalent local binders and the same tagged derived `all` branches in a different source order lower where effects make order unobservable. | Identical normalized kernel-network bytes and semantic ID. |
