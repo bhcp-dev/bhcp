@@ -122,5 +122,8 @@ fn forward_001_preserves_the_unreplaced_negative_result() {
     assert!(controller.contains("| forward-01 | rejected (verification-failed) | no |"));
     assert!(controller.contains("- Completed commands: 0"));
     assert_eq!(controller.matches("rejected (exit Some(").count(), 3);
-    assert_eq!(fs::metadata(result.join("forward-01.patch")).unwrap().len(), 0);
+    assert_eq!(
+        fs::metadata(result.join("forward-01.patch")).unwrap().len(),
+        0
+    );
 }

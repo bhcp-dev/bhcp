@@ -135,6 +135,33 @@ fn exact_registration_targets_and_argv_are_retained_without_shell_or_path_lookup
 }
 
 #[test]
+fn request_target_must_match_the_exact_registered_symbol() {
+    let project = TestProject::new();
+    let runner = runner(&project.root);
+    let obligations = vec!["clause-2".to_owned()];
+    let effects = vec!["bhcp-effect/process@0".to_owned()];
+    let mismatched = AdapterRequest {
+        verifier: "example/another-verifier@0",
+        obligations: &obligations,
+        payload: b"candidate",
+        effect_ceiling: &effects,
+    };
+
+    let error = runner
+        .run(
+            &declaration("accepted"),
+            mismatched,
+            &CancellationToken::new(),
+        )
+        .unwrap_err();
+
+    assert_eq!(
+        error.to_string(),
+        "<artifact>:1:1: BHCP7001: adapter request does not match the exact registration symbol"
+    );
+}
+
+#[test]
 fn accepted_rejected_unresolved_and_faulted_results_remain_distinct() {
     let project = TestProject::new();
     let runner = runner(&project.root);
