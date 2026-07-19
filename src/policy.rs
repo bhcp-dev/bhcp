@@ -2224,9 +2224,9 @@ pub fn apply_waiver(
         .map_or(waiver.issuer.as_str(), |delegation| {
             delegation.delegator.as_str()
         });
-    let mut output = policy.clone();
+    let mut resolved = Vec::with_capacity(waiver.targets.len());
     for target in &waiver.targets {
-        let Some(provenance) = output
+        let Some(provenance) = policy
             .rule_provenance
             .iter()
             .find(|entry| entry.sources.binary_search(&target.rule).is_ok())
@@ -2248,6 +2248,31 @@ pub fn apply_waiver(
                 "waiver must target every source contributing to the effective rule",
             ));
         }
+        resolved.push((target, provenance));
+    }
+    resolved.sort_by(|(_, left), (_, right)| {
+        left.category
+            .cmp(&right.category)
+            .then_with(|| right.effective_rule.cmp(&left.effective_rule))
+    });
+
+    let mut output = policy.clone();
+    let mut processed =
+        BTreeMap::<(PolicyCategory, usize), (Option<PolicyScope>, WaiverWeakening)>::new();
+    for (target, provenance) in resolved {
+        let key = (provenance.category, provenance.effective_rule);
+        if let Some((scope, weakening)) = processed.get(&key) {
+            if scope != &normalized_scope(&target.scope) || weakening != &target.weakening {
+                return Err(waiver_change(
+                    "targets for one effective rule must request the same exact weakening",
+                ));
+            }
+            continue;
+        }
+        processed.insert(
+            key,
+            (normalized_scope(&target.scope), target.weakening.clone()),
+        );
         match (&target.weakening, provenance.category) {
             (WaiverWeakening::RemoveRequirement(expected), PolicyCategory::Requirement) => {
                 let rule = output
