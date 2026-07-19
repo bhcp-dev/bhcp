@@ -14,7 +14,7 @@
     if bhcp/kernel.has-refuted@0(observations) then
         bhcp/kernel.conclude@0(
             bhcp/kernel.refuted@0(
-                bhcp/kernel.first-counter-evidence@0(observations)
+                bhcp/kernel.partial-evidence@0(observations)
             )
         )
     else if bhcp/kernel.has-faulted@0(observations) then

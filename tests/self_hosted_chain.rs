@@ -187,6 +187,41 @@ fn refutation_unresolved_and_fault_stop_the_chain() {
             Reduction::Concluded { .. }
         ));
     }
+
+    let patch = ChildObservation {
+        child: "child-1".to_owned(),
+        result: satisfied(
+            Value::map([("value", Value::Text("diff".to_owned()))]),
+            "evidence-edit",
+        ),
+    };
+    let check_refuted = ChildObservation {
+        child: "child-2".to_owned(),
+        result: ExecutionResult::Completed(Verdict::Refuted {
+            counter_evidence: vec!["counter-check".to_owned()],
+        }),
+    };
+    let reduction = runtime
+        .reduce(
+            "network-1",
+            Value::owned_map(vec![]),
+            &[patch, check_refuted],
+        )
+        .unwrap();
+    let Reduction::Concluded {
+        result: ExecutionResult::Completed(Verdict::Refuted { counter_evidence }),
+        derivation,
+    } = reduction
+    else {
+        panic!("the second-step refutation must conclude")
+    };
+    assert!(
+        counter_evidence.starts_with(&["evidence-edit".to_owned(), "counter-check".to_owned()])
+    );
+    assert_eq!(
+        derivation.premises,
+        ["evidence-edit".to_owned(), "counter-check".to_owned()]
+    );
 }
 
 #[test]
