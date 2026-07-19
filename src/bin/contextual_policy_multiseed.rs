@@ -391,6 +391,9 @@ fn write_patch(original: &Path, candidate: &Path, destination: &Path) -> Result<
         .arg(candidate)
         .output()
         .map_err(|error| format!("cannot create candidate patch: {error}"))?;
+    if output.status.success() {
+        return create_file(destination, &[]);
+    }
     if output.status.code() != Some(1) {
         return Err(format!(
             "candidate diff returned unexpected status {:?}",

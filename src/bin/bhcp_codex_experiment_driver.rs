@@ -21,6 +21,13 @@ const SANDBOX_PROFILE: &str = r#"
 (deny file-read* file-write* (subpath "/tmp"))
 (deny file-read* file-write* (subpath "/private/tmp"))
 (deny file-read* file-write* (subpath "/private/var/folders"))
+(allow file-read-metadata
+  (literal "/private")
+  (literal "/private/tmp")
+  (subpath "/private/tmp")
+  (literal "/private/var")
+  (literal "/private/var/folders")
+  (subpath "/private/var/folders"))
 (allow file-read* file-write* (subpath (param "WORKSPACE")))
 (allow file-read* file-write* (subpath (param "TARGET")))
 (allow file-read* file-write* (subpath (param "CARGO_HOME")))
