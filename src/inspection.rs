@@ -261,6 +261,37 @@ fn render_policy(artifact: &Value, output: &mut String) {
                 };
                 writeln!(output, "provenance {category}[{index}] <- {sources}").unwrap();
             }
+            let waivers = match artifact.get("waivers") {
+                Some(Value::Array(entries)) => entries.as_slice(),
+                _ => &[],
+            };
+            writeln!(output, "applied-waivers {}", waivers.len()).unwrap();
+            for waiver in waivers {
+                let decision_time = waiver
+                    .get("decision_time")
+                    .map(render_value)
+                    .unwrap_or_else(|| "?".to_owned());
+                let targets = match waiver.get("targets") {
+                    Some(Value::Array(targets)) => targets
+                        .iter()
+                        .filter_map(|target| match target {
+                            Value::Array(parts) if parts.len() == 2 => Some(format!(
+                                "{}#{}",
+                                text_value(&parts[0])?,
+                                text_value(&parts[1])?
+                            )),
+                            _ => None,
+                        })
+                        .collect::<Vec<_>>()
+                        .join(", "),
+                    _ => "?".to_owned(),
+                };
+                writeln!(
+                    output,
+                    "applied-waiver at {decision_time} targets {targets}"
+                )
+                .unwrap();
+            }
         }
         _ => writeln!(output, "policy form unknown").unwrap(),
     }

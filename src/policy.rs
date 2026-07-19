@@ -18,6 +18,12 @@ const EVIDENCE_REMOVAL: &str = "BHCP8105";
 const ALLOW_OVER_DENY: &str = "BHCP8106";
 const INCOMPATIBLE_LIMIT_UNITS: &str = "BHCP8107";
 const INVALID_COMPOSITION_TOPOLOGY: &str = "BHCP8110";
+const INVALID_WAIVER: &str = "BHCP8301";
+const WAIVER_TARGET_MISMATCH: &str = "BHCP8302";
+const WAIVER_CHANGE_MISMATCH: &str = "BHCP8303";
+const WAIVER_INACTIVE: &str = "BHCP8304";
+const WAIVER_UNAUTHORIZED: &str = "BHCP8305";
+const WAIVER_NONWAIVABLE: &str = "BHCP8306";
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct PolicyHeader {
@@ -1483,6 +1489,458 @@ pub struct AppliedWaiver {
     pub decision_time: String,
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum WaiverWeakening {
+    RemoveRequirement(RequirementPolicyValue),
+    RemoveEvidence(EvidencePolicyValue),
+    AllowProhibition(CapabilityPolicyValue),
+    BroadenCapability {
+        from: CapabilityPolicyValue,
+        to: CapabilityPolicyValue,
+    },
+    LoosenLimit {
+        from: LimitPolicyValue,
+        to: LimitPolicyValue,
+    },
+    WeakenTypeMode {
+        from: TypeMode,
+        to: TypeMode,
+    },
+}
+
+impl WaiverWeakening {
+    fn from_value(value: &Value) -> Result<Self> {
+        let entries = map_entries(value, "waiver weakening")?;
+        let category = required_text(entries, "category", "waiver weakening")?;
+        let operation = required_text(entries, "operation", "waiver weakening")?;
+        match (category.as_str(), operation.as_str()) {
+            ("requirement", "remove") => {
+                ensure_fields(
+                    entries,
+                    &["category", "operation", "value"],
+                    "waiver weakening",
+                )?;
+                Ok(Self::RemoveRequirement(RequirementPolicyValue::from_value(
+                    required(entries, "value", "waiver weakening")?,
+                )?))
+            }
+            ("evidence", "remove") => {
+                ensure_fields(
+                    entries,
+                    &["category", "operation", "value"],
+                    "waiver weakening",
+                )?;
+                Ok(Self::RemoveEvidence(EvidencePolicyValue::from_value(
+                    required(entries, "value", "waiver weakening")?,
+                )?))
+            }
+            ("prohibition", "allow") => {
+                ensure_fields(
+                    entries,
+                    &["category", "operation", "value"],
+                    "waiver weakening",
+                )?;
+                Ok(Self::AllowProhibition(CapabilityPolicyValue::from_value(
+                    required(entries, "value", "waiver weakening")?,
+                )?))
+            }
+            ("capability", "broaden") => {
+                ensure_fields(
+                    entries,
+                    &["category", "operation", "from", "to"],
+                    "waiver weakening",
+                )?;
+                Ok(Self::BroadenCapability {
+                    from: CapabilityPolicyValue::from_value(required(
+                        entries,
+                        "from",
+                        "waiver weakening",
+                    )?)?,
+                    to: CapabilityPolicyValue::from_value(required(
+                        entries,
+                        "to",
+                        "waiver weakening",
+                    )?)?,
+                })
+            }
+            ("limit", "loosen") => {
+                ensure_fields(
+                    entries,
+                    &["category", "operation", "from", "to"],
+                    "waiver weakening",
+                )?;
+                Ok(Self::LoosenLimit {
+                    from: LimitPolicyValue::from_value(required(
+                        entries,
+                        "from",
+                        "waiver weakening",
+                    )?)?,
+                    to: LimitPolicyValue::from_value(required(entries, "to", "waiver weakening")?)?,
+                })
+            }
+            ("type-mode", "weaken") => {
+                ensure_fields(
+                    entries,
+                    &["category", "operation", "from", "to"],
+                    "waiver weakening",
+                )?;
+                Ok(Self::WeakenTypeMode {
+                    from: TypeMode::parse(required(entries, "from", "waiver weakening")?)?,
+                    to: TypeMode::parse(required(entries, "to", "waiver weakening")?)?,
+                })
+            }
+            _ => Err(waiver_invalid(
+                "waiver weakening requires a registered category and operation",
+            )),
+        }
+    }
+
+    fn to_value(&self) -> Value {
+        match self {
+            Self::RemoveRequirement(value) => {
+                weakening_value("requirement", "remove", value.to_value())
+            }
+            Self::RemoveEvidence(value) => weakening_value("evidence", "remove", value.to_value()),
+            Self::AllowProhibition(value) => {
+                weakening_value("prohibition", "allow", value.to_value())
+            }
+            Self::BroadenCapability { from, to } => {
+                from_to_weakening_value("capability", "broaden", from.to_value(), to.to_value())
+            }
+            Self::LoosenLimit { from, to } => {
+                from_to_weakening_value("limit", "loosen", from.to_value(), to.to_value())
+            }
+            Self::WeakenTypeMode { from, to } => from_to_weakening_value(
+                "type-mode",
+                "weaken",
+                text(from.as_str()),
+                text(to.as_str()),
+            ),
+        }
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct WaiverTarget {
+    pub rule: SourceRuleIdentity,
+    pub scope: Option<PolicyScope>,
+    pub weakening: WaiverWeakening,
+}
+
+impl WaiverTarget {
+    fn from_value(value: &Value) -> Result<Self> {
+        let entries = map_entries(value, "waiver target")?;
+        ensure_fields(entries, &["rule", "scope", "weakening"], "waiver target")?;
+        Ok(Self {
+            rule: SourceRuleIdentity::from_value(required(entries, "rule", "waiver target")?)?,
+            scope: optional(entries, "scope")
+                .map(PolicyScope::from_value)
+                .transpose()?,
+            weakening: WaiverWeakening::from_value(required(
+                entries,
+                "weakening",
+                "waiver target",
+            )?)?,
+        })
+    }
+
+    fn to_value(&self) -> Value {
+        let mut entries = vec![
+            ("rule".to_owned(), self.rule.to_value()),
+            ("weakening".to_owned(), self.weakening.to_value()),
+        ];
+        if let Some(scope) = &self.scope {
+            entries.push(("scope".to_owned(), scope.to_value()));
+        }
+        Value::owned_map(entries)
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct WaiverDelegation {
+    pub delegator: String,
+    pub delegate: String,
+    pub authorization: ArtifactReference,
+}
+
+impl WaiverDelegation {
+    fn from_value(value: &Value) -> Result<Self> {
+        let entries = map_entries(value, "waiver delegation")?;
+        ensure_fields(
+            entries,
+            &["delegator", "delegate", "authorization"],
+            "waiver delegation",
+        )?;
+        Ok(Self {
+            delegator: required_text(entries, "delegator", "waiver delegation")?,
+            delegate: required_text(entries, "delegate", "waiver delegation")?,
+            authorization: ArtifactReference::from_value(required(
+                entries,
+                "authorization",
+                "waiver delegation",
+            )?)?,
+        })
+    }
+
+    fn to_value(&self) -> Value {
+        Value::map([
+            ("delegator", text(&self.delegator)),
+            ("delegate", text(&self.delegate)),
+            ("authorization", self.authorization.to_value()),
+        ])
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct WaiverDocument {
+    pub features: Vec<String>,
+    pub artifact_id: Option<HashId>,
+    pub provenance: Option<Value>,
+    pub authorization: Vec<Value>,
+    pub symbol: String,
+    pub targets: Vec<WaiverTarget>,
+    pub justification: String,
+    pub issuer: String,
+    pub authority_chain: Vec<WaiverDelegation>,
+    pub issued_at: String,
+    pub not_before: String,
+    pub expires_at: String,
+    pub audit_reference: ArtifactReference,
+}
+
+impl WaiverDocument {
+    pub fn from_value(value: &Value) -> Result<Self> {
+        let entries = map_entries(value, "waiver document")?;
+        ensure_fields(
+            entries,
+            &[
+                "version",
+                "features",
+                "artifact_id",
+                "provenance",
+                "authorization",
+                "kind",
+                "symbol",
+                "targets",
+                "justification",
+                "issuer",
+                "authority_chain",
+                "issued_at",
+                "not_before",
+                "expires_at",
+                "audit_reference",
+            ],
+            "waiver document",
+        )?;
+        require_exact_text(entries, "version", "bhcp/v0", "waiver document")?;
+        require_exact_text(entries, "kind", "waiver", "waiver document")?;
+        let authorization = array_values(
+            required(entries, "authorization", "waiver document")?,
+            "waiver authorization",
+        )?
+        .to_vec();
+        let document = Self {
+            features: parse_symbol_array(
+                required(entries, "features", "waiver document")?,
+                "waiver features",
+                true,
+            )?,
+            artifact_id: optional(entries, "artifact_id")
+                .map(parse_hash_id)
+                .transpose()?,
+            provenance: optional(entries, "provenance").cloned(),
+            authorization,
+            symbol: required_symbol(entries, "symbol", "waiver document")?,
+            targets: array_values(
+                required(entries, "targets", "waiver document")?,
+                "waiver targets",
+            )?
+            .iter()
+            .map(WaiverTarget::from_value)
+            .collect::<Result<Vec<_>>>()?,
+            justification: required_text(entries, "justification", "waiver document")?,
+            issuer: required_text(entries, "issuer", "waiver document")?,
+            authority_chain: array_values(
+                required(entries, "authority_chain", "waiver document")?,
+                "waiver authority chain",
+            )?
+            .iter()
+            .map(WaiverDelegation::from_value)
+            .collect::<Result<Vec<_>>>()?,
+            issued_at: policy_timestamp(
+                required(entries, "issued_at", "waiver document")?,
+                "waiver issued_at",
+            )?,
+            not_before: policy_timestamp(
+                required(entries, "not_before", "waiver document")?,
+                "waiver not_before",
+            )?,
+            expires_at: policy_timestamp(
+                required(entries, "expires_at", "waiver document")?,
+                "waiver expires_at",
+            )?,
+            audit_reference: ArtifactReference::from_value(required(
+                entries,
+                "audit_reference",
+                "waiver document",
+            )?)?,
+        };
+        document.validate()?;
+        Ok(document)
+    }
+
+    pub fn to_value(&self, include_artifact_id: bool) -> Value {
+        let mut entries = vec![
+            ("version".to_owned(), text("bhcp/v0")),
+            (
+                "features".to_owned(),
+                Value::Array(self.features.iter().cloned().map(Value::Text).collect()),
+            ),
+            (
+                "authorization".to_owned(),
+                Value::Array(self.authorization.clone()),
+            ),
+            ("kind".to_owned(), text("waiver")),
+            ("symbol".to_owned(), text(&self.symbol)),
+            (
+                "targets".to_owned(),
+                Value::Array(self.targets.iter().map(WaiverTarget::to_value).collect()),
+            ),
+            ("justification".to_owned(), text(&self.justification)),
+            ("issuer".to_owned(), text(&self.issuer)),
+            (
+                "authority_chain".to_owned(),
+                Value::Array(
+                    self.authority_chain
+                        .iter()
+                        .map(WaiverDelegation::to_value)
+                        .collect(),
+                ),
+            ),
+            (
+                "issued_at".to_owned(),
+                Value::Tag(0, Box::new(text(&self.issued_at))),
+            ),
+            (
+                "not_before".to_owned(),
+                Value::Tag(0, Box::new(text(&self.not_before))),
+            ),
+            (
+                "expires_at".to_owned(),
+                Value::Tag(0, Box::new(text(&self.expires_at))),
+            ),
+            (
+                "audit_reference".to_owned(),
+                self.audit_reference.to_value(),
+            ),
+        ];
+        if include_artifact_id && let Some(artifact_id) = &self.artifact_id {
+            entries.push(("artifact_id".to_owned(), artifact_id.to_value()));
+        }
+        if let Some(provenance) = &self.provenance {
+            entries.push(("provenance".to_owned(), provenance.clone()));
+        }
+        Value::owned_map(entries)
+    }
+
+    fn validate(&self) -> Result<()> {
+        validate_normalized_symbols(&self.features, "waiver features", true)?;
+        validate_symbol(&self.symbol, "waiver symbol")?;
+        if self.authorization.is_empty()
+            || self
+                .authorization
+                .iter()
+                .any(|value| !matches!(value, Value::Map(_)))
+        {
+            return Err(waiver_invalid(
+                "waiver authorization must be a non-empty array of maps",
+            ));
+        }
+        if self.targets.is_empty() {
+            return Err(waiver_invalid("waiver targets must be non-empty"));
+        }
+        validate_values_sorted_unique(
+            &self
+                .targets
+                .iter()
+                .map(WaiverTarget::to_value)
+                .collect::<Vec<_>>(),
+            "waiver targets",
+        )
+        .map_err(|diagnostic| waiver_invalid(diagnostic.message))?;
+        if self.justification.is_empty() || self.issuer.is_empty() {
+            return Err(waiver_invalid(
+                "waiver justification and issuer must be non-empty",
+            ));
+        }
+        self.audit_reference
+            .validate()
+            .map_err(|diagnostic| waiver_invalid(diagnostic.message))?;
+        validate_policy_timestamp(&self.issued_at, "waiver issued_at")?;
+        validate_policy_timestamp(&self.not_before, "waiver not_before")?;
+        validate_policy_timestamp(&self.expires_at, "waiver expires_at")?;
+        if self.issued_at > self.not_before || self.not_before >= self.expires_at {
+            return Err(waiver_time(
+                "waiver interval must satisfy issued_at <= not_before < expires_at",
+            ));
+        }
+        let mut expected = None::<&str>;
+        let mut principals = BTreeSet::new();
+        for delegation in &self.authority_chain {
+            if delegation.delegator.is_empty() || delegation.delegate.is_empty() {
+                return Err(waiver_authority(
+                    "waiver delegation principals must be non-empty",
+                ));
+            }
+            if expected.is_some_and(|value| value != delegation.delegator) {
+                return Err(waiver_authority("waiver authority chain is disconnected"));
+            }
+            if expected.is_none() {
+                principals.insert(delegation.delegator.as_str());
+            }
+            if !principals.insert(delegation.delegate.as_str()) {
+                return Err(waiver_authority(
+                    "waiver authority chain repeats a principal",
+                ));
+            }
+            delegation
+                .authorization
+                .validate()
+                .map_err(|diagnostic| waiver_authority(diagnostic.message))?;
+            expected = Some(&delegation.delegate);
+        }
+        if expected.is_some_and(|value| value != self.issuer) {
+            return Err(waiver_authority(
+                "waiver authority chain does not end at the issuer",
+            ));
+        }
+        if let Some(artifact_id) = &self.artifact_id {
+            let algorithm = HashAlgorithm::from_id(&artifact_id.algorithm).map_err(policy_error)?;
+            if artifact_hash_with(&self.to_value(false), algorithm)? != *artifact_id {
+                return Err(waiver_invalid(
+                    "waiver artifact_id does not match the document",
+                ));
+            }
+        }
+        Ok(())
+    }
+
+    fn artifact_reference(&self, algorithm: HashAlgorithm) -> Result<ArtifactReference> {
+        let mut materialized = self.clone();
+        materialized.artifact_id = Some(artifact_hash_with(
+            &materialized.to_value(false),
+            algorithm,
+        )?);
+        let bytes = encode_deterministic(&materialized.to_value(true))?;
+        Ok(ArtifactReference {
+            media_type: "application/vnd.bhcp.waiver+cbor".to_owned(),
+            size: bytes.len() as u64,
+            digests: vec![algorithm.hash(&bytes)],
+            locations: None,
+        })
+    }
+}
+
 impl AppliedWaiver {
     fn from_value(value: &Value) -> Result<Self> {
         let entries = map_entries(value, "applied waiver")?;
@@ -1743,6 +2201,278 @@ struct Composition {
     capabilities: Vec<ComposedRule<CapabilityPolicyValue>>,
     limits: Vec<ComposedRule<LimitPolicyValue>>,
     type_mode: Option<ComposedRule<TypeMode>>,
+}
+
+/// Validates and atomically applies one waiver to a pre-waiver effective policy.
+pub fn apply_waiver(
+    policy: &EffectivePolicyDocument,
+    waiver: &WaiverDocument,
+    decision_time: &str,
+    algorithm: HashAlgorithm,
+) -> Result<EffectivePolicyDocument> {
+    PolicyDocument::Effective(policy.clone()).validate()?;
+    waiver.validate()?;
+    validate_policy_timestamp(decision_time, "waiver decision_time")?;
+    if decision_time < waiver.not_before.as_str() || decision_time >= waiver.expires_at.as_str() {
+        return Err(waiver_time(
+            "waiver is inactive at the injected decision time",
+        ));
+    }
+
+    let authority_root = waiver
+        .authority_chain
+        .first()
+        .map_or(waiver.issuer.as_str(), |delegation| {
+            delegation.delegator.as_str()
+        });
+    let mut resolved = Vec::with_capacity(waiver.targets.len());
+    for target in &waiver.targets {
+        let Some(provenance) = policy
+            .rule_provenance
+            .iter()
+            .find(|entry| entry.sources.binary_search(&target.rule).is_ok())
+            .cloned()
+        else {
+            return Err(waiver_target(format!(
+                "waiver target {}:{} does not resolve to an effective rule",
+                target.rule.policy, target.rule.rule
+            )));
+        };
+        let targeted_sources = waiver
+            .targets
+            .iter()
+            .filter(|candidate| provenance.sources.binary_search(&candidate.rule).is_ok())
+            .map(|candidate| candidate.rule.clone())
+            .collect::<BTreeSet<_>>();
+        if targeted_sources.len() != provenance.sources.len() {
+            return Err(waiver_target(
+                "waiver must target every source contributing to the effective rule",
+            ));
+        }
+        resolved.push((target, provenance));
+    }
+    resolved.sort_by(|(_, left), (_, right)| {
+        left.category
+            .cmp(&right.category)
+            .then_with(|| right.effective_rule.cmp(&left.effective_rule))
+    });
+
+    let mut output = policy.clone();
+    let mut processed =
+        BTreeMap::<(PolicyCategory, usize), (Option<PolicyScope>, WaiverWeakening)>::new();
+    for (target, provenance) in resolved {
+        let key = (provenance.category, provenance.effective_rule);
+        if let Some((scope, weakening)) = processed.get(&key) {
+            if scope != &normalized_scope(&target.scope) || weakening != &target.weakening {
+                return Err(waiver_change(
+                    "targets for one effective rule must request the same exact weakening",
+                ));
+            }
+            continue;
+        }
+        processed.insert(
+            key,
+            (normalized_scope(&target.scope), target.weakening.clone()),
+        );
+        match (&target.weakening, provenance.category) {
+            (WaiverWeakening::RemoveRequirement(expected), PolicyCategory::Requirement) => {
+                let rule = output
+                    .effective
+                    .requirements
+                    .get(provenance.effective_rule)
+                    .ok_or_else(|| waiver_target("waiver requirement target index is invalid"))?;
+                authorize_effective_rule(rule, authority_root)?;
+                if expected != &rule.value
+                    || normalized_scope(&target.scope) != normalized_scope(&rule.value.scope)
+                {
+                    return Err(waiver_change(
+                        "waiver requirement removal does not match the exact effective rule",
+                    ));
+                }
+                output
+                    .effective
+                    .requirements
+                    .remove(provenance.effective_rule);
+                remove_rule_provenance(
+                    &mut output.rule_provenance,
+                    PolicyCategory::Requirement,
+                    provenance.effective_rule,
+                );
+            }
+            (WaiverWeakening::RemoveEvidence(expected), PolicyCategory::Evidence) => {
+                let rule = output
+                    .effective
+                    .evidence
+                    .get(provenance.effective_rule)
+                    .ok_or_else(|| waiver_target("waiver evidence target index is invalid"))?;
+                authorize_effective_rule(rule, authority_root)?;
+                if expected != &rule.value
+                    || normalized_scope(&target.scope) != normalized_scope(&rule.value.scope)
+                {
+                    return Err(waiver_change(
+                        "waiver evidence removal does not match the exact effective rule",
+                    ));
+                }
+                output.effective.evidence.remove(provenance.effective_rule);
+                remove_rule_provenance(
+                    &mut output.rule_provenance,
+                    PolicyCategory::Evidence,
+                    provenance.effective_rule,
+                );
+            }
+            (WaiverWeakening::AllowProhibition(expected), PolicyCategory::Prohibition) => {
+                let rule = output
+                    .effective
+                    .prohibitions
+                    .get(provenance.effective_rule)
+                    .ok_or_else(|| waiver_target("waiver prohibition target index is invalid"))?;
+                authorize_effective_rule(rule, authority_root)?;
+                if expected != &rule.value
+                    || normalized_scope(&target.scope) != normalized_scope(&rule.value.scope)
+                {
+                    return Err(waiver_change(
+                        "waiver prohibition allowance does not match the exact effective rule",
+                    ));
+                }
+                output
+                    .effective
+                    .prohibitions
+                    .remove(provenance.effective_rule);
+                remove_rule_provenance(
+                    &mut output.rule_provenance,
+                    PolicyCategory::Prohibition,
+                    provenance.effective_rule,
+                );
+            }
+            (WaiverWeakening::WeakenTypeMode { from, to }, PolicyCategory::TypeMode) => {
+                let rule = &mut output.effective.type_mode;
+                authorize_effective_rule(rule, authority_root)?;
+                if normalized_scope(&target.scope).is_some() {
+                    return Err(waiver_change(
+                        "type-mode waiver target must not declare a scope",
+                    ));
+                }
+                if from != &rule.value || to >= from {
+                    return Err(waiver_change(
+                        "waiver type-mode change is not an exact weakening",
+                    ));
+                }
+                rule.value = *to;
+            }
+            (WaiverWeakening::BroadenCapability { from, to }, PolicyCategory::Capability) => {
+                let rule = output
+                    .effective
+                    .capabilities
+                    .get_mut(provenance.effective_rule)
+                    .ok_or_else(|| waiver_target("waiver capability target index is invalid"))?;
+                authorize_effective_rule(rule, authority_root)?;
+                let target_scope = normalized_scope(&target.scope);
+                if target_scope != normalized_scope(&rule.value.scope)
+                    || target_scope != normalized_scope(&from.scope)
+                {
+                    return Err(waiver_change(
+                        "capability waiver does not match the exact target scope",
+                    ));
+                }
+                if from != &rule.value
+                    || from.effect != to.effect
+                    || !scope_subset(&from.scope, &to.scope)
+                    || normalized_scope(&from.scope) == normalized_scope(&to.scope)
+                {
+                    return Err(waiver_change(
+                        "waiver capability change is not an exact broadening",
+                    ));
+                }
+                rule.value = to.clone();
+            }
+            (WaiverWeakening::LoosenLimit { from, to }, PolicyCategory::Limit) => {
+                let rule = output
+                    .effective
+                    .limits
+                    .get_mut(provenance.effective_rule)
+                    .ok_or_else(|| waiver_target("waiver limit target index is invalid"))?;
+                authorize_effective_rule(rule, authority_root)?;
+                let target_scope = normalized_scope(&target.scope);
+                if target_scope != normalized_scope(&rule.value.scope)
+                    || target_scope != normalized_scope(&from.scope)
+                    || target_scope != normalized_scope(&to.scope)
+                {
+                    return Err(waiver_change(
+                        "implemented waiver application requires one exact representable scope",
+                    ));
+                }
+                if from != &rule.value
+                    || from.dimension != to.dimension
+                    || from.unit != to.unit
+                    || exact_number_cmp(&to.maximum, &from.maximum) != Ordering::Greater
+                {
+                    return Err(waiver_change(
+                        "waiver limit change does not match the exact effective restriction",
+                    ));
+                }
+                rule.value = to.clone();
+            }
+            _ => {
+                return Err(waiver_change(
+                    "waiver change category does not match the effective rule",
+                ));
+            }
+        }
+    }
+
+    let mut targets = waiver
+        .targets
+        .iter()
+        .map(|target| target.rule.clone())
+        .collect::<Vec<_>>();
+    targets.sort();
+    targets.dedup();
+    let applied = AppliedWaiver {
+        waiver: waiver.artifact_reference(algorithm)?,
+        targets,
+        decision_time: decision_time.to_owned(),
+    };
+    let waivers = output.waivers.get_or_insert_with(Vec::new);
+    waivers.push(applied);
+    waivers.sort_by_cached_key(|entry| {
+        encode_deterministic(&entry.to_value()).expect("validated applied waiver encodes")
+    });
+    output.materialize_identities(algorithm)?;
+    output.validate()?;
+    Ok(output)
+}
+
+fn authorize_effective_rule<T>(rule: &EffectiveRule<T>, authority_root: &str) -> Result<()> {
+    if !rule.waivable {
+        return Err(Diagnostic::plain(
+            WAIVER_NONWAIVABLE,
+            "waiver target is non-waivable",
+        ));
+    }
+    if rule
+        .authorized_issuers
+        .binary_search_by(|candidate| candidate.as_str().cmp(authority_root))
+        .is_err()
+    {
+        return Err(waiver_authority(
+            "waiver issuer is not authorized for the target rule",
+        ));
+    }
+    Ok(())
+}
+
+fn remove_rule_provenance(
+    provenance: &mut Vec<RuleProvenance>,
+    category: PolicyCategory,
+    index: usize,
+) {
+    provenance.retain(|entry| !(entry.category == category && entry.effective_rule == index));
+    for entry in provenance
+        .iter_mut()
+        .filter(|entry| entry.category == category && entry.effective_rule > index)
+    {
+        entry.effective_rule -= 1;
+    }
 }
 
 /// Composes validated source documents in organization-to-user order.
@@ -2939,6 +3669,23 @@ fn non_negative_u64(value: &Value, message: &str) -> Result<u64> {
     }
 }
 
+fn weakening_value(category: &str, operation: &str, value: Value) -> Value {
+    Value::map([
+        ("category", text(category)),
+        ("operation", text(operation)),
+        ("value", value),
+    ])
+}
+
+fn from_to_weakening_value(category: &str, operation: &str, from: Value, to: Value) -> Value {
+    Value::map([
+        ("category", text(category)),
+        ("operation", text(operation)),
+        ("from", from),
+        ("to", to),
+    ])
+}
+
 fn text(value: &str) -> Value {
     Value::Text(value.to_owned())
 }
@@ -2949,4 +3696,24 @@ fn policy_error(diagnostic: Diagnostic) -> Diagnostic {
 
 fn invalid(message: impl Into<String>) -> Diagnostic {
     Diagnostic::plain(INVALID_POLICY, message)
+}
+
+fn waiver_invalid(message: impl Into<String>) -> Diagnostic {
+    Diagnostic::plain(INVALID_WAIVER, message)
+}
+
+fn waiver_target(message: impl Into<String>) -> Diagnostic {
+    Diagnostic::plain(WAIVER_TARGET_MISMATCH, message)
+}
+
+fn waiver_change(message: impl Into<String>) -> Diagnostic {
+    Diagnostic::plain(WAIVER_CHANGE_MISMATCH, message)
+}
+
+fn waiver_time(message: impl Into<String>) -> Diagnostic {
+    Diagnostic::plain(WAIVER_INACTIVE, message)
+}
+
+fn waiver_authority(message: impl Into<String>) -> Diagnostic {
+    Diagnostic::plain(WAIVER_UNAUTHORIZED, message)
 }

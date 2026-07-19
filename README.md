@@ -457,16 +457,20 @@ four-layer no-waiver composite, equivalent and meaningful-change identities, eve
 weakening diagnostic, source/CBOR CLI parity, schema round trips, and the resulting
 per-goal enforcement decision.
 
-The normative waiver boundary is now fully typed without claiming application is
-implemented. A waiver names exact source-rule targets and category-specific changes,
+The waiver boundary is now typed and executable for exact representable scopes. A
+waiver names exact source-rule targets and category-specific changes,
 uses policy-scope subset matching, carries direct or acyclic delegated issuer
 authority plus authorization and audit material, and is evaluated atomically at one
 injected time over `[not_before, expires_at)`. The waiver itself is artifact-only;
 the normalized post-waiver effective restriction determines semantic identity. The
 finite boundary vectors and [threat model](THREAT_MODEL.md) pin invalid intervals,
 scope amplification, substitution, broken delegation, missing audit/authorization,
-and non-waivable downgrade as rejection. Scoped waiver application and broader
-execution-time enforcement remain later Phase 3 work.
+and non-waivable downgrade as rejection. The safe-Rust application path covers all
+six weakening categories, finite delegated authority, injected time, atomic
+multi-target application, deterministic identities/audit records, strong waiver-root
+validation, and applied-waiver inspection. Partial product-scope subtraction that
+cannot be represented by the current v0 effective-rule shapes is rejected rather
+than approximated; broader execution-time enforcement remains later work.
 
 Policy composition fails atomically with an auditable diagnostic: `BHCP8101`
 capability widening, `BHCP8102` limit loosening, `BHCP8103` type-mode weakening,

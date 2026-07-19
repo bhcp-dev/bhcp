@@ -4,7 +4,7 @@ use std::collections::HashSet;
 
 use crate::diagnostic::{Diagnostic, Result};
 use crate::model::is_symbol;
-use crate::policy::PolicyDocument;
+use crate::policy::{PolicyDocument, WaiverDocument};
 use crate::profile::PresentationDocument;
 use crate::value::Value;
 
@@ -59,6 +59,13 @@ pub fn validate_root(value: &Value, expected_kind: &str) -> Result<()> {
             Diagnostic::plain(
                 "BHCP5002",
                 format!("policy fixture is invalid: {}", diagnostic.message),
+            )
+        })?;
+    } else if expected_kind == "waiver" {
+        WaiverDocument::from_value(value).map_err(|diagnostic| {
+            Diagnostic::plain(
+                "BHCP5002",
+                format!("waiver fixture is invalid: {}", diagnostic.message),
             )
         })?;
     }

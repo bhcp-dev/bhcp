@@ -54,7 +54,9 @@ with one of six closed category-specific weakening shapes. Direct or delegated i
 authority, half-open timestamps, authorization material, justification, and the audit
 reference enter artifact identity. Effective policy records retain the waiver
 reference, exact targets, and injected decision time, while semantic identity remains
-the normalized post-waiver `effective` member.
+the normalized post-waiver `effective` member. The strong Rust model now validates
+this root and the application path emits the corresponding typed applied-waiver
+record deterministically.
 
 Self-hosted lowerers use compile-time-only `meta-type` values. A lowerer receives a
 typed `derived-form-shape` and returns an ID-free `network-shape`; both use
