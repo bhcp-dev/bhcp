@@ -1,2 +1,8 @@
 # Preserve byte-exact experiment patches without treating their payload as repository whitespace.
 experiments/**/results/**/*.patch -whitespace
+# These frozen Pilot 006 inputs retain their recorded Git blob bytes.
+experiments/contextual-policy-agent/TASK.md -whitespace
+experiments/contextual-policy-agent/contract.bhcp -whitespace
+experiments/contextual-policy-agent/oracle/Cargo.toml -whitespace
+experiments/contextual-policy-agent/oracle/src/lib.rs -whitespace
+experiments/contextual-policy-agent/subject/README.md -whitespace
