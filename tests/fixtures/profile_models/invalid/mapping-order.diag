@@ -1,0 +1,12 @@
+{
+  "version": "bhcp/v0",
+  "features": [],
+  "kind": "syntax",
+  "symbol": "example/syntax@0",
+  "preamble": "#!bhcp-profile",
+  "mappings": [
+    {"category": "terminator", "canonical": ";", "surface": "!"},
+    {"category": "keyword", "canonical": "goal", "surface": "outcome"}
+  ],
+  "formatting": {"indent_width": 2, "line_width": 100, "final_newline": true}
+}

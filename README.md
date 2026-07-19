@@ -99,7 +99,7 @@ rather than erased.
 | --- | --- | --- |
 | `§goal` / `§function` | Goals and the checked prelude-function boundary described above | General project functions and the remaining S7 goal grammar |
 | `§policy` | Layer, `§extends`, six closed typed rules, scopes/parameters, waivability, issuers, composition, inspection, policy-aware elaboration, and no-waiver conformance fixtures | Expression-valued policy clauses, waiver/profile shorthand, and enforcement beyond the compile-time/evidence boundary |
-| `§syntax` / `§profile` | Fixed byte-level profile preamble scanning plus the normative closed mapping, inheritance, formatting, overlay, and identity contract, wire shapes, and decision vectors | Syntax/profile source definitions, typed Rust models, custom-profile normalization, and formatting |
+| `§syntax` / `§profile` | Fixed byte-level profile preamble scanning, typed deterministic syntax/profile artifacts, and the normative closed mapping, inheritance, formatting, overlay, and identity contract | Syntax/profile source definitions, inheritance resolution, custom-profile normalization, and formatting |
 | Other S7 definitions | None | `§type`, `§predicate`, `§waiver`, `§extension`, and `§refines` |
 
 The Phase 4 decision boundary admits only one-token keyword, punctuation, and symbol
@@ -109,8 +109,8 @@ formatting can change only insignificant whitespace. Profile children may select
 the same or a descendant syntax, may strengthen but not relax type mode, and append
 unique policy overlays in an auditable root-to-leaf order before ordinary monotonic
 policy composition. These rules are specified and executable as finite decision
-vectors; accepting noncanonical source remains deferred to the profile model and
-lowering issues that follow.
+vectors; accepting noncanonical source remains deferred to inheritance resolution
+and lowering issues that follow.
 
 Before lexing, every source entry point scans the original bytes for the fixed
 `#!bhcp-profile namespace/name@version` ASCII preamble. An optional UTF-8 BOM may
@@ -123,6 +123,18 @@ masking only the accepted preamble for canonical lexing. The executable
 example demonstrates explicit canonical selection. Exact custom profile symbols
 are selected profile-independently but fail closed as `BHCP0004` until their
 normalizers are registered.
+
+The Rust `profile` model decodes and emits both S9.1 root artifacts through the
+repository deterministic-CBOR codec. It covers every closed mapping category,
+bounded formatting, exact optional parents, ordered unique profile overlays, all
+four type modes, common headers, and artifact-ID validation. Mapping coordinates
+have one deterministic category/canonical order; feature IDs remain an open
+negotiation set rather than a hard-coded allowlist. Unknown or duplicate fields,
+invalid symbols or self-parents, duplicate or out-of-order mappings, duplicate
+local overlays, bad formatting bounds, and illegal modes fail as `BHCP9001`.
+Generic root-fixture validation maps those failures to `BHCP5002`. Cross-document
+parent lookup, inherited safety conflicts, token normalization, and formatting
+execution remain assigned to their later roadmap issues.
 
 `bhcp.hash/sha3-512@0` is the default and only currently registered identity
 algorithm, implemented through the pinned pure-Rust `sha3` crate. It provides a roughly 256-bit
