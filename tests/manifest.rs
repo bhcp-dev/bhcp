@@ -129,6 +129,10 @@ fn verifier_adapters_reject_shells_path_escapes_and_ambient_network() {
             "verifier adapter must not invoke a shell",
         ),
         (
+            adapter("example/verifier.test@0", "tools/PwSh.ExE", ""),
+            "verifier adapter must not invoke a shell",
+        ),
+        (
             adapter("example/verifier.test@0", "tools/verifier -c", ""),
             "executable must be one project-relative path, not a shell string",
         ),
@@ -163,6 +167,13 @@ fn verifier_adapter_scalar_boundaries_fail_closed() {
             baseline.replace(
                 "input_media_type = \"application/vnd.bhcp.verification-request+cbor\"",
                 "input_media_type = \"not a media type\"",
+            ),
+            "invalid adapter media type",
+        ),
+        (
+            baseline.replace(
+                "input_media_type = \"application/vnd.bhcp.verification-request+cbor\"",
+                "input_media_type = \"application/@invalid\"",
             ),
             "invalid adapter media type",
         ),

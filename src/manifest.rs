@@ -437,9 +437,11 @@ fn validate_executable(value: &str, source: &str, line: usize) -> Result<PathBuf
     let file_name = path
         .file_name()
         .and_then(|name| name.to_str())
-        .unwrap_or("");
+        .unwrap_or("")
+        .to_ascii_lowercase();
+    let shell_name = file_name.strip_suffix(".exe").unwrap_or(&file_name);
     if matches!(
-        file_name,
+        shell_name,
         "sh" | "bash" | "zsh" | "fish" | "nu" | "cmd" | "powershell" | "pwsh"
     ) {
         return Err(error(
@@ -455,16 +457,21 @@ fn validate_media_type(value: &str, source: &str, line: usize) -> Result<()> {
     let Some((kind, subtype)) = value.split_once('/') else {
         return Err(error("invalid adapter media type", source, line));
     };
-    if kind.is_empty()
-        || subtype.is_empty()
-        || subtype.contains('/')
-        || value
-            .chars()
-            .any(|character| character.is_whitespace() || character.is_control())
-    {
+    if !is_media_type_token(kind) || !is_media_type_token(subtype) {
         return Err(error("invalid adapter media type", source, line));
     }
     Ok(())
+}
+
+fn is_media_type_token(value: &str) -> bool {
+    !value.is_empty()
+        && value.bytes().all(|byte| {
+            byte.is_ascii_alphanumeric()
+                || matches!(
+                    byte,
+                    b'!' | b'#' | b'$' | b'&' | b'^' | b'_' | b'.' | b'+' | b'-'
+                )
+        })
 }
 
 fn is_evidence_kind(value: &str) -> bool {
