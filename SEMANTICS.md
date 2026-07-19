@@ -820,8 +820,9 @@ NFC-normalized alias identifier or fully qualified symbol spelling and expands
 exactly once to its canonical symbol before ordinary name resolution. Mapping text
 MUST NOT contain the fixed profile preamble.
 
-Within one syntax document, each `(category, canonical)` coordinate occurs at most
-once; violation is `duplicate-coordinate`. A wrong or unknown coordinate is
+Within one syntax document, mappings serialize in the category order above and then
+by canonical-coordinate bytes. Each `(category, canonical)` coordinate occurs at
+most once; violation is `duplicate-coordinate`. A wrong or unknown coordinate is
 `category-mismatch`, and an empty, non-normalized, or lexically invalid surface is
 `invalid-surface`. After inheritance and overrides resolve, two distinct canonical
 coordinates MUST NOT share a surface spelling (`ambiguous-surface`). No effective
@@ -869,7 +870,8 @@ the inherited mode along `dynamic < gradual < infer-strict < strict`; an explici
 relaxation fails as `weaker-type-mode` rather than being silently ignored.
 
 Policy overlays are concatenated root to leaf and, within each profile, in declared
-array order. The same policy symbol appearing twice in the resolved chain fails as
+array order; the typed artifact rejects a duplicate within one local list. The same
+policy symbol appearing twice in the resolved chain fails as
 `duplicate-overlay`. Every overlay must resolve exactly, then all overlays enter the
 S9.2 composer: fixed organization → team → repository → user layer order and
 canonical symbol order within a layer determine composition and diagnostics. Profile

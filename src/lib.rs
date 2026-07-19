@@ -10,6 +10,7 @@ pub mod parser;
 pub mod pipeline;
 pub mod policy;
 pub mod prelude;
+pub mod profile;
 pub mod schema;
 pub mod value;
 pub mod verification;

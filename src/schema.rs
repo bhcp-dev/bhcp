@@ -5,6 +5,7 @@ use std::collections::HashSet;
 use crate::diagnostic::{Diagnostic, Result};
 use crate::model::is_symbol;
 use crate::policy::PolicyDocument;
+use crate::profile::PresentationDocument;
 use crate::value::Value;
 
 pub fn parse_diagnostic(source: &str) -> Result<Value> {
@@ -42,7 +43,14 @@ pub fn validate_root(value: &Value, expected_kind: &str) -> Result<()> {
         }
     }
     validate_hashes(value)?;
-    if expected_kind == "execution-result" {
+    if matches!(expected_kind, "syntax" | "profile") {
+        PresentationDocument::from_value(value).map_err(|diagnostic| {
+            Diagnostic::plain(
+                "BHCP5002",
+                format!("{expected_kind} fixture is invalid: {}", diagnostic.message),
+            )
+        })?;
+    } else if expected_kind == "execution-result" {
         validate_execution_result(value)?;
     } else if expected_kind == "extension-descriptor" {
         validate_extension_descriptor(value)?;

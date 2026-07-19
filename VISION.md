@@ -116,6 +116,12 @@ limits before semantic IR exists. Accepted IR retains its governing policy and
 normalized decisions. Execution-time enforcement, waivers, and the later graph
 stages remain separate roadmap work.
 
+The presentation front end now has fixed raw-byte profile selection and typed,
+deterministic syntax/profile artifacts. Cross-document inheritance resolution,
+canonical-token normalization, and profile-aware formatting remain the next
+pipeline stages; the current parser still fails closed for an unregistered custom
+normalizer.
+
 ## Effects, policy, and evidence
 
 Ambient authority and self-reported success are unacceptable foundations for

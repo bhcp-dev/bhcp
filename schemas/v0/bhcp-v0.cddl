@@ -452,7 +452,7 @@ syntax-document = {
   "symbol": symbol-id,
   ? "extends": symbol-id,
   "preamble": "#!bhcp-profile",
-  "mappings": [* syntax-mapping],
+  "mappings": [* syntax-mapping], ; sorted unique (category, canonical) coordinates
   "formatting": formatting-rules
 }
 
@@ -462,7 +462,7 @@ profile-document = {
   "symbol": symbol-id,
   ? "extends": symbol-id,
   "syntax": symbol-id,
-  "policy_overlays": [* symbol-id],
+  "policy_overlays": [* symbol-id], ; declared order is retained; symbols are unique locally
   "type_mode": type-mode
 }
 

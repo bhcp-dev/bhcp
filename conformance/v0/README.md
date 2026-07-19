@@ -35,10 +35,13 @@ profile-specific normalization: omission, an optional BOM, or an explicit canoni
 preamble select exactly one profile, while invalid UTF-8, CRLF, Unicode whitespace,
 truncation, aliases, duplicates, and misplaced directives fail with `BHCP0003` and
 no artifact output. Exact custom symbols are selected without aliasing and then fail
-closed with `BHCP0004` until normalization is registered. The finite
+closed with `BHCP0004` until normalization is registered. The typed artifact
+harness in `tests/profile_models.rs` round-trips every mapping
+category, common profile field, and type mode through deterministic CBOR and pins
+stable malformed-document diagnostics without closing feature negotiation. The
 profile-resolution model in `tests/profile_contract.rs` pins the remaining S9.1
-decision boundary before the profile parser exists. Positive vectors resolve exact
-single-parent syntax and profile chains, safe token-coordinate overrides,
+decision boundary before inheritance and normalization exist. Positive vectors
+resolve exact single-parent syntax and profile chains, safe token-coordinate overrides,
 nondecreasing type mode, and root-to-leaf policy overlays. Adversarial vectors cover
 missing/cyclic parents, duplicate coordinates, category errors, ambiguous or
 prefix-conflicting surfaces, recursive aliases, core rebinding, unrelated child

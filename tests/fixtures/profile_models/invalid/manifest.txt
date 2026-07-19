@@ -1,5 +1,6 @@
 unknown-field.diag profile unknown profile document field
 self-parent.diag syntax must not extend itself
+invalid-parent.diag profile document extends must be a symbol-id
 duplicate-mapping.diag syntax duplicate syntax mapping coordinate
 mapping-order.diag syntax mappings must be sorted
 invalid-formatting.diag syntax formatting line_width must be in 1..=512
