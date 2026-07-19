@@ -198,10 +198,7 @@ fn verify_keeps_rejection_unavailability_and_malicious_output_distinct() {
     let unavailable = Project::new(["accepted", "accepted", "accepted"]);
     unavailable.set_manifest(&[
         ("experiment/verifier/public-rust@0", "accepted"),
-        (
-            "experiment/verifier/contextual-policy-v2@0",
-            "accepted",
-        ),
+        ("experiment/verifier/contextual-policy-v2@0", "accepted"),
         ("experiment/verifier/change-policy@0", "accepted"),
     ]);
     let unavailable = unavailable.verify();

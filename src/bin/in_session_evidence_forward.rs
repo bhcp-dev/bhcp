@@ -58,8 +58,8 @@ fn run() -> Result<(), String> {
     let adapter = canonical_file(&arguments[10], "in-session adapter")?;
     let prepared = absolute_path(&arguments[11], "prepared fixture")?;
     let scratch = absolute_path(&arguments[12], "scratch")?;
-    let base = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("experiments/in-session-evidence-agent");
+    let base =
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("experiments/in-session-evidence-agent");
     let original_oracle = fs::canonicalize(base.join("oracle/tests/invariants.rs"))
         .map_err(|error| format!("cannot resolve original oracle: {error}"))?;
     if !original_oracle.starts_with(&deny_root) {
@@ -228,9 +228,8 @@ fn prepare_fixture(base: &Path, prepared: &Path, adapter: &Path) -> Result<(), S
     #[cfg(unix)]
     fs::set_permissions(&adapter_destination, fs::Permissions::from_mode(0o500))
         .map_err(|error| format!("cannot protect staged adapter: {error}"))?;
-    let skill_source = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(
-        "experiments/contextual-policy-agent/subject/.agents/skills/interpret-bhcp-contract",
-    );
+    let skill_source = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("experiments/contextual-policy-agent/subject/.agents/skills/interpret-bhcp-contract");
     copy_tree(
         &skill_source,
         &prepared.join("subject/.agents/skills/interpret-bhcp-contract"),
@@ -253,10 +252,7 @@ fn prepare_fixture(base: &Path, prepared: &Path, adapter: &Path) -> Result<(), S
                     ("policyPassed", Value::Bool(true)),
                     (
                         "changedFiles",
-                        Value::Array(vec![
-                            Value::Text("integer".to_owned()),
-                            Value::Integer(1),
-                        ]),
+                        Value::Array(vec![Value::Text("integer".to_owned()), Value::Integer(1)]),
                     ),
                 ]),
             ),
@@ -391,6 +387,8 @@ fn write_patch(original: &Path, candidate: &Path, destination: &Path) -> Result<
             }
             create_file(destination, normalized.as_bytes())
         }
-        code => Err(format!("candidate diff returned unexpected status {code:?}")),
+        code => Err(format!(
+            "candidate diff returned unexpected status {code:?}"
+        )),
     }
 }

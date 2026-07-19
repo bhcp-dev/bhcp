@@ -242,9 +242,7 @@ fn adapter_effect_ceiling(
             };
             if *kind == "forbids" {
                 forbidden.insert(local);
-            } else if *kind == "allows"
-                && effect.resource.is_none()
-                && effect.parameters.is_empty()
+            } else if *kind == "allows" && effect.resource.is_none() && effect.parameters.is_empty()
             {
                 allowed.insert(local);
             }

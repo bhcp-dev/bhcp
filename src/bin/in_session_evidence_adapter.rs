@@ -43,7 +43,10 @@ fn run() -> Result<(), ()> {
         return Err(());
     }
     let source = read_source()?;
-    let compact: String = source.chars().filter(|character| !character.is_whitespace()).collect();
+    let compact: String = source
+        .chars()
+        .filter(|character| !character.is_whitespace())
+        .collect();
     let public = compact.contains("pubfnpublic_ready()->bool{true}");
     let oracle = compact.contains("pubfnoracle_ready()->bool{true}");
     let policy = compact.contains("pubfnpolicy_ready()->bool{true}");
@@ -57,15 +60,14 @@ fn run() -> Result<(), ()> {
         ("mode", Value::Text(mode)),
         (
             "subject",
-            Value::Text(format_hash(&HashAlgorithm::default().hash(source.as_bytes()))),
+            Value::Text(format_hash(
+                &HashAlgorithm::default().hash(source.as_bytes()),
+            )),
         ),
     ]))
     .map_err(|_| ())?;
     let response = Value::map([
-        (
-            "version",
-            Value::Text("bhcp/adapter-result@0".to_owned()),
-        ),
+        ("version", Value::Text("bhcp/adapter-result@0".to_owned())),
         (
             "state",
             Value::Text(if accepted { "accepted" } else { "rejected" }.to_owned()),

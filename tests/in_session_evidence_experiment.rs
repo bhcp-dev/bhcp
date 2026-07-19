@@ -26,20 +26,15 @@ fn adapter(mode: &str, root: &std::path::Path) -> std::process::Output {
         .spawn()
         .and_then(|mut child| {
             use std::io::Write;
-            child
-                .stdin
-                .take()
-                .unwrap()
-                .write_all(&encode_deterministic(&Value::map([
-                    (
-                        "version",
-                        Value::Text("bhcp/adapter-request@0".to_owned()),
-                    ),
+            child.stdin.take().unwrap().write_all(
+                &encode_deterministic(&Value::map([
+                    ("version", Value::Text("bhcp/adapter-request@0".to_owned())),
                     ("verifier", Value::Text(verifier.to_owned())),
                     ("obligations", Value::Array(vec![])),
                     ("payload", Value::Bytes(vec![0])),
                 ]))
-                .unwrap())?;
+                .unwrap(),
+            )?;
             child.wait_with_output()
         })
         .unwrap()
@@ -48,8 +43,8 @@ fn adapter(mode: &str, root: &std::path::Path) -> std::process::Output {
 #[test]
 fn contract_binds_all_mandatory_targets_to_project_adapters() {
     let path = experiment().join("contract.bhcp");
-    let compiled = compile_source(&fs::read_to_string(&path).unwrap(), path.to_str().unwrap())
-        .unwrap();
+    let compiled =
+        compile_source(&fs::read_to_string(&path).unwrap(), path.to_str().unwrap()).unwrap();
     let goal = &compiled.ir.goals[0];
     let bindings: Vec<_> = goal
         .clauses
@@ -78,7 +73,10 @@ fn bounded_adapters_reject_the_starter_before_the_forward_test() {
         let output = adapter(mode, &experiment());
         assert!(output.status.success());
         let response = decode_deterministic(&output.stdout).unwrap();
-        assert_eq!(response.get("state"), Some(&Value::Text("rejected".to_owned())));
+        assert_eq!(
+            response.get("state"),
+            Some(&Value::Text("rejected".to_owned()))
+        );
     }
 }
 
@@ -101,7 +99,10 @@ fn bounded_adapters_accept_the_exact_focused_candidate() {
         let output = adapter(mode, &root);
         assert!(output.status.success());
         let response = decode_deterministic(&output.stdout).unwrap();
-        assert_eq!(response.get("state"), Some(&Value::Text("accepted".to_owned())));
+        assert_eq!(
+            response.get("state"),
+            Some(&Value::Text("accepted".to_owned()))
+        );
     }
     fs::remove_dir_all(root).unwrap();
 }
