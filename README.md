@@ -52,6 +52,9 @@ cargo run -- lower conformance/v0/fixtures/canonical-simple.bhcp > /tmp/canonica
 cargo run -- inspect conformance/v0/fixtures/canonical-simple.bhcp
 cargo run -- inspect /tmp/canonical-simple.ir.cbor
 cargo run -- hash conformance/v0/fixtures/canonical-simple.bhcp
+cargo run -- policy inspect conformance/v0/fixtures/canonical-policy.bhcp
+cargo run -- policy compose conformance/v0/fixtures/canonical-policy.bhcp > /tmp/effective-policy.cbor
+cargo run -- policy inspect /tmp/effective-policy.cbor
 ```
 
 `parse` and `lower` emit deterministic CBOR conforming to the existing CDDL
@@ -61,6 +64,14 @@ concise Rust-owned outline of typed goal interfaces, structural clause IDs, lowe
 conditions and effects, preferences, and expanded verifier targets. That outline is
 presentation only and does not participate in semantic identity. `hash` emits the
 single algorithm-tagged semantic identity as text.
+
+`policy compose` accepts one or more explicitly ordered canonical policy source or
+source-policy CBOR inputs. It requires organization → team → repository → user
+order, rejects unsupported features and weakening atomically, validates the
+effective policy root, and writes deterministic CBOR only after the complete
+composition succeeds. `policy inspect` accepts policy source or CBOR and renders
+source rules or the effective layers, rules, identities, and exact tightening
+provenance without exposing raw conversational CBOR.
 
 The implemented source boundary supports namespaced/versioned goals;
 typed `§input` and `§output` facts; `§requires`, `§ensures`, and `§limit` Boolean
@@ -318,9 +329,10 @@ missing/cyclic/cross-layer parents and duplicate sources, checks every later
 capability/limit/type-mode rule for weakening before joining, intersects capability
 scopes, takes exact minima and strongest modes, retains deny rules, collapses exact
 duplicates with restrictive waiver governance, and emits canonical source-layer and
-rule provenance plus semantic/artifact identities. Human inspection names the
-effective category counts, type mode, layers, and provenance. Waiver validation,
-runtime enforcement, and richer policy inspection remain later Phase 3 work.
+rule provenance plus semantic/artifact identities. The policy CLI composes ordered
+source or CBOR inputs into validated deterministic bytes and human inspection names
+every source, effective rule, type mode, identity, and tightening provenance.
+Waiver validation and runtime enforcement remain later Phase 3 work.
 
 Policy composition fails atomically with an auditable diagnostic: `BHCP8101`
 capability widening, `BHCP8102` limit loosening, `BHCP8103` type-mode weakening,

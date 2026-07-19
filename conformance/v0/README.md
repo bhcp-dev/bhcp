@@ -40,7 +40,9 @@ boundaries over typed documents:
 layer/source normalization, inheritance validation, restrictive joins, exact-number
 limits, deny retention, decomposition-independent semantic identity, and adversarial
 weakening rejection. Waiver application is still represented only by WAV-01/WAV-02
-acceptance requirements.
+acceptance requirements. The policy CLI suite executes POL-06 across source and
+canonical-CBOR inputs, including byte parity, detailed audit inspection, stable
+failure diagnostics, and the absence of partial output.
 
 ## Syntax, identity, and encoding
 
@@ -141,6 +143,7 @@ forms MUST lower to the same meaning.
 | POL-03 | Overlapping limits use incompatible units. | Whole layer rejected with auditable `BHCP8107`; no implicit conversion or partial effective policy. |
 | POL-04 | Policy sources are duplicated or have missing, cyclic, or cross-layer inheritance references. | Composition rejected with stable `BHCP8110`; malformed source values remain `BHCP8001`. |
 | POL-05 | Policy presentation, source order, decomposition, retained provenance, or an observable effective coordinate changes. | Presentation/order normalize to identical bytes; decomposition/provenance change artifact ID only; requirements, evidence, effects, limits, type mode, waivability, and issuers change semantic ID. Materialized and recomputed algorithm-tagged IDs match. |
+| POL-06 | The policy CLI composes explicitly ordered source or canonical-CBOR inputs, inspects source/effective forms, or receives wrong layer order, unsupported features, malformed artifacts, or weakening. | Source/CBOR composition emits identical validated deterministic bytes; inspection names layers, rules, identities, and exact tightening provenance; every invalid case exits nonzero with a stable diagnostic and no partial artifact output. |
 | WAV-01 | Exact scoped weakening has an authorized issuer, audit reference, active interval, and expiry. | Accepted only inside scope and time. |
 | WAV-02 | Waiver is expired, premature, overbroad, unauthorized, or targets a non-waivable rule. | Rejected, not ignored. |
 | EXT-01 | A derived extension names a total pure BHCP lowering function, declares no native payload schema, and fully lowers to core IR. | Extension presentation disappears; core meaning is checked and hashed. Missing or invalid lowering is rejected. |
