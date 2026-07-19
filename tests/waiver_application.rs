@@ -41,7 +41,10 @@ fn waiver_value(issuer: &str, decision_rule: &str) -> Value {
     Value::map([
         ("version", text("bhcp/v0")),
         ("features", array([])),
-        ("authorization", array([Value::map([("proof", text("signed"))])])),
+        (
+            "authorization",
+            array([Value::map([("proof", text("signed"))])]),
+        ),
         ("kind", text("waiver")),
         ("symbol", text("example/waiver.attempts@0")),
         (
@@ -126,7 +129,10 @@ fn valid_exact_waiver_is_deterministic_audited_and_changes_only_effective_meanin
     .unwrap();
 
     assert_eq!(first, second);
-    assert_eq!(first.effective.limits[0].value.maximum, ExactNumber::Integer(4));
+    assert_eq!(
+        first.effective.limits[0].value.maximum,
+        ExactNumber::Integer(4)
+    );
     assert_ne!(first.header.semantic_id, baseline.header.semantic_id);
     assert_ne!(first.header.artifact_id, baseline.header.artifact_id);
     let applied = &first.waivers.as_ref().unwrap()[0];
@@ -158,8 +164,8 @@ fn invalid_or_inactive_waivers_fail_atomically_with_stable_diagnostics() {
         ),
     ] {
         let waiver = WaiverDocument::from_value(&waiver).unwrap();
-        let error = apply_waiver(&baseline, &waiver, decision_time, HashAlgorithm::default())
-            .unwrap_err();
+        let error =
+            apply_waiver(&baseline, &waiver, decision_time, HashAlgorithm::default()).unwrap_err();
         assert_eq!(error.code, code, "{name}");
         assert_eq!(baseline, policy(true), "{name} mutated the input");
     }
