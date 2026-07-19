@@ -1,4 +1,5 @@
 use bhcp::hash::HashAlgorithm;
+use bhcp::inspection::render_artifact;
 use bhcp::pipeline::parse_policy_source;
 use bhcp::policy::{ExactNumber, WaiverDocument, apply_waiver, compose_policies};
 use bhcp::value::Value;
@@ -233,6 +234,13 @@ fn valid_exact_waiver_is_deterministic_audited_and_changes_only_effective_meanin
     let applied = &first.waivers.as_ref().unwrap()[0];
     assert_eq!(applied.targets[0].policy, "example/policy.org@0");
     assert_eq!(applied.decision_time, "2026-07-19T13:00:00Z");
+    let inspection = render_artifact(
+        &bhcp::policy::PolicyDocument::Effective(first).to_value(true),
+        Some("waived-policy.cbor"),
+    );
+    assert!(inspection.contains("applied-waivers 1"));
+    assert!(inspection.contains("example/policy.org@0#attempts"));
+    assert!(inspection.contains("2026-07-19T13:00:00Z"));
 }
 
 #[test]
