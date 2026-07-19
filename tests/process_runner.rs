@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::thread;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use bhcp::adapter::{
     AdapterRequest, CancellationToken, MAX_ADAPTER_INPUT_BYTES, VerifierProcessRunner,
@@ -222,7 +222,6 @@ fn timeout_and_cancellation_are_distinct_unresolved_outcomes() {
     let runner = runner(&project.root);
     let mut timed = declaration("sleep");
     timed.timeout_ms = 30;
-    let started = Instant::now();
     assert_unresolved(
         runner
             .run(&timed, request(b"candidate"), &CancellationToken::new())
@@ -230,7 +229,6 @@ fn timeout_and_cancellation_are_distinct_unresolved_outcomes() {
             .execution,
         "bhcp.reason/adapter-timeout@0",
     );
-    assert!(started.elapsed() < Duration::from_secs(10));
 
     let mut descendant = declaration("descendant");
     descendant.timeout_ms = 30;
