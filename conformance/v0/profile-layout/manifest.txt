@@ -1,0 +1,4 @@
+symbolic-syntax.diag syntax
+symbolic-profile.diag profile
+narrative-syntax.diag syntax
+narrative-profile.diag profile

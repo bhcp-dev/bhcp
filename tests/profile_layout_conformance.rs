@@ -21,30 +21,30 @@ fn read(path: &Path, name: &str) -> String {
 
 fn registry(policy_source: &str) -> (ProfileRegistry, Vec<PresentationDocument>) {
     let path = directory();
-    let documents = [
-        "symbolic-syntax.diag",
-        "symbolic-profile.diag",
-        "narrative-syntax.diag",
-        "narrative-profile.diag",
-    ]
-    .into_iter()
-    .map(|name| {
-        let value = parse_diagnostic(&read(&path, name)).unwrap();
-        let document = PresentationDocument::from_value(&value).unwrap();
-        let kind = match document {
-            PresentationDocument::Syntax(_) => "syntax",
-            PresentationDocument::Profile(_) => "profile",
-        };
-        validate_root(&value, kind).unwrap();
-        let bytes = document.to_cbor(false).unwrap();
-        assert_eq!(
-            encode_deterministic(&decode_deterministic(&bytes).unwrap()).unwrap(),
-            bytes
-        );
-        assert_eq!(PresentationDocument::from_cbor(&bytes).unwrap(), document);
-        document
-    })
-    .collect::<Vec<_>>();
+    let manifest = read(&path, "manifest.txt");
+    let documents = manifest
+        .lines()
+        .map(|line| {
+            let fields = line.split_whitespace().collect::<Vec<_>>();
+            assert_eq!(fields.len(), 2, "{line}");
+            let name = fields[0];
+            let value = parse_diagnostic(&read(&path, name)).unwrap();
+            let document = PresentationDocument::from_value(&value).unwrap();
+            let kind = match document {
+                PresentationDocument::Syntax(_) => "syntax",
+                PresentationDocument::Profile(_) => "profile",
+            };
+            assert_eq!(kind, fields[1], "{name}");
+            validate_root(&value, kind).unwrap();
+            let bytes = document.to_cbor(false).unwrap();
+            assert_eq!(
+                encode_deterministic(&decode_deterministic(&bytes).unwrap()).unwrap(),
+                bytes
+            );
+            assert_eq!(PresentationDocument::from_cbor(&bytes).unwrap(), document);
+            document
+        })
+        .collect::<Vec<_>>();
 
     let mut registry = ProfileRegistry::new();
     for document in &documents {
