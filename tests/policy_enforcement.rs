@@ -1,3 +1,4 @@
+use bhcp::inspection::render_artifact;
 use bhcp::pipeline::{compile_source_with_policy, parse_policy_source};
 use bhcp::policy::{EffectivePolicyDocument, compose_policies};
 use bhcp::schema::validate_root;
@@ -17,7 +18,11 @@ fn effective(source: &str) -> EffectivePolicyDocument {
 }
 
 fn governing_policy(maximum: i64, mode: &str) -> EffectivePolicyDocument {
-    effective(&format!(
+    effective(&governing_policy_source(maximum, mode))
+}
+
+fn governing_policy_source(maximum: i64, mode: &str) -> String {
+    format!(
         r#"
 §policy example/policy.org@0 {{
   layer organization;
@@ -42,7 +47,7 @@ fn governing_policy(maximum: i64, mode: &str) -> EffectivePolicyDocument {
   }} nonwaivable;
 }}
 "#
-    ))
+    )
 }
 
 #[test]
@@ -50,8 +55,14 @@ fn exact_policy_boundary_is_retained_in_valid_semantic_ir() {
     let policy = governing_policy(3, "infer-strict");
     let compiled = compile_source_with_policy(GOAL, "goal.bhcp", &policy).unwrap();
     let reference = compiled.ir.effective_policy.as_ref().unwrap();
-    assert_eq!(reference.semantic_id, policy.header.semantic_id.clone().unwrap());
-    assert_eq!(reference.artifact_id, policy.header.artifact_id.clone().unwrap());
+    assert_eq!(
+        reference.semantic_id,
+        policy.header.semantic_id.clone().unwrap()
+    );
+    assert_eq!(
+        reference.artifact_id,
+        policy.header.artifact_id.clone().unwrap()
+    );
 
     let decision = compiled.ir.goals[0].policy_decision.as_ref().unwrap();
     assert_eq!(decision.type_mode, "infer-strict");
@@ -60,20 +71,27 @@ fn exact_policy_boundary_is_retained_in_valid_semantic_ir() {
     assert_eq!(decision.capabilities, [0]);
     assert_eq!(decision.limits, [0]);
     validate_root(&compiled.ir.to_value(true), "semantic-ir").unwrap();
+    let inspection = render_artifact(&compiled.ir.to_value(true), None);
+    assert!(inspection.contains("effective-policy semantic_id"));
+    assert!(inspection.contains("policy type-mode infer-strict"));
+    assert!(inspection.contains("policy capabilities [0]"));
 }
 
 #[test]
 fn type_authority_prohibition_and_limit_denials_are_stable_and_emit_no_ir() {
-    let strict = compile_source_with_policy(GOAL, "goal.bhcp", &governing_policy(3, "strict"))
-        .unwrap_err();
+    let strict =
+        compile_source_with_policy(GOAL, "goal.bhcp", &governing_policy(3, "strict")).unwrap_err();
     assert_eq!(strict.code, "BHCP8201");
     assert!(strict.message.contains("infer-strict"));
     assert!(strict.message.contains("strict"));
 
     let unavailable = GOAL.replace("fs-read", "fs-write");
-    let unavailable =
-        compile_source_with_policy(&unavailable, "goal.bhcp", &governing_policy(3, "infer-strict"))
-            .unwrap_err();
+    let unavailable = compile_source_with_policy(
+        &unavailable,
+        "goal.bhcp",
+        &governing_policy(3, "infer-strict"),
+    )
+    .unwrap_err();
     assert_eq!(unavailable.code, "BHCP8203");
     assert!(unavailable.message.contains("fs-write"));
 
@@ -111,18 +129,33 @@ fn governing_policy_is_semantic_even_without_a_local_limit_clause() {
         .filter(|line| !line.contains("§limit"))
         .collect::<Vec<_>>()
         .join("\n");
-    let three = compile_source_with_policy(
-        &source,
-        "goal.bhcp",
-        &governing_policy(3, "infer-strict"),
-    )
-    .unwrap();
-    let two = compile_source_with_policy(
-        &source,
-        "goal.bhcp",
-        &governing_policy(2, "infer-strict"),
-    )
-    .unwrap();
+    let three =
+        compile_source_with_policy(&source, "goal.bhcp", &governing_policy(3, "infer-strict"))
+            .unwrap();
+    let two =
+        compile_source_with_policy(&source, "goal.bhcp", &governing_policy(2, "infer-strict"))
+            .unwrap();
     assert_ne!(three.ir.semantic_id, two.ir.semantic_id);
     assert_ne!(three.ir_bytes, two.ir_bytes);
+}
+
+#[test]
+fn policy_decomposition_is_auditable_but_not_semantic_ir_meaning() {
+    let source = GOAL
+        .lines()
+        .filter(|line| !line.contains("§limit"))
+        .collect::<Vec<_>>()
+        .join("\n");
+    let compact = governing_policy(3, "infer-strict");
+    let decomposed = effective(&format!(
+        "{}\n§policy example/policy.team@0 {{ layer team; }}",
+        governing_policy_source(3, "infer-strict")
+    ));
+    assert_eq!(compact.header.semantic_id, decomposed.header.semantic_id);
+    assert_ne!(compact.header.artifact_id, decomposed.header.artifact_id);
+
+    let compact = compile_source_with_policy(&source, "goal.bhcp", &compact).unwrap();
+    let decomposed = compile_source_with_policy(&source, "goal.bhcp", &decomposed).unwrap();
+    assert_eq!(compact.ir.semantic_id, decomposed.ir.semantic_id);
+    assert_ne!(compact.ir_bytes, decomposed.ir_bytes);
 }

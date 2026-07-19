@@ -70,6 +70,7 @@ fn ir(
             output: child_output,
             evidence: BhcpType::Evidence(vec!["static".to_owned()]),
             clauses: vec![],
+            policy_decision: None,
             body: None,
         });
         vec![KernelChild {
@@ -88,6 +89,7 @@ fn ir(
         output: output.clone(),
         evidence: BhcpType::Evidence(vec!["static".to_owned()]),
         clauses: vec![],
+        policy_decision: None,
         body: Some(KernelNetwork {
             id: "network-1".to_owned(),
             output,
@@ -100,6 +102,7 @@ fn ir(
         functions: vec![reducer],
         goals,
         entrypoints: vec!["goal-parent".to_owned()],
+        effective_policy: None,
         semantic_id: None,
         artifact_id: None,
     }

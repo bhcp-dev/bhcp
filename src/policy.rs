@@ -140,7 +140,7 @@ impl PolicyLayer {
         }
     }
 
-    fn as_str(self) -> &'static str {
+    pub fn as_str(self) -> &'static str {
         match self {
             Self::Organization => "organization",
             Self::Team => "team",
@@ -301,7 +301,7 @@ impl TypeMode {
         }
     }
 
-    fn as_str(self) -> &'static str {
+    pub fn as_str(self) -> &'static str {
         match self {
             Self::Dynamic => "dynamic",
             Self::Gradual => "gradual",
@@ -414,7 +414,7 @@ impl ExactNumber {
         Ok(parsed)
     }
 
-    fn to_value(&self) -> Value {
+    pub fn to_value(&self) -> Value {
         match self {
             Self::Integer(value) => Value::Array(vec![text("integer"), Value::Integer(*value)]),
             Self::Rational {
@@ -434,6 +434,10 @@ impl ExactNumber {
                 Value::Integer(*exponent),
             ]),
         }
+    }
+
+    pub fn compare(&self, other: &Self) -> Ordering {
+        exact_number_cmp(self, other)
     }
 }
 

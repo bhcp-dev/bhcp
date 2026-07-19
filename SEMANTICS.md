@@ -120,6 +120,12 @@ A goal MAY strengthen the profile mode (`dynamic` → `gradual` → `infer-stric
 `strict`). Relaxing it requires policy permission or a valid waiver. Mode changes
 MUST be represented in semantic IR.
 
+When an effective policy is supplied to elaboration, its type mode is a minimum.
+Elaboration rejects a source mode below that minimum before semantic IR is emitted.
+The accepted effective-policy semantic identity and per-goal decision are semantic;
+the policy artifact identity is retained for audit without changing semantic IR
+identity when only source decomposition changes.
+
 ### S4.2 Type forms
 
 v0 has the following canonical type forms:
@@ -337,6 +343,12 @@ capability. Deny wins at every nesting and policy layer. Every execution node MU
 declare effects whose capabilities are granted and not forbidden. Effects inferred
 from children are preserved in the parent row.
 
+Policy-aware elaboration intersects a goal's authored `§allows` ceiling with the
+applicable effective capability rules. A matching prohibition is denied; an
+authority request without a provably applicable capability remains unresolved and
+prevents IR emission. Resource- or operation-scoped grants are usable only when the
+effect atom proves that coordinate is inside the policy scope.
+
 `unsafe` and unverified foreign execution require a policy-controlled capability.
 They MUST add an evidence gap describing what could not be established; a goal with
 an unresolved required gap cannot be `Satisfied`.
@@ -394,8 +406,9 @@ goal-clause     = fact-clause | contract-clause | authority-clause | prefer-clau
 fact-clause     = fact-key [ label ] identifier ":" [ handle-mode ] type
                   [ "=" expression ] ";" ;
 fact-key        = "§input" | "§output" | "§resource" | "§state" ;
-contract-clause = contract-key [ label ] expression ";" ;
-contract-key    = "§requires" | "§ensures" | "§invariant" | "§limit" ;
+contract-clause = contract-key [ label ] expression ";" | limit-clause ;
+contract-key    = "§requires" | "§ensures" | "§invariant" ;
+limit-clause    = "§limit" [ label ] [ qualified-name ":" ] expression ";" ;
 authority-clause= ( "§allows" | "§forbids" ) [ label ] effect-list ";" ;
 prefer-clause   = "§prefer" [ integer ":" ] [ label ] expression ";" ;
 verify-clause   = "§verify" [ label ] verifier-binding
@@ -831,6 +844,12 @@ zero. A limit maximum MUST be an exact non-negative number. Two overlapping limi
 for the same dimension with different units are rejected in v0; implicit unit
 conversion is forbidden.
 
+A goal `§limit` may prefix its condition with `dimension-symbol:`. That dimension is
+semantic and lets elaboration compare a direct non-negative exact `<=` boundary
+against the applicable effective maximum; the policy rule supplies the unit. An
+undimensioned contract remains a Boolean obligation but cannot claim a
+dimension-specific policy boundary.
+
 A policy scope is the product of goal, resource, and operation dimensions. An omitted
 dimension denotes its universe, a present array denotes exactly that set, and an
 empty array makes the scope empty. Scope `A` is no broader than scope `B` exactly when
@@ -904,7 +923,15 @@ distinct diagnostics for capability widening (`BHCP8101`), limit loosening
 removal (`BHCP8104`/`BHCP8105`), allow-over-deny (`BHCP8106`), incompatible units
 (`BHCP8107`), and invalid composition topology (`BHCP8110`). Every weakening names
 the later source rule, earlier authority, attempted change, and waiver requirement.
-Waiver application and runtime enforcement remain separate later boundaries.
+The Rust policy-aware compiler accepts a validated effective document, rejects a
+weaker source type mode (`BHCP8201`), prohibited authority (`BHCP8202`), authority
+without an applicable grant (`BHCP8203`), and dimensioned numeric bounds above the
+effective maximum (`BHCP8204`) before emitting semantic IR. Accepted IR retains both
+effective-policy identities and normalized per-goal indices for applicable
+requirements, evidence demands, prohibitions, capabilities, and limits. Only the
+effective semantic identity and decisions enter semantic IR meaning; the policy
+artifact identity remains audit-only. Waiver application and execution-time
+enforcement remain separate later boundaries.
 
 A waiver is valid only when it:
 

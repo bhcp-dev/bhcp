@@ -128,6 +128,7 @@ pub enum SurfaceClauseKind {
     },
     Contract {
         kind: &'static str,
+        dimension: Option<String>,
         condition: SurfaceExpression,
     },
     Authority {
@@ -1305,12 +1306,24 @@ impl Parser<'_> {
                     "§ensures" => "ensures",
                     _ => "limit",
                 };
+                let dimension = if kind == "limit" && self.starts_qualified_name() {
+                    let dimension = self.qualified_name()?.0;
+                    self.expect(":")?;
+                    Some(dimension)
+                } else {
+                    None
+                };
+                let mut attributes = Vec::new();
+                if let Some(dimension) = &dimension {
+                    attributes.push(("dimension".to_owned(), Value::Text(dimension.clone())));
+                }
                 (
                     SurfaceClauseKind::Contract {
                         kind,
+                        dimension,
                         condition: self.expression(0)?,
                     },
-                    vec![],
+                    attributes,
                 )
             }
             "§allows" | "§forbids" => {

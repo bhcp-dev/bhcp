@@ -522,6 +522,7 @@ pub enum ClauseKind {
     },
     Contract {
         kind: &'static str,
+        dimension: Option<String>,
         condition: Expression,
     },
     Authority {
@@ -549,8 +550,15 @@ impl Clause {
                 entries.push(("kind".to_owned(), Value::Text((*kind).to_owned())));
                 entries.push(("binding".to_owned(), binding.to_value()));
             }
-            ClauseKind::Contract { kind, condition } => {
+            ClauseKind::Contract {
+                kind,
+                dimension,
+                condition,
+            } => {
                 entries.push(("kind".to_owned(), Value::Text((*kind).to_owned())));
+                if let Some(dimension) = dimension {
+                    entries.push(("dimension".to_owned(), Value::Text(dimension.clone())));
+                }
                 entries.push(("condition".to_owned(), condition.to_value()));
             }
             ClauseKind::Authority { kind, effects } => {
@@ -587,6 +595,90 @@ impl Clause {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
+pub struct EffectivePolicyReference {
+    pub semantic_id: HashId,
+    pub artifact_id: HashId,
+}
+
+impl EffectivePolicyReference {
+    fn to_value(&self, include_artifact_id: bool) -> Value {
+        let mut entries = vec![("semantic_id".to_owned(), self.semantic_id.to_value())];
+        if include_artifact_id {
+            entries.push(("artifact_id".to_owned(), self.artifact_id.to_value()));
+        }
+        Value::owned_map(entries)
+    }
+
+    fn validate(&self) -> Result<()> {
+        self.semantic_id.validate()?;
+        self.artifact_id.validate()?;
+        if self.semantic_id.algorithm != self.artifact_id.algorithm {
+            return Err(Diagnostic::plain(
+                "BHCP4001",
+                "effective policy identities must use the same algorithm",
+            ));
+        }
+        Ok(())
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PolicyDecision {
+    pub type_mode: String,
+    pub requirements: Vec<usize>,
+    pub evidence: Vec<usize>,
+    pub prohibitions: Vec<usize>,
+    pub capabilities: Vec<usize>,
+    pub limits: Vec<usize>,
+}
+
+impl PolicyDecision {
+    fn to_value(&self) -> Value {
+        Value::map([
+            ("type_mode", Value::Text(self.type_mode.clone())),
+            ("requirements", policy_indices(&self.requirements)),
+            ("evidence", policy_indices(&self.evidence)),
+            ("prohibitions", policy_indices(&self.prohibitions)),
+            ("capabilities", policy_indices(&self.capabilities)),
+            ("limits", policy_indices(&self.limits)),
+        ])
+    }
+
+    fn validate(&self) -> Result<()> {
+        if !matches!(
+            self.type_mode.as_str(),
+            "dynamic" | "gradual" | "infer-strict" | "strict"
+        ) || [
+            &self.requirements,
+            &self.evidence,
+            &self.prohibitions,
+            &self.capabilities,
+            &self.limits,
+        ]
+        .iter()
+        .any(|values| {
+            values.iter().any(|index| *index > i64::MAX as usize)
+                || !values.windows(2).all(|pair| pair[0] < pair[1])
+        }) {
+            return Err(Diagnostic::plain(
+                "BHCP4001",
+                "goal policy decision is not normalized",
+            ));
+        }
+        Ok(())
+    }
+}
+
+fn policy_indices(indices: &[usize]) -> Value {
+    Value::Array(
+        indices
+            .iter()
+            .map(|index| Value::Integer(*index as i64))
+            .collect(),
+    )
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct GoalDefinition {
     pub id: String,
     pub symbol: String,
@@ -594,6 +686,7 @@ pub struct GoalDefinition {
     pub output: BhcpType,
     pub evidence: BhcpType,
     pub clauses: Vec<Clause>,
+    pub policy_decision: Option<PolicyDecision>,
     pub body: Option<KernelNetwork>,
 }
 
@@ -625,6 +718,9 @@ impl GoalDefinition {
         ];
         if let Some(body) = &self.body {
             entries.push(("body".to_owned(), body.to_value()));
+        }
+        if let Some(decision) = &self.policy_decision {
+            entries.push(("policy_decision".to_owned(), decision.to_value()));
         }
         Value::owned_map(entries)
     }
@@ -660,6 +756,7 @@ pub struct SemanticIrDocument {
     pub functions: Vec<FunctionDefinition>,
     pub goals: Vec<GoalDefinition>,
     pub entrypoints: Vec<String>,
+    pub effective_policy: Option<EffectivePolicyReference>,
     pub semantic_id: Option<HashId>,
     pub artifact_id: Option<HashId>,
 }
@@ -710,6 +807,12 @@ impl SemanticIrDocument {
                 Value::Array(self.entrypoints.iter().cloned().map(Value::Text).collect()),
             ),
         ]);
+        if let Some(policy) = &self.effective_policy {
+            entries.push((
+                "effective_policy".to_owned(),
+                policy.to_value(include_labels),
+            ));
+        }
         if include_semantic_id && let Some(hash) = &self.semantic_id {
             entries.push(("semantic_id".to_owned(), hash.to_value()));
         }
@@ -720,6 +823,9 @@ impl SemanticIrDocument {
     }
     pub fn validate(&self) -> Result<()> {
         validate_features(&self.features)?;
+        if let Some(policy) = &self.effective_policy {
+            policy.validate()?;
+        }
         let mut ids = HashSet::new();
         let mut references = Vec::new();
         let mut goals = HashSet::new();
@@ -754,6 +860,15 @@ impl SemanticIrDocument {
                     "goal symbol is not a symbol-id",
                 ));
             }
+            if self.effective_policy.is_some() != goal.policy_decision.is_some() {
+                return Err(Diagnostic::plain(
+                    "BHCP4001",
+                    "effective policy and goal policy decisions must appear together",
+                ));
+            }
+            if let Some(decision) = &goal.policy_decision {
+                decision.validate()?;
+            }
             let contract_ids: HashSet<_> = goal
                 .clauses
                 .iter()
@@ -765,7 +880,21 @@ impl SemanticIrDocument {
                 add_id(&clause.id, &mut ids)?;
                 match &clause.kind {
                     ClauseKind::Fact { binding, .. } => add_id(&binding.id, &mut ids)?,
-                    ClauseKind::Contract { condition, .. } => {
+                    ClauseKind::Contract {
+                        kind,
+                        dimension,
+                        condition,
+                        ..
+                    } => {
+                        if dimension
+                            .as_ref()
+                            .is_some_and(|value| *kind != "limit" || !is_symbol(value))
+                        {
+                            return Err(Diagnostic::plain(
+                                "BHCP4001",
+                                "only a contract limit may carry a symbol-id dimension",
+                            ));
+                        }
                         condition.validate(&mut ids, &mut references)?
                     }
                     ClauseKind::Authority { effects, .. } => {
