@@ -1,4 +1,5 @@
 use bhcp::hash::HashAlgorithm;
+use bhcp::inspection::render_profile_resolution;
 use bhcp::pipeline::{
     compile_source_bytes_with_profile_registry, compile_source_with_policy, parse_policy_source,
 };
@@ -18,11 +19,7 @@ fn header() -> PresentationHeader {
     }
 }
 
-fn mapping(
-    category: SyntaxMappingCategory,
-    canonical: &str,
-    surface: &str,
-) -> SyntaxMapping {
+fn mapping(category: SyntaxMappingCategory, canonical: &str, surface: &str) -> SyntaxMapping {
     SyntaxMapping {
         category,
         canonical: canonical.to_owned(),
@@ -30,11 +27,7 @@ fn mapping(
     }
 }
 
-fn syntax(
-    symbol: &str,
-    extends: Option<&str>,
-    mappings: Vec<SyntaxMapping>,
-) -> SyntaxDocument {
+fn syntax(symbol: &str, extends: Option<&str>, mappings: Vec<SyntaxMapping>) -> SyntaxDocument {
     SyntaxDocument {
         header: header(),
         symbol: symbol.to_owned(),
@@ -60,7 +53,10 @@ fn profile(
         symbol: symbol.to_owned(),
         extends: extends.map(str::to_owned),
         syntax: syntax.to_owned(),
-        policy_overlays: overlays.iter().map(|overlay| (*overlay).to_owned()).collect(),
+        policy_overlays: overlays
+            .iter()
+            .map(|overlay| (*overlay).to_owned())
+            .collect(),
         type_mode,
     }
 }
@@ -93,7 +89,7 @@ fn documents() -> (
     Vec<ProfileDocument>,
     Vec<SourcePolicyDocument>,
 ) {
-    let syntaxes = vec![
+    let mut syntaxes = vec![
         syntax(
             "example/syntax.base@0",
             None,
@@ -112,6 +108,8 @@ fn documents() -> (
             ],
         ),
     ];
+    syntaxes[0].header.features = vec!["example/feature.base@0".to_owned()];
+    syntaxes[1].header.features = vec!["example/feature.child@0".to_owned()];
     let profiles = vec![
         profile(
             "example/profile.base@0",
@@ -176,11 +174,19 @@ fn syntax_profile_and_overlay_chains_resolve_root_to_leaf_deterministically() {
     assert_eq!(forward.type_mode, TypeMode::InferStrict);
     assert_eq!(forward.syntax.extends, None);
     assert_eq!(
+        forward.syntax.header.features,
+        ["example/feature.base@0", "example/feature.child@0"]
+    );
+    assert_eq!(
         forward
             .syntax
             .mappings
             .iter()
-            .map(|mapping| (mapping.category, mapping.canonical.as_str(), mapping.surface.as_str()))
+            .map(|mapping| (
+                mapping.category,
+                mapping.canonical.as_str(),
+                mapping.surface.as_str()
+            ))
             .collect::<Vec<_>>(),
         [
             (SyntaxMappingCategory::Keyword, "goal", "outcome"),
@@ -194,6 +200,10 @@ fn syntax_profile_and_overlay_chains_resolve_root_to_leaf_deterministically() {
         forward.effective_policy.effective.type_mode.value,
         TypeMode::InferStrict
     );
+    let inspection = render_profile_resolution(&forward);
+    assert!(inspection.contains("profile-chain [example/profile.base@0, example/profile.child@0]"));
+    assert!(inspection.contains("syntax-chain [example/syntax.base@0, example/syntax.child@0]"));
+    assert!(inspection.contains("type-mode infer-strict"));
 }
 
 const CANONICAL: &str = r#"§goal example/G@0 {
@@ -218,12 +228,9 @@ fn resolved_profile_compilation_preserves_meaning_and_applies_overlays_before_el
     let canonical =
         compile_source_with_policy(CANONICAL, "canonical.bhcp", &resolved.effective_policy)
             .unwrap();
-    let custom = compile_source_bytes_with_profile_registry(
-        CUSTOM.as_bytes(),
-        "custom.bhcp",
-        &registry,
-    )
-    .unwrap();
+    let custom =
+        compile_source_bytes_with_profile_registry(CUSTOM.as_bytes(), "custom.bhcp", &registry)
+            .unwrap();
 
     assert_eq!(custom.semantic_hash, canonical.semantic_hash);
     assert_ne!(custom.ast_hash, canonical.ast_hash);
@@ -282,16 +289,8 @@ fn missing_cycles_unrelated_syntax_weaker_modes_and_duplicate_overlays_fail_stab
         (
             "syntax-inheritance-cycle",
             vec![
-                syntax(
-                    "example/syntax.a@0",
-                    Some("example/syntax.b@0"),
-                    vec![],
-                ),
-                syntax(
-                    "example/syntax.b@0",
-                    Some("example/syntax.a@0"),
-                    vec![],
-                ),
+                syntax("example/syntax.a@0", Some("example/syntax.b@0"), vec![]),
+                syntax("example/syntax.b@0", Some("example/syntax.a@0"), vec![]),
             ],
             vec![profile(
                 "example/profile.child@0",
@@ -388,22 +387,14 @@ fn inherited_mapping_conflicts_missing_overlays_and_policy_weakening_fail_closed
         .register_syntax(syntax(
             "example/syntax.base@0",
             None,
-            vec![mapping(
-                SyntaxMappingCategory::Keyword,
-                "goal",
-                "outcome",
-            )],
+            vec![mapping(SyntaxMappingCategory::Keyword, "goal", "outcome")],
         ))
         .unwrap();
     conflict
         .register_syntax(syntax(
             "example/syntax.child@0",
             Some("example/syntax.base@0"),
-            vec![mapping(
-                SyntaxMappingCategory::Keyword,
-                "input",
-                "outcome",
-            )],
+            vec![mapping(SyntaxMappingCategory::Keyword, "input", "outcome")],
         ))
         .unwrap();
     conflict
@@ -471,4 +462,44 @@ fn inherited_mapping_conflicts_missing_overlays_and_policy_weakening_fail_closed
         .resolve("example/profile.child@0", HashAlgorithm::default())
         .unwrap_err();
     assert_eq!(diagnostic.code, "BHCP8103");
+}
+
+#[test]
+fn attached_policy_inheritance_resolves_exact_parents_through_the_same_composer() {
+    let parent = r#"
+§policy example/policy.parent@0 {
+  layer organization;
+  rule a-mode: type-mode strengthen gradual nonwaivable;
+}
+"#;
+    let child = r#"
+§policy example/policy.child@0 §extends example/policy.parent@0 {
+  layer organization;
+  rule b-mode: type-mode strengthen infer-strict nonwaivable;
+}
+"#;
+    let mut registry = ProfileRegistry::new();
+    registry
+        .register_syntax(syntax("example/syntax.root@0", None, vec![]))
+        .unwrap();
+    registry
+        .register_profile(profile(
+            "example/profile.child@0",
+            None,
+            "example/syntax.root@0",
+            &["example/policy.child@0"],
+            TypeMode::Gradual,
+        ))
+        .unwrap();
+    registry.register_policy(policy(child)).unwrap();
+    registry.register_policy(policy(parent)).unwrap();
+
+    let resolved = registry
+        .resolve("example/profile.child@0", HashAlgorithm::default())
+        .unwrap();
+    assert_eq!(
+        resolved.effective_policy.effective.type_mode.value,
+        TypeMode::InferStrict
+    );
+    assert_eq!(resolved.policy_overlays, ["example/policy.child@0"]);
 }

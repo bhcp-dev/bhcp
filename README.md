@@ -99,7 +99,7 @@ rather than erased.
 | --- | --- | --- |
 | `§goal` / `§function` | Goals and the checked prelude-function boundary described above | General project functions and the remaining S7 goal grammar |
 | `§policy` | Layer, `§extends`, six closed typed rules, scopes/parameters, waivability, issuers, composition, inspection, policy-aware elaboration, and no-waiver conformance fixtures | Expression-valued policy clauses, waiver/profile shorthand, and enforcement beyond the compile-time/evidence boundary |
-| `§syntax` / `§profile` | Fixed byte-level profile selection, typed deterministic artifacts, validated effective mapping, span-aware custom-source normalization, and the normative inheritance/overlay/identity contract | Syntax/profile source definitions, inheritance and attached-overlay resolution, and formatting |
+| `§syntax` / `§profile` | Fixed byte-level selection, typed deterministic artifacts, exact one-parent syntax/profile resolution, monotonic attached overlays, resolved-profile inspection, and span-aware custom-source compilation | Syntax/profile source definitions and profile-aware formatting |
 | Other S7 definitions | None | `§type`, `§predicate`, `§waiver`, `§extension`, and `§refines` |
 
 The Phase 4 decision boundary admits only one-token keyword, punctuation, and symbol
@@ -109,9 +109,9 @@ formatting can change only insignificant whitespace. Profile children may select
 the same or a descendant syntax, may strengthen but not relax type mode, and append
 unique policy overlays in an auditable root-to-leaf order before ordinary monotonic
 policy composition. These rules are specified and executable as finite decision
-vectors. An explicitly registered effective syntax now accepts noncanonical source
-through the same canonical parser; inheritance and profile attachment remain a
-separate registry-resolution boundary.
+vectors. The closed profile registry now resolves syntax/profile/policy parent chains,
+flattens coordinate overrides, composes attached overlays through the ordinary policy
+engine, and passes one validated effective syntax into the same canonical parser.
 
 Before lexing, every source entry point scans the original bytes for the fixed
 `#!bhcp-profile namespace/name@version` ASCII preamble. An optional UTF-8 BOM may
@@ -143,8 +143,13 @@ local overlays, bad formatting bounds, and illegal modes fail as `BHCP9001`.
 Generic root-fixture validation maps those failures to `BHCP5002`. The parser-side
 effective-map validator adds coordinate vocabulary, NFC lexical safety, ambiguity,
 prefix, alias, core-override, and token-capture checks before emitting canonical
-tokens. Cross-document parent lookup, inherited safety conflicts, attached overlays,
-and formatting execution remain assigned to their later roadmap issues.
+tokens. `ProfileRegistry` resolves exact parents root to leaf independent of
+registration order, requires descendant syntax and nondecreasing type mode, rejects
+duplicate/missing overlays, follows policy parents, and invokes the existing
+monotonic composer before elaboration. Registry topology failures use `BHCP9003`;
+policy weakening retains its category-specific `BHCP8101`–`BHCP8107` diagnostic.
+`render_profile_resolution` exposes the resolved chains, overlays, type mode, and
+effective-policy identity. Profile-aware formatting remains the next roadmap issue.
 
 `bhcp.hash/sha3-512@0` is the default and only currently registered identity
 algorithm, implemented through the pinned pure-Rust `sha3` crate. It provides a roughly 256-bit

@@ -118,11 +118,13 @@ stages remain separate roadmap work.
 
 The presentation front end now has fixed raw-byte profile selection, typed
 deterministic syntax/profile artifacts, and a closed registry that validates an
-effective syntax map before lowering custom source to canonical tokens. Lowering is
-NFC-aware, ignores comments and literals, retains original source spans, and reaches
-the ordinary canonical parser without a profile callback. Cross-document inheritance,
-attached overlay resolution, and profile-aware formatting remain the next pipeline
-stages; an unregistered custom profile still fails closed.
+effective syntax map before lowering custom source to canonical tokens. The registry
+resolves exact syntax/profile/policy parent chains root to leaf, enforces descendant
+syntax and monotonic type mode, composes attached overlays through the ordinary policy
+engine, and makes that resolution inspectable before elaboration. Lowering remains
+NFC-aware and span-preserving without a profile callback. Profile-aware formatting is
+the next presentation pipeline stage; an unregistered custom profile still fails
+closed.
 
 ## Effects, policy, and evidence
 

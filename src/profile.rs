@@ -1,12 +1,15 @@
 //! Strongly typed v0 syntax and profile artifacts.
 
-use std::collections::HashSet;
+use std::collections::{BTreeMap, BTreeSet, HashSet};
 
 use crate::cbor::{decode_deterministic, encode_deterministic};
 use crate::diagnostic::{Diagnostic, Result};
 use crate::hash::{HashAlgorithm, artifact_hash_with};
 use crate::model::{HashId, is_symbol};
-use crate::policy::TypeMode;
+use crate::parser::validate_effective_syntax;
+use crate::policy::{
+    EffectivePolicyDocument, PolicyDocument, SourcePolicyDocument, TypeMode, compose_policies,
+};
 use crate::value::Value;
 
 const INVALID_PROFILE: &str = "BHCP9001";
@@ -524,6 +527,263 @@ impl PresentationDocument {
             Self::Profile(document) => document.validate(),
         }
     }
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct ProfileRegistry {
+    syntaxes: BTreeMap<String, SyntaxDocument>,
+    profiles: BTreeMap<String, ProfileDocument>,
+    policies: BTreeMap<String, SourcePolicyDocument>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ResolvedProfile {
+    pub profile: String,
+    pub profile_chain: Vec<String>,
+    pub syntax: SyntaxDocument,
+    pub syntax_chain: Vec<String>,
+    pub policy_overlays: Vec<String>,
+    pub type_mode: TypeMode,
+    pub effective_policy: EffectivePolicyDocument,
+}
+
+impl ResolvedProfile {
+    pub fn to_value(&self) -> Value {
+        Value::map([
+            ("profile", text(&self.profile)),
+            (
+                "profile_chain",
+                Value::Array(
+                    self.profile_chain
+                        .iter()
+                        .cloned()
+                        .map(Value::Text)
+                        .collect(),
+                ),
+            ),
+            ("syntax", self.syntax.to_value(false)),
+            (
+                "syntax_chain",
+                Value::Array(self.syntax_chain.iter().cloned().map(Value::Text).collect()),
+            ),
+            (
+                "policy_overlays",
+                Value::Array(
+                    self.policy_overlays
+                        .iter()
+                        .cloned()
+                        .map(Value::Text)
+                        .collect(),
+                ),
+            ),
+            ("type_mode", text(self.type_mode.as_str())),
+            (
+                "effective_policy",
+                PolicyDocument::Effective(self.effective_policy.clone()).to_value(true),
+            ),
+        ])
+    }
+}
+
+impl ProfileRegistry {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn register_syntax(&mut self, document: SyntaxDocument) -> Result<()> {
+        document.validate()?;
+        if self.syntaxes.contains_key(&document.symbol) {
+            return Err(resolution_error("duplicate-syntax"));
+        }
+        self.syntaxes.insert(document.symbol.clone(), document);
+        Ok(())
+    }
+
+    pub fn register_profile(&mut self, document: ProfileDocument) -> Result<()> {
+        document.validate()?;
+        if self.profiles.contains_key(&document.symbol) {
+            return Err(resolution_error("duplicate-profile"));
+        }
+        self.profiles.insert(document.symbol.clone(), document);
+        Ok(())
+    }
+
+    pub fn register_policy(&mut self, document: SourcePolicyDocument) -> Result<()> {
+        PolicyDocument::Source(document.clone()).validate()?;
+        if self.policies.contains_key(&document.symbol) {
+            return Err(resolution_error("duplicate-policy"));
+        }
+        self.policies.insert(document.symbol.clone(), document);
+        Ok(())
+    }
+
+    pub fn resolve(&self, profile: &str, algorithm: HashAlgorithm) -> Result<ResolvedProfile> {
+        let profile_documents = self.profile_chain(profile)?;
+        let profile_chain: Vec<_> = profile_documents
+            .iter()
+            .map(|document| document.symbol.clone())
+            .collect();
+
+        let mut policy_overlays = Vec::new();
+        let mut seen_overlays = BTreeSet::new();
+        for (index, document) in profile_documents.iter().enumerate() {
+            self.syntax_chain(&document.syntax)?;
+            if let Some(parent) = index.checked_sub(1).map(|parent| profile_documents[parent]) {
+                if !self.syntax_descends_from(&document.syntax, &parent.syntax)? {
+                    return Err(resolution_error("unrelated-syntax"));
+                }
+                if document.type_mode < parent.type_mode {
+                    return Err(resolution_error("weaker-type-mode"));
+                }
+            }
+            for overlay in &document.policy_overlays {
+                if !seen_overlays.insert(overlay.clone()) {
+                    return Err(resolution_error("duplicate-overlay"));
+                }
+                policy_overlays.push(overlay.clone());
+            }
+        }
+
+        let leaf = profile_documents.last().expect("non-empty profile chain");
+        let syntax_documents = self.syntax_chain(&leaf.syntax)?;
+        let syntax_chain: Vec<_> = syntax_documents
+            .iter()
+            .map(|document| document.symbol.clone())
+            .collect();
+        let syntax = flatten_syntax(&syntax_documents)?;
+        validate_effective_syntax(&syntax)?;
+
+        let policies = self.policy_documents(&policy_overlays)?;
+        let effective_policy = compose_policies(&policies, algorithm)?;
+        let type_mode = leaf
+            .type_mode
+            .max(effective_policy.effective.type_mode.value);
+
+        Ok(ResolvedProfile {
+            profile: profile.to_owned(),
+            profile_chain,
+            syntax,
+            syntax_chain,
+            policy_overlays,
+            type_mode,
+            effective_policy,
+        })
+    }
+
+    fn profile_chain(&self, leaf: &str) -> Result<Vec<&ProfileDocument>> {
+        let mut chain = Vec::new();
+        let mut active = BTreeSet::new();
+        let mut cursor = Some(leaf);
+        let mut is_leaf = true;
+        while let Some(symbol) = cursor {
+            if !active.insert(symbol.to_owned()) {
+                return Err(resolution_error("profile-inheritance-cycle"));
+            }
+            let document = self.profiles.get(symbol).ok_or_else(|| {
+                resolution_error(if is_leaf {
+                    "missing-profile"
+                } else {
+                    "missing-profile-parent"
+                })
+            })?;
+            chain.push(document);
+            cursor = document.extends.as_deref();
+            is_leaf = false;
+        }
+        chain.reverse();
+        Ok(chain)
+    }
+
+    fn syntax_chain(&self, leaf: &str) -> Result<Vec<&SyntaxDocument>> {
+        let mut chain = Vec::new();
+        let mut active = BTreeSet::new();
+        let mut cursor = Some(leaf);
+        let mut is_leaf = true;
+        while let Some(symbol) = cursor {
+            if !active.insert(symbol.to_owned()) {
+                return Err(resolution_error("syntax-inheritance-cycle"));
+            }
+            let document = self.syntaxes.get(symbol).ok_or_else(|| {
+                resolution_error(if is_leaf {
+                    "missing-syntax"
+                } else {
+                    "missing-syntax-parent"
+                })
+            })?;
+            chain.push(document);
+            cursor = document.extends.as_deref();
+            is_leaf = false;
+        }
+        chain.reverse();
+        Ok(chain)
+    }
+
+    fn syntax_descends_from(&self, child: &str, ancestor: &str) -> Result<bool> {
+        Ok(self
+            .syntax_chain(child)?
+            .iter()
+            .any(|document| document.symbol == ancestor))
+    }
+
+    fn policy_documents(&self, overlays: &[String]) -> Result<Vec<SourcePolicyDocument>> {
+        let mut selected = BTreeMap::new();
+        for overlay in overlays {
+            if !self.policies.contains_key(overlay) {
+                return Err(resolution_error(format!(
+                    "missing-policy-overlay {overlay}"
+                )));
+            }
+            let mut active = BTreeSet::new();
+            let mut cursor = Some(overlay.as_str());
+            while let Some(symbol) = cursor {
+                if !active.insert(symbol.to_owned()) {
+                    break;
+                }
+                let document = self
+                    .policies
+                    .get(symbol)
+                    .ok_or_else(|| resolution_error(format!("missing-policy-parent {symbol}")))?;
+                selected.insert(document.symbol.clone(), document.clone());
+                cursor = document.extends.as_deref();
+            }
+        }
+        Ok(selected.into_values().collect())
+    }
+}
+
+fn flatten_syntax(chain: &[&SyntaxDocument]) -> Result<SyntaxDocument> {
+    let leaf = chain
+        .last()
+        .ok_or_else(|| resolution_error("missing-syntax"))?;
+    let mut mappings = BTreeMap::new();
+    for document in chain {
+        for mapping in &document.mappings {
+            mappings.insert(
+                (mapping.category, mapping.canonical.clone()),
+                mapping.clone(),
+            );
+        }
+    }
+    let mut header = leaf.header.clone();
+    header.features = chain
+        .iter()
+        .flat_map(|document| document.header.features.iter().cloned())
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .collect();
+    header.semantic_id = None;
+    header.artifact_id = None;
+    Ok(SyntaxDocument {
+        header,
+        symbol: leaf.symbol.clone(),
+        extends: None,
+        mappings: mappings.into_values().collect(),
+        formatting: leaf.formatting,
+    })
+}
+
+fn resolution_error(reason: impl Into<String>) -> Diagnostic {
+    Diagnostic::new("BHCP9003", reason, "<profile-registry>", 1, 1)
 }
 
 fn parse_type_mode(value: &Value) -> Result<TypeMode> {

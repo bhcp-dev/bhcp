@@ -24,7 +24,7 @@ use crate::prelude::{
     CHAIN_LOWERER, CHAIN_REDUCER, DerivedChild, DerivedForm, GATE_FEATURE, GATE_LOWERER,
     NONE_FEATURE, NONE_LOWERER, NONE_REDUCER, NetworkShape, Prelude,
 };
-use crate::profile::SyntaxDocument;
+use crate::profile::{ProfileRegistry, SyntaxDocument};
 use crate::value::Value;
 
 #[derive(Clone, Debug)]
@@ -263,6 +263,43 @@ pub fn compile_source_bytes_with_profiles_and_algorithm(
     compile_source_internal(source, source_name, algorithm, None, Some(profiles))
 }
 
+pub fn compile_source_bytes_with_profile_registry(
+    source: &[u8],
+    source_name: &str,
+    registry: &ProfileRegistry,
+) -> Result<Compilation> {
+    compile_source_bytes_with_profile_registry_and_algorithm(
+        source,
+        source_name,
+        registry,
+        HashAlgorithm::default(),
+    )
+}
+
+pub fn compile_source_bytes_with_profile_registry_and_algorithm(
+    source: &[u8],
+    source_name: &str,
+    registry: &ProfileRegistry,
+    algorithm: HashAlgorithm,
+) -> Result<Compilation> {
+    let selected = scan_profile_preamble(source, source_name)?;
+    if selected.profile == CANONICAL_PROFILE {
+        return compile_source_internal(source, source_name, algorithm, None, None);
+    }
+    let resolved = registry.resolve(&selected.profile, algorithm)?;
+    let mut syntaxes = ProfileSyntaxRegistry::new();
+    syntaxes.register(&selected.profile, resolved.syntax.clone())?;
+    let (ast, program) = parse_internal(source, source_name, algorithm, Some(&syntaxes))?;
+    finish_compilation(
+        ast,
+        program,
+        source_name,
+        algorithm,
+        Some(&resolved.effective_policy),
+        Some(resolved.type_mode),
+    )
+}
+
 fn compile_source_internal(
     source: &[u8],
     source_name: &str,
@@ -271,9 +308,20 @@ fn compile_source_internal(
     profiles: Option<&ProfileSyntaxRegistry>,
 ) -> Result<Compilation> {
     let (ast, program) = parse_internal(source, source_name, algorithm, profiles)?;
+    finish_compilation(ast, program, source_name, algorithm, policy, None)
+}
+
+fn finish_compilation(
+    ast: CanonicalAstDocument,
+    program: ParsedProgram,
+    source_name: &str,
+    algorithm: HashAlgorithm,
+    policy: Option<&EffectivePolicyDocument>,
+    profile_mode: Option<TypeMode>,
+) -> Result<Compilation> {
     let mut ir = elaborate(&program, source_name, algorithm)?;
     if let Some(policy) = policy {
-        apply_effective_policy(&mut ir, policy, source_name, algorithm)?;
+        apply_effective_policy(&mut ir, policy, source_name, algorithm, profile_mode)?;
     }
     let semantic_hash = semantic_hash_with(&ir, algorithm)?;
     ir.semantic_id = Some(semantic_hash.clone());
@@ -300,6 +348,7 @@ fn apply_effective_policy(
     policy: &EffectivePolicyDocument,
     source_name: &str,
     algorithm: HashAlgorithm,
+    profile_mode: Option<TypeMode>,
 ) -> Result<()> {
     PolicyDocument::Effective(policy.clone()).validate()?;
     if let Some(feature) = policy.header.features.first() {
@@ -332,8 +381,8 @@ fn apply_effective_policy(
     }
 
     let required_mode = policy.effective.type_mode.value;
-    let source_mode = TypeMode::InferStrict;
-    if source_mode < required_mode {
+    let source_mode = profile_mode.unwrap_or(TypeMode::InferStrict);
+    if profile_mode.is_none() && source_mode < required_mode {
         return Err(policy_enforcement_error(
             "BHCP8201",
             format!(
@@ -345,6 +394,7 @@ fn apply_effective_policy(
         ));
     }
 
+    let decision_mode = profile_mode.map_or(required_mode, |mode| mode.max(required_mode));
     for goal in &mut ir.goals {
         let requirements =
             applicable_indices(&policy.effective.requirements, &goal.symbol, |rule| {
@@ -437,7 +487,7 @@ fn apply_effective_policy(
         }
 
         goal.policy_decision = Some(PolicyDecision {
-            type_mode: required_mode.as_str().to_owned(),
+            type_mode: decision_mode.as_str().to_owned(),
             requirements,
             evidence,
             prohibitions,
