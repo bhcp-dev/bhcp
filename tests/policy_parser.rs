@@ -1,5 +1,11 @@
-use bhcp::pipeline::parse_policy_source;
+use bhcp::pipeline::{compile_source, parse_policy_source};
 use bhcp::policy::{PolicyDocument, PolicyLayer, PolicyRule};
+use std::fs;
+use std::path::PathBuf;
+
+fn root() -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+}
 
 fn all_rules_source(label: &str) -> String {
     format!(
@@ -36,7 +42,8 @@ fn all_rules_source(label: &str) -> String {
 #[test]
 fn every_layer_and_typed_rule_lowers_to_validated_policy_documents() {
     for layer in ["organization", "team", "repository", "user"] {
-        let source = all_rules_source("diagnostic label").replace("layer repository", &format!("layer {layer}"));
+        let source = all_rules_source("diagnostic label")
+            .replace("layer repository", &format!("layer {layer}"));
         let parsed = parse_policy_source(&source, &format!("{layer}.bhcp")).unwrap();
 
         assert_eq!(parsed.documents.len(), 1);
@@ -62,8 +69,30 @@ fn every_layer_and_typed_rule_lowers_to_validated_policy_documents() {
 
         let policy = PolicyDocument::Source(document.clone());
         policy.validate().unwrap();
-        assert_eq!(policy.to_cbor(false).unwrap(), policy.to_cbor(false).unwrap());
+        let bytes = policy.to_cbor(false).unwrap();
+        assert_eq!(PolicyDocument::from_cbor(&bytes).unwrap(), policy);
     }
+}
+
+#[test]
+fn checked_in_canonical_policy_fixture_lowers_through_the_strong_model() {
+    let path = root().join("conformance/v0/fixtures/canonical-policy.bhcp");
+    let source = fs::read_to_string(&path).unwrap();
+    let parsed = parse_policy_source(&source, path.to_str().unwrap()).unwrap();
+
+    assert_eq!(parsed.documents.len(), 1);
+    assert_eq!(parsed.documents[0].layer, PolicyLayer::Repository);
+    assert_eq!(parsed.documents[0].rules.len(), 2);
+    PolicyDocument::Source(parsed.documents[0].clone())
+        .validate()
+        .unwrap();
+
+    let executable = compile_source(&source, path.to_str().unwrap()).unwrap_err();
+    assert_eq!(executable.code, "BHCP2004");
+    assert_eq!(
+        executable.message,
+        "policy definitions lower to policy documents, not executable goal IR"
+    );
 }
 
 #[test]
@@ -85,13 +114,19 @@ fn policy_ast_retains_definition_and_rule_spans() {
 fn formatting_comments_and_labels_do_not_change_policy_documents() {
     let first = parse_policy_source(&all_rules_source("first label"), "first.bhcp").unwrap();
     let second_source = all_rules_source("different label")
-        .replace("  layer repository;", "/* presentation only */ layer repository; // same layer")
+        .replace(
+            "  layer repository;",
+            "/* presentation only */ layer repository; // same layer",
+        )
         .replace("  rule b-evidence", "\n\n  rule b-evidence");
     let second = parse_policy_source(&second_source, "second.bhcp").unwrap();
 
     let first = PolicyDocument::Source(first.documents[0].clone());
     let second = PolicyDocument::Source(second.documents[0].clone());
-    assert_eq!(first.to_cbor(false).unwrap(), second.to_cbor(false).unwrap());
+    assert_eq!(
+        first.to_cbor(false).unwrap(),
+        second.to_cbor(false).unwrap()
+    );
 }
 
 #[test]
@@ -112,7 +147,7 @@ fn unsupported_waiver_and_profile_shorthand_fail_stably() {
     .unwrap_err();
     assert_eq!(profile.code, "BHCP1004");
     assert_eq!(profile.line, 1);
-    assert_eq!(profile.column, 49);
+    assert_eq!(profile.column, 46);
     assert_eq!(
         profile.message,
         "policy clause \"profile\" is outside the implemented policy slice"
@@ -140,7 +175,10 @@ fn malformed_operations_values_and_issuers_have_stable_source_diagnostics() {
     )
     .unwrap_err();
     assert_eq!(invalid_value.code, "BHCP8001");
-    assert_eq!(invalid_value.message, "requirement policy value must be a map");
+    assert_eq!(
+        invalid_value.message,
+        "requirement policy value must be a map"
+    );
 
     let missing_issuer = parse_policy_source(
         "§policy example/policy@0 { layer repository; rule r: type-mode strengthen strict waivable; }",
@@ -149,4 +187,44 @@ fn malformed_operations_values_and_issuers_have_stable_source_diagnostics() {
     .unwrap_err();
     assert_eq!(missing_issuer.code, "BHCP1001");
     assert_eq!(missing_issuer.message, "expected \"by\", found \";\"");
+
+    let empty_issuers = parse_policy_source(
+        "§policy example/policy@0 { layer repository; rule r: type-mode strengthen strict waivable by []; }",
+        "empty-issuers.bhcp",
+    )
+    .unwrap_err();
+    assert_eq!(empty_issuers.code, "BHCP8001");
+    assert_eq!(
+        empty_issuers.message,
+        "authorized issuers must be a non-empty sorted set"
+    );
+}
+
+#[test]
+fn duplicate_symbols_and_noncanonical_rule_order_are_rejected_at_the_source_span() {
+    let duplicate = parse_policy_source(
+        "§policy example/policy@0 { layer repository; }\n§policy example/policy@0 { layer repository; }",
+        "duplicate.bhcp",
+    )
+    .unwrap_err();
+    assert_eq!(duplicate.code, "BHCP1003");
+    assert_eq!(duplicate.line, 2);
+    assert_eq!(duplicate.column, 1);
+    assert_eq!(
+        duplicate.message,
+        "duplicate policy symbol example/policy@0"
+    );
+
+    let order = parse_policy_source(
+        "§policy example/policy@0 {\n  layer repository;\n  rule z: type-mode strengthen strict nonwaivable;\n  rule a: type-mode strengthen strict nonwaivable;\n}",
+        "order.bhcp",
+    )
+    .unwrap_err();
+    assert_eq!(order.code, "BHCP8001");
+    assert_eq!(order.line, 4);
+    assert_eq!(order.column, 3);
+    assert_eq!(
+        order.message,
+        "source policy rules must be sorted by unique rule ID"
+    );
 }

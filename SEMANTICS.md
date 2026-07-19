@@ -369,8 +369,20 @@ goal-call       = type-ref "(" [ arguments ] ")" ;
 arguments       = argument { "," argument } ;
 argument        = identifier "=" [ "move" | "borrow" | "share" ] expression ;
 
-policy-block    = "{" { policy-clause | authority-clause | contract-clause } "}" ;
-policy-clause   = identifier [ label ] ( expression | meta-value ) ";" ;
+policy-block    = "{" policy-layer-clause { policy-rule-clause } "}" ;
+policy-layer-clause = "layer" policy-layer ";" ;
+policy-layer    = "organization" | "team" | "repository" | "user" ;
+policy-rule-clause = "rule" identifier [ string ] ":" policy-category policy-operation
+                     policy-meta-value policy-waivability ";" ;
+policy-category = "requirement" | "evidence" | "prohibition" | "capability"
+                | "limit" | "type-mode" ;
+policy-operation = "add" | "deny" | "narrow" | "tighten" | "strengthen" ;
+policy-waivability = "nonwaivable"
+                   | "waivable" "by" "[" string { "," string } "]" ;
+policy-meta-value = "true" | "false" | integer | string | identifier | qualified-name
+                  | "[" [ policy-meta-value { "," policy-meta-value } ] "]"
+                  | "{" [ identifier ":" policy-meta-value
+                          { "," identifier ":" policy-meta-value } ] "}" ;
 meta-block      = "{" { identifier [ label ] meta-value ";" } "}" ;
 meta-value      = literal | qualified-name | "[" [ meta-value { "," meta-value } ] "]"
                 | "{" [ identifier ":" meta-value { "," identifier ":" meta-value } ] "}" ;
@@ -707,6 +719,16 @@ lower deterministically to canonical tokens. Arbitrary grammars, parser code,
 unrestricted macros, ambiguous aliases, and core-semantic overrides are rejected.
 
 ### S9.2 Monotonic policy
+
+The canonical authored form starts with exactly one `layer` clause. Each `rule`
+names a stable local rule ID, may carry one diagnostic-only string label, states one
+of the closed category/operation pairs below, supplies its typed meta-value, and ends
+with either `nonwaivable` or a non-empty `waivable by [...]` issuer list. Rule IDs,
+not labels or layout, enter source-rule identity. The current Rust parser implements
+this source-policy slice and deliberately rejects `§waiver`, profile attachment
+shorthand, expression-valued policy clauses, and other future surface forms with
+`BHCP1004`; waiver documents remain an artifact-level boundary until their dedicated
+canonical source issue.
 
 Policy source documents apply in this fixed order: organization, team, repository,
 user. Missing layers contribute the identity policy. Multiple documents in one layer

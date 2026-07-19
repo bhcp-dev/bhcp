@@ -73,6 +73,12 @@ children are currently zero-argument goal calls; nested compositions, project
 functions, and every other reserved construct outside the slice are rejected with a
 stable diagnostic rather than erased.
 
+| Canonical definition | Implemented source slice | Explicitly deferred |
+| --- | --- | --- |
+| `§goal` / `§function` | Goals and the checked prelude-function boundary described above | General project functions and the remaining S7 goal grammar |
+| `§policy` | Layer, `§extends`, six closed typed rules, scopes/parameters, waivability, issuers, and spans | Expression-valued clauses, waiver/profile shorthand, composition, and enforcement |
+| Other S7 definitions | None | `§type`, `§predicate`, `§syntax`, `§profile`, `§waiver`, `§extension`, and `§refines` |
+
 `bhcp.hash/sha3-512@0` is the default and only currently registered identity
 algorithm, implemented through the pinned pure-Rust `sha3` crate. It provides a roughly 256-bit
 post-quantum preimage margin. [`bhcp-project.toml`](bhcp-project.toml) is the explicit
@@ -216,9 +222,26 @@ category/operation/value shapes replace the former unrestricted policy value, an
 canonical effective policy separates semantic restrictions from retained source
 layers, exact rule provenance, and waiver audit material. Strongly typed Rust source
 and effective document models now validate that wire boundary, deterministic order,
-and semantic/artifact identities at external CBOR input. This is not yet the complete
-policy engine: source parsing, composition, weakening diagnostics, waiver validation,
-enforcement, and inspection remain the Phase 3 implementation sequence.
+and semantic/artifact identities at external CBOR input. Canonical `§policy` source
+now lowers through the same model: an explicit layer, optional `§extends`, stable rule
+IDs, all six typed category/operation/value forms, waivability, issuer lists, scopes,
+and canonical parameters are parsed with retained AST spans. Comments, formatting,
+and optional human labels do not enter the policy document. `§waiver`, profile
+attachment shorthand, and expression-valued policy clauses fail closed as deferred
+syntax. This is not yet the complete policy engine: composition, weakening
+diagnostics, waiver validation, enforcement, and inspection remain the Phase 3
+implementation sequence.
+
+```bhcp
+§policy example/repository@0 §extends example/base@0 {
+  layer repository;
+  rule network-ceiling "deployment network": capability narrow {
+    effect: bhcp-effect/network@0,
+    scope: { operations: [example/operation.fetch@0] }
+  } waivable by ["security-team"];
+  rule strict-types: type-mode strengthen strict nonwaivable;
+}
+```
 
 The trusted composition boundary is deliberately narrow. A network carries its
 structural ID, output type, finite typed children, and reducer symbol—nothing else.

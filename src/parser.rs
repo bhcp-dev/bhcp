@@ -1,5 +1,6 @@
 use crate::diagnostic::{Diagnostic, Result};
 use crate::model::{AstNode, ContentReference, Point, TokenSpan};
+use crate::policy::{PolicyDocument, PolicyHeader, PolicyLayer, PolicyRule, SourcePolicyDocument};
 use crate::value::Value;
 
 #[derive(Clone, Debug)]
@@ -206,9 +207,17 @@ pub struct SurfaceParameter {
 }
 
 #[derive(Clone, Debug)]
+pub struct SurfacePolicy {
+    pub document: SourcePolicyDocument,
+    pub at: Point,
+    pub ast: AstNode,
+}
+
+#[derive(Clone, Debug)]
 pub struct ParsedProgram {
     pub functions: Vec<SurfaceFunction>,
     pub goals: Vec<SurfaceGoal>,
+    pub policies: Vec<SurfacePolicy>,
     pub ast: AstNode,
 }
 
@@ -433,7 +442,7 @@ fn lex(source: &str, source_name: &str) -> Result<Vec<Token>> {
             });
             continue;
         }
-        if "+-*/%!=<>".contains(current) || "{}();:,.@".contains(current) {
+        if "+-*/%!=<>".contains(current) || "{}[]();:,.@".contains(current) {
             let kind = if "+-*/%!=<>".contains(current) {
                 TokenKind::Operator
             } else {
@@ -479,6 +488,7 @@ impl Parser<'_> {
     fn program(mut self) -> Result<ParsedProgram> {
         let mut functions = Vec::new();
         let mut goals = Vec::new();
+        let mut policies = Vec::new();
         let mut definitions = Vec::new();
         while self.current().kind != TokenKind::Eof {
             match self.current().text.as_str() {
@@ -491,6 +501,21 @@ impl Parser<'_> {
                     let goal = self.goal()?;
                     definitions.push(goal.ast.clone());
                     goals.push(goal);
+                }
+                "§policy" => {
+                    let policy = self.policy()?;
+                    if policies.iter().any(|existing: &SurfacePolicy| {
+                        existing.document.symbol == policy.document.symbol
+                    }) {
+                        return Err(at(
+                            "BHCP1003",
+                            format!("duplicate policy symbol {}", policy.document.symbol),
+                            self.source_name,
+                            &policy.at,
+                        ));
+                    }
+                    definitions.push(policy.ast.clone());
+                    policies.push(policy);
                 }
                 _ => {
                     let code = if self.current().kind == TokenKind::Keyword {
@@ -520,6 +545,7 @@ impl Parser<'_> {
         Ok(ParsedProgram {
             functions,
             goals,
+            policies,
             ast,
         })
     }
@@ -589,6 +615,375 @@ impl Parser<'_> {
             at: keyword.start,
             ast,
         })
+    }
+
+    fn policy(&mut self) -> Result<SurfacePolicy> {
+        let keyword = self.expect("§policy")?;
+        let (symbol, _) = self.qualified_name()?;
+        let extends = if self.matches("§extends") {
+            self.consume();
+            Some(self.qualified_name()?.0)
+        } else {
+            None
+        };
+        self.expect("{")?;
+        let mut layer = None;
+        let mut rules = Vec::new();
+        let mut children = Vec::new();
+        while !self.matches("}") {
+            if self.current().kind == TokenKind::Eof {
+                return Err(at(
+                    "BHCP1001",
+                    "unterminated policy block",
+                    self.source_name,
+                    &keyword.start,
+                ));
+            }
+            if self.matches("layer") {
+                if layer.is_some() {
+                    return self.fail("BHCP1003", "duplicate policy layer clause");
+                }
+                self.consume();
+                let value = self.identifier("policy layer")?;
+                layer = Some(match value.text.as_str() {
+                    "organization" => PolicyLayer::Organization,
+                    "team" => PolicyLayer::Team,
+                    "repository" => PolicyLayer::Repository,
+                    "user" => PolicyLayer::User,
+                    _ => {
+                        return Err(at(
+                            "BHCP1001",
+                            "policy layer must be organization, team, repository, or user",
+                            self.source_name,
+                            &value.start,
+                        ));
+                    }
+                });
+                self.expect(";")?;
+            } else if self.matches("rule") {
+                if layer.is_none() {
+                    return self.fail("BHCP1001", "policy layer must be declared before rules");
+                }
+                let (rule, ast) = self.policy_rule()?;
+                if rules
+                    .last()
+                    .is_some_and(|previous: &PolicyRule| previous.id() >= rule.id())
+                {
+                    return Err(at(
+                        "BHCP8001",
+                        "source policy rules must be sorted by unique rule ID",
+                        self.source_name,
+                        &ast.span.start,
+                    ));
+                }
+                rules.push(rule);
+                children.push(ast);
+            } else {
+                let clause = self.current().clone();
+                return Err(at(
+                    "BHCP1004",
+                    format!(
+                        "policy clause {:?} is outside the implemented policy slice",
+                        clause.text
+                    ),
+                    self.source_name,
+                    &clause.start,
+                ));
+            }
+        }
+        let end = self.consume().end;
+        let Some(layer) = layer else {
+            return Err(at(
+                "BHCP1001",
+                "source policy requires exactly one layer clause",
+                self.source_name,
+                &keyword.start,
+            ));
+        };
+        let document = SourcePolicyDocument {
+            header: PolicyHeader {
+                features: vec![],
+                semantic_id: None,
+                artifact_id: None,
+                provenance: None,
+                authorization: None,
+            },
+            symbol: symbol.clone(),
+            layer,
+            extends: extends.clone(),
+            rules,
+        };
+        PolicyDocument::Source(document.clone())
+            .validate()
+            .map_err(|diagnostic| {
+                at(
+                    diagnostic.code,
+                    diagnostic.message,
+                    self.source_name,
+                    &keyword.start,
+                )
+            })?;
+        let mut attributes = vec![
+            ("symbol".to_owned(), Value::Text(symbol)),
+            (
+                "layer".to_owned(),
+                Value::Text(policy_layer_name(layer).to_owned()),
+            ),
+        ];
+        if let Some(extends) = extends {
+            attributes.push(("extends".to_owned(), Value::Text(extends)));
+        }
+        let ast = self.ast(
+            "policy",
+            Some("§policy"),
+            keyword.start.clone(),
+            end,
+            attributes,
+            children,
+        );
+        Ok(SurfacePolicy {
+            document,
+            at: keyword.start,
+            ast,
+        })
+    }
+
+    fn policy_rule(&mut self) -> Result<(PolicyRule, AstNode)> {
+        let keyword = self.expect("rule")?;
+        let id = self.identifier("policy rule ID")?;
+        let label = if self.current().kind == TokenKind::String {
+            let token = self.consume();
+            let Some(TokenValue::Text(label)) = token.value else {
+                unreachable!()
+            };
+            Some(label)
+        } else {
+            None
+        };
+        self.expect(":")?;
+        let category = self.identifier("policy category")?;
+        let operation = self.identifier("policy operation")?;
+        let value = self.meta_value()?;
+        let waiver = self.identifier("policy waivability")?;
+        let (waivable, authorized_issuers) = match waiver.text.as_str() {
+            "nonwaivable" => (false, Vec::new()),
+            "waivable" => {
+                self.expect("by")?;
+                self.expect("[")?;
+                let mut issuers = Vec::new();
+                if !self.matches("]") {
+                    loop {
+                        let issuer_token = self.consume();
+                        let Some(TokenValue::Text(issuer)) = issuer_token.value else {
+                            return Err(at(
+                                "BHCP1001",
+                                "authorized issuer must be a string",
+                                self.source_name,
+                                &issuer_token.start,
+                            ));
+                        };
+                        if issuer_token.kind != TokenKind::String {
+                            return Err(at(
+                                "BHCP1001",
+                                "authorized issuer must be a string",
+                                self.source_name,
+                                &issuer_token.start,
+                            ));
+                        }
+                        issuers.push(issuer);
+                        if !self.matches(",") {
+                            break;
+                        }
+                        self.consume();
+                    }
+                }
+                self.expect("]")?;
+                (true, issuers)
+            }
+            _ => {
+                return Err(at(
+                    "BHCP1001",
+                    "policy waivability must be nonwaivable or waivable by a non-empty issuer list",
+                    self.source_name,
+                    &waiver.start,
+                ));
+            }
+        };
+        let end = self.expect(";")?.end;
+        let mut entries = vec![
+            ("id".to_owned(), Value::Text(id.text.clone())),
+            ("category".to_owned(), Value::Text(category.text.clone())),
+            ("operation".to_owned(), Value::Text(operation.text.clone())),
+            ("value".to_owned(), value.clone()),
+            ("waivable".to_owned(), Value::Bool(waivable)),
+        ];
+        if waivable {
+            entries.push((
+                "authorized_issuers".to_owned(),
+                Value::Array(
+                    authorized_issuers
+                        .iter()
+                        .cloned()
+                        .map(Value::Text)
+                        .collect(),
+                ),
+            ));
+        }
+        let rule = PolicyRule::from_value(&Value::owned_map(entries)).map_err(|diagnostic| {
+            at(
+                diagnostic.code,
+                diagnostic.message,
+                self.source_name,
+                &keyword.start,
+            )
+        })?;
+        let mut attributes = vec![
+            ("id".to_owned(), Value::Text(id.text)),
+            ("category".to_owned(), Value::Text(category.text)),
+            ("operation".to_owned(), Value::Text(operation.text)),
+            ("value".to_owned(), value),
+            ("waivable".to_owned(), Value::Bool(waivable)),
+        ];
+        if let Some(label) = label {
+            attributes.push(("label".to_owned(), Value::Text(label)));
+        }
+        if waivable {
+            attributes.push((
+                "authorized_issuers".to_owned(),
+                Value::Array(authorized_issuers.into_iter().map(Value::Text).collect()),
+            ));
+        }
+        let ast = self.ast("policy-rule", None, keyword.start, end, attributes, vec![]);
+        Ok((rule, ast))
+    }
+
+    fn meta_value(&mut self) -> Result<Value> {
+        if self.matches("-") {
+            let start = self.consume().start;
+            let number = self.consume();
+            let Some(TokenValue::Integer(value)) = number.value else {
+                return Err(at(
+                    "BHCP1001",
+                    "expected integer after minus in policy value",
+                    self.source_name,
+                    &start,
+                ));
+            };
+            return Ok(Value::Integer(-value));
+        }
+        if self.matches("[") {
+            self.consume();
+            let mut values = Vec::new();
+            if !self.matches("]") {
+                loop {
+                    values.push(self.meta_value()?);
+                    if !self.matches(",") {
+                        break;
+                    }
+                    self.consume();
+                }
+            }
+            self.expect("]")?;
+            return Ok(Value::Array(values));
+        }
+        if self.matches("{") {
+            self.consume();
+            let mut entries = Vec::new();
+            if !self.matches("}") {
+                loop {
+                    let key = self.identifier("policy map key")?;
+                    if entries
+                        .iter()
+                        .any(|(existing, _): &(String, Value)| existing == &key.text)
+                    {
+                        return Err(at(
+                            "BHCP1003",
+                            format!("duplicate policy map key {:?}", key.text),
+                            self.source_name,
+                            &key.start,
+                        ));
+                    }
+                    self.expect(":")?;
+                    entries.push((key.text, self.meta_value()?));
+                    if !self.matches(",") {
+                        break;
+                    }
+                    self.consume();
+                }
+            }
+            self.expect("}")?;
+            return Ok(Value::owned_map(entries));
+        }
+        let token = self.current().clone();
+        match token.kind {
+            TokenKind::String => {
+                self.consume();
+                let Some(TokenValue::Text(value)) = token.value else {
+                    unreachable!()
+                };
+                Ok(Value::Text(value))
+            }
+            TokenKind::Number => {
+                self.consume();
+                let Some(TokenValue::Integer(value)) = token.value else {
+                    unreachable!()
+                };
+                Ok(Value::Integer(value))
+            }
+            TokenKind::Identifier if token.text == "true" || token.text == "false" => {
+                self.consume();
+                Ok(Value::Bool(token.text == "true"))
+            }
+            TokenKind::Identifier if self.starts_qualified_name() => {
+                Ok(Value::Text(self.qualified_name()?.0))
+            }
+            TokenKind::Identifier => {
+                self.consume();
+                Ok(Value::Text(token.text))
+            }
+            TokenKind::Keyword => Err(at(
+                "BHCP1004",
+                format!(
+                    "policy value syntax {:?} is outside the implemented policy slice",
+                    token.text
+                ),
+                self.source_name,
+                &token.start,
+            )),
+            _ => Err(at(
+                "BHCP1001",
+                format!("expected policy value, found {:?}", token.text),
+                self.source_name,
+                &token.start,
+            )),
+        }
+    }
+
+    fn starts_qualified_name(&self) -> bool {
+        if self.current().kind != TokenKind::Identifier {
+            return false;
+        }
+        let mut cursor = self.cursor + 1;
+        let mut segments = 1usize;
+        while self
+            .tokens
+            .get(cursor)
+            .is_some_and(|token| token.text == "/" || token.text == ".")
+            && self
+                .tokens
+                .get(cursor + 1)
+                .is_some_and(|token| token.kind == TokenKind::Identifier)
+        {
+            if self.tokens[cursor].text == "/" {
+                segments += 1;
+            }
+            cursor += 2;
+        }
+        segments >= 2
+            && self
+                .tokens
+                .get(cursor)
+                .is_some_and(|token| token.text == "@")
     }
 
     fn goal(&mut self) -> Result<SurfaceGoal> {
@@ -1283,6 +1678,14 @@ fn identifier_start(character: char) -> bool {
 }
 fn identifier_continue(character: char) -> bool {
     identifier_start(character) || character.is_ascii_digit() || character == '-'
+}
+fn policy_layer_name(layer: PolicyLayer) -> &'static str {
+    match layer {
+        PolicyLayer::Organization => "organization",
+        PolicyLayer::Team => "team",
+        PolicyLayer::Repository => "repository",
+        PolicyLayer::User => "user",
+    }
 }
 fn type_name(value: &SurfaceType) -> String {
     match value {

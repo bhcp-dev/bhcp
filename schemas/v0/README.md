@@ -92,6 +92,13 @@ artifact IDs before accepting external deterministic CBOR. Effective rule proven
 uses `rule_provenance`; the distinct generic document-header `provenance` map remains
 available without a wire-key collision.
 
+Canonical `§policy` source is lowered into this source-document model before it is
+accepted. The implemented slice covers layer and `§extends`, every closed typed rule,
+scope and parameter meta-values, waivability and issuers, and retains definition and
+rule spans in the canonical AST. Diagnostic-only labels, comments, and formatting do
+not enter the policy document. Waiver/profile shorthand and expression-valued policy
+clauses are explicitly deferred and rejected rather than accepted as opaque values.
+
 The cddl-rs CBOR validator is not used for instances yet: version 0.10.6 misvalidates
 repeated references to controlled aliases used by this schema, including
 `[* feature-id]` where `feature-id` ultimately carries `.regexp`. The normative

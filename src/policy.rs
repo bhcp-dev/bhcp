@@ -631,7 +631,7 @@ pub enum PolicyRule {
 }
 
 impl PolicyRule {
-    fn from_value(value: &Value) -> Result<Self> {
+    pub(crate) fn from_value(value: &Value) -> Result<Self> {
         let entries = map_entries(value, "policy rule")?;
         let category = PolicyCategory::parse(required(entries, "category", "policy rule")?)?;
         let context = format!("{} policy rule", category.as_str());
