@@ -30,6 +30,15 @@ and a unary gate infers `Excluded | Included<T>` from its child. Obligation-grap
 proof coverage and unlisted scenarios remain normative acceptance requirements, not
 claimed implementation support.
 
+`goal-algebra/manifest.txt` and `tests/goal_algebra_conformance.rs` publish the
+complete executable Phase 1 algebra boundary in one inventory. The harness compiles
+all five derived forms, compares ten checked-in AST/IR artifacts byte for byte,
+round-trips both root kinds, compares the four expressible explicit `§compose`
+equivalents, and resolves named edge-case and generic proof-checker evidence in the
+behavior-specific suites. It also pins the six generator inputs, the 17 schema-root
+examples, and a feature manifest that marks the five self-hosted forms supported
+while leaving complete obligation-graph construction explicitly unsupported.
+
 The byte-level scanner tests execute the fixed S9.1 selection boundary before any
 profile-specific normalization: omission, an optional BOM, or an explicit canonical
 preamble select exactly one profile, while invalid UTF-8, CRLF, Unicode whitespace,

@@ -42,6 +42,12 @@ conditionals, parameter references, and a closed behavior-neutral primitive set,
 and checks every satisfied output against `ParentOutput`. Unsupported calls remain
 ordinary stable diagnostics rather than an extension or host-callback mechanism.
 
+The checked-in `feature-manifest.diag` example declares canonical AST and semantic
+IR document support, requires the core feature, advertises the complete self-hosted
+`all`/`any`/`none`/`chain`/`gate` algebra, and explicitly marks complete
+obligation-graph construction unsupported. The goal-algebra conformance harness
+validates that distinction alongside the fixed 17-root inventory.
+
 Self-hosted lowerers use compile-time-only `meta-type` values. A lowerer receives a
 typed `derived-form-shape` and returns an ID-free `network-shape`; both use
 source-independent resolved children and expressions. Each derived child exposes its

@@ -295,6 +295,27 @@ fn forged_observation_edge_is_rejected_before_reduction() {
 }
 
 #[test]
+fn generic_checker_rejects_a_tampered_chain_reduction() {
+    let compiled = compile("canonical-chain.bhcp");
+    let runtime = KernelRuntime::new(&compiled.ir);
+    let mut reduction = runtime
+        .reduce("network-1", Value::owned_map(vec![]), &[])
+        .unwrap();
+    let Reduction::Pending { required } = &mut reduction else {
+        unreachable!()
+    };
+    required[0] = "forged-step".to_owned();
+    let diagnostic = runtime
+        .verify("network-1", Value::owned_map(vec![]), &[], &reduction)
+        .unwrap_err();
+    assert_eq!(diagnostic.code, "BHCP4102");
+    assert_eq!(
+        diagnostic.message,
+        "reducer result does not match re-evaluation"
+    );
+}
+
+#[test]
 fn empty_chain_is_a_premise_free_satisfied_unit_identity() {
     let compiled =
         compile_source("§goal example/Empty@0 { §chain { }; }", "empty-chain.bhcp").unwrap();

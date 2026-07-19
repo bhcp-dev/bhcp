@@ -78,6 +78,12 @@ or `gate` node remains. Their checked BHCP lowerers consume a source-independent
 compile-time shape and produce the same minimal network IR that an explicit core
 composition would produce.
 
+That standard algebra is now published as one independently checkable conformance
+set. Its manifest binds `all`, `any`, `none`, `chain`, and `gate` to canonical source,
+deterministic AST/IR bytes, empty or invalid boundaries, and generic proof-checker
+tamper evidence. The accompanying feature manifest distinguishes those implemented
+forms from the still-deferred complete obligation-graph stage.
+
 ## One meaning, several representations
 
 BHCP keeps three often-confused layers separate:

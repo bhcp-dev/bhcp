@@ -1,0 +1,5 @@
+all | canonical-all.bhcp | canonical-all-compose.bhcp | canonical-all.ast.cbor | canonical-all.ir.cbor | tests/self_hosted_all.rs | empty_all_is_a_premise_free_satisfied_identity | generic_checker_rejects_a_tampered_reduction
+any | canonical-any.bhcp | canonical-any-compose.bhcp | canonical-any.ast.cbor | canonical-any.ir.cbor | tests/self_hosted_any.rs | empty_any_is_a_premise_free_refuted_identity | generic_checker_rejects_a_tampered_any_reduction
+none | canonical-none.bhcp | canonical-none-compose.bhcp | canonical-none.ast.cbor | canonical-none.ir.cbor | tests/self_hosted_none.rs | empty_none_is_a_premise_free_satisfied_unit_identity | generic_checker_rejects_a_tampered_none_reduction
+chain | canonical-chain.bhcp | canonical-chain-compose.bhcp | canonical-chain.ast.cbor | canonical-chain.ir.cbor | tests/self_hosted_chain.rs | empty_chain_is_a_premise_free_satisfied_unit_identity | generic_checker_rejects_a_tampered_chain_reduction
+gate | canonical-gate.bhcp | - | canonical-gate.ast.cbor | canonical-gate.ir.cbor | tests/self_hosted_gate.rs | gate_rejects_non_bool_non_unary_and_mistyped_child_input | generic_checker_rejects_a_tampered_gate_derivation
