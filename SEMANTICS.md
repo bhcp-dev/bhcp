@@ -330,7 +330,7 @@ goal-def        = "§goal" qualified-name [ type-params ] [ "§refines" type-ref
 syntax-def      = "§syntax" qualified-name meta-block ;
 profile-def     = "§profile" qualified-name [ "§extends" qualified-name ] meta-block ;
 policy-def      = "§policy" qualified-name [ "§extends" qualified-name ] policy-block ;
-waiver-def      = "§waiver" qualified-name policy-block ;
+waiver-def      = "§waiver" qualified-name waiver-block ;
 extension-def   = "§extension" qualified-name ( "derived" | "native" ) meta-block ;
 refines-decl    = "§refines" type-ref type-ref ";" ;
 
@@ -383,6 +383,7 @@ policy-meta-value = "true" | "false" | integer | string | identifier | qualified
                   | "[" [ policy-meta-value { "," policy-meta-value } ] "]"
                   | "{" [ identifier ":" policy-meta-value
                           { "," identifier ":" policy-meta-value } ] "}" ;
+waiver-block    = meta-block ;
 meta-block      = "{" { identifier [ label ] meta-value ";" } "}" ;
 meta-value      = literal | qualified-name | "[" [ meta-value { "," meta-value } ] "]"
                 | "{" [ identifier ":" meta-value { "," identifier ":" meta-value } ] "}" ;

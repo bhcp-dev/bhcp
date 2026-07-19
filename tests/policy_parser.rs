@@ -96,6 +96,14 @@ fn checked_in_canonical_policy_fixture_lowers_through_the_strong_model() {
 }
 
 #[test]
+fn canonical_grammar_keeps_deferred_waivers_out_of_policy_blocks() {
+    let semantics = fs::read_to_string(root().join("SEMANTICS.md")).unwrap();
+    assert!(semantics.contains("waiver-def      = \"§waiver\" qualified-name waiver-block ;"));
+    assert!(semantics.contains("waiver-block    = meta-block ;"));
+    assert!(!semantics.contains("waiver-def      = \"§waiver\" qualified-name policy-block ;"));
+}
+
+#[test]
 fn policy_ast_retains_definition_and_rule_spans() {
     let parsed = parse_policy_source(&all_rules_source("shown to humans"), "policy.bhcp").unwrap();
     let policy = &parsed.ast.root.children[0];
