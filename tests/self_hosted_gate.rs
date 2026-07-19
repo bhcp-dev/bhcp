@@ -291,6 +291,29 @@ fn condition_and_child_edge_tampering_fail_closed() {
 }
 
 #[test]
+fn generic_checker_rejects_a_tampered_gate_derivation() {
+    let compiled = compile_gate();
+    let runtime = KernelRuntime::new(&compiled.ir);
+    let observation = child_satisfied();
+    let mut claimed = runtime
+        .reduce(
+            "network-1",
+            parent(true),
+            std::slice::from_ref(&observation),
+        )
+        .unwrap();
+    let Reduction::Concluded { derivation, .. } = &mut claimed else {
+        panic!("an observed satisfied gate must conclude")
+    };
+    derivation.premises.push("forged-premise".to_owned());
+
+    let diagnostic = runtime
+        .verify("network-1", parent(true), &[observation], &claimed)
+        .unwrap_err();
+    assert_eq!(diagnostic.code, "BHCP4102");
+}
+
+#[test]
 fn gate_condition_changes_semantics_but_presentation_does_not() {
     let source = fs::read_to_string(fixture("canonical-gate.bhcp")).unwrap();
     let normal = compile_source(&source, "normal-gate.bhcp").unwrap();
