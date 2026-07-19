@@ -13,9 +13,16 @@ use crate::parser::{
 pub const ALL_LOWERER: &str = "bhcp/prelude.lower-all@0";
 pub const ALL_REDUCER: &str = "bhcp/prelude.all-reducer@0";
 pub const ALL_FEATURE: &str = "bhcp/feature.self-hosted-all@0";
+pub const ANY_LOWERER: &str = "bhcp/prelude.lower-any@0";
+pub const ANY_REDUCER: &str = "bhcp/prelude.any-reducer@0";
+pub const ANY_FEATURE: &str = "bhcp/feature.self-hosted-any@0";
 
-const SOURCE_NAME: &str = "prelude/v0/all.bhcp";
-const SOURCE: &str = include_str!("../prelude/v0/all.bhcp");
+const SOURCE_NAME: &str = "prelude/v0/standard.bhcp";
+const SOURCE: &str = concat!(
+    include_str!("../prelude/v0/all.bhcp"),
+    "\n",
+    include_str!("../prelude/v0/any.bhcp")
+);
 const INVALID_PRELUDE: &str = "BHCP3001";
 
 #[derive(Clone, Debug)]
@@ -29,6 +36,7 @@ pub struct DerivedChild {
 #[derive(Clone, Debug)]
 pub struct DerivedForm {
     pub input: BhcpType,
+    pub output: BhcpType,
     pub children: Vec<DerivedChild>,
 }
 
@@ -69,6 +77,8 @@ impl Prelude {
         let prelude = Self { functions: indexed };
         prelude.validate_all_lowerer()?;
         prelude.validate_all_reducer()?;
+        prelude.validate_any_lowerer()?;
+        prelude.validate_any_reducer()?;
         Ok(prelude)
     }
 
@@ -99,10 +109,26 @@ impl Prelude {
     }
 
     fn validate_all_lowerer(&self) -> Result<()> {
+        self.validate_lowerer(ALL_LOWERER, "lower-all")
+    }
+
+    fn validate_all_reducer(&self) -> Result<()> {
+        self.validate_reducer(ALL_REDUCER, "all-reducer")
+    }
+
+    fn validate_any_lowerer(&self) -> Result<()> {
+        self.validate_lowerer(ANY_LOWERER, "lower-any")
+    }
+
+    fn validate_any_reducer(&self) -> Result<()> {
+        self.validate_reducer(ANY_REDUCER, "any-reducer")
+    }
+
+    fn validate_lowerer(&self, symbol: &str, name: &str) -> Result<()> {
         let function = self
             .functions
-            .get(ALL_LOWERER)
-            .ok_or_else(|| invalid("standard prelude is missing lower-all"))?;
+            .get(symbol)
+            .ok_or_else(|| invalid(format!("standard prelude is missing {name}")))?;
         let valid = function.type_parameters == ["I", "O"]
             && function.parameters.len() == 1
             && matches!(
@@ -120,33 +146,33 @@ impl Prelude {
                 }
             );
         if !valid {
-            return Err(invalid("lower-all has an invalid meta signature"));
+            return Err(invalid(format!("{name} has an invalid meta signature")));
         }
         Ok(())
     }
 
-    fn validate_all_reducer(&self) -> Result<()> {
+    fn validate_reducer(&self, symbol: &str, name: &str) -> Result<()> {
         let function = self
             .functions
-            .get(ALL_REDUCER)
-            .ok_or_else(|| invalid("standard prelude is missing all-reducer"))?;
+            .get(symbol)
+            .ok_or_else(|| invalid(format!("standard prelude is missing {name}")))?;
         let valid = function.type_parameters == ["I", "O", "Observations"]
             && function.parameters.len() == 2
             && matches!(
                 &function.parameters[0].value_type,
-                SurfaceType::Parameter(name) if name == "I"
+                SurfaceType::Parameter(parameter) if parameter == "I"
             )
             && matches!(
                 &function.parameters[1].value_type,
-                SurfaceType::Parameter(name) if name == "Observations"
+                SurfaceType::Parameter(parameter) if parameter == "Observations"
             )
             && matches!(
                 &function.result,
                 SurfaceType::Reduction(output)
-                    if matches!(output.as_ref(), SurfaceType::Parameter(name) if name == "O")
+                    if matches!(output.as_ref(), SurfaceType::Parameter(parameter) if parameter == "O")
             );
         if !valid {
-            return Err(invalid("all-reducer has an invalid generic signature"));
+            return Err(invalid(format!("{name} has an invalid generic signature")));
         }
         Ok(())
     }
@@ -194,6 +220,30 @@ fn evaluate_meta(
                         .collect();
                     fields.sort_by(|left, right| left.name.cmp(&right.name));
                     Ok(MetaValue::Type(BhcpType::Record(fields)))
+                }
+                ("bhcp/meta.child-output-winner@0", [MetaValue::Form(form)]) => {
+                    let Some(first) = form.children.first() else {
+                        return Ok(MetaValue::Type(form.output.clone()));
+                    };
+                    if form
+                        .children
+                        .iter()
+                        .any(|child| child.output != first.output)
+                    {
+                        return Err(invalid(
+                            "any requires every child to have the same output type in this executable slice",
+                        ));
+                    }
+                    Ok(MetaValue::Type(BhcpType::Record(vec![
+                        FieldType {
+                            name: "output".to_owned(),
+                            value_type: first.output.clone(),
+                        },
+                        FieldType {
+                            name: "tag".to_owned(),
+                            value_type: BhcpType::Primitive("Text"),
+                        },
+                    ])))
                 }
                 (
                     "bhcp/meta.network-shape@0",

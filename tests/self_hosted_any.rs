@@ -58,6 +58,14 @@ fn any_and_explicit_compose_lower_to_identical_semantics_and_bytes() {
     assert_ne!(derived.ast.artifact_id, explicit.ast.artifact_id);
     assert_eq!(derived.ast_bytes, repeated.ast_bytes);
     assert_eq!(derived.ir_bytes, repeated.ir_bytes);
+    assert_eq!(
+        derived.ast_bytes,
+        fs::read(fixture("canonical-any.ast.cbor")).unwrap()
+    );
+    assert_eq!(
+        derived.ir_bytes,
+        fs::read(fixture("canonical-any.ir.cbor")).unwrap()
+    );
     assert_eq!(derived.ir.functions.len(), 1);
 
     let network = derived.ir.goals[2].body.as_ref().unwrap();
@@ -127,6 +135,15 @@ fn any_rejects_a_parent_or_child_output_shape_mismatch() {
         diagnostic.message,
         "any requires every child to have the same output type in this executable slice"
     );
+
+    let explicit = fs::read_to_string(fixture("canonical-any-compose.bhcp")).unwrap();
+    let unlike_explicit = explicit.replace(
+        "§goal example/Source@0 {\n    §output value: Text;\n}",
+        "§goal example/Source@0 {\n    §output value: Bool;\n}",
+    );
+    let diagnostic = compile_source(&unlike_explicit, "unlike-explicit-any.bhcp").unwrap_err();
+    assert_eq!(diagnostic.code, "BHCP3001");
+    assert!(diagnostic.message.contains("first-satisfied-winner"));
 }
 
 #[test]
@@ -265,8 +282,7 @@ fn any_obeys_refutation_missing_fault_and_unresolved_precedence() {
 
 #[test]
 fn empty_any_is_a_premise_free_refuted_identity() {
-    let compiled = compile_source("§goal example/Empty@0 { §any { }; }", "empty-any.bhcp")
-        .unwrap();
+    let compiled = compile_source("§goal example/Empty@0 { §any { }; }", "empty-any.bhcp").unwrap();
     let reduction = KernelRuntime::new(&compiled.ir)
         .reduce("network-1", Value::owned_map(vec![]), &[])
         .unwrap();

@@ -6,7 +6,8 @@ use crate::cbor::encode_deterministic;
 use crate::diagnostic::{Diagnostic, Result};
 use crate::hash::HashAlgorithm;
 use crate::model::{
-    BhcpType, Expression, ExpressionForm, FunctionDefinition, SemanticIrDocument, is_symbol,
+    BhcpType, Expression, ExpressionForm, FieldType, FunctionDefinition, SemanticIrDocument,
+    is_symbol,
 };
 use crate::value::Value;
 
@@ -860,8 +861,13 @@ fn validate_primitive_signature(
         "bhcp/kernel.satisfied-record@0"
         | "bhcp/kernel.first-satisfied-output@0"
         | "bhcp/kernel.last-satisfied-output@0"
-        | "bhcp/kernel.first-satisfied-winner@0"
             if argument_types == [observations.clone()] =>
+        {
+            output.as_ref().clone()
+        }
+        "bhcp/kernel.first-satisfied-winner@0"
+            if argument_types == [observations.clone()]
+                && winner_type_matches(observations, output) =>
         {
             output.as_ref().clone()
         }
@@ -886,6 +892,39 @@ fn validate_primitive_signature(
         )));
     }
     Ok(())
+}
+
+fn winner_type_matches(observations: &BhcpType, output: &BhcpType) -> bool {
+    let BhcpType::Record(fields) = observations else {
+        return false;
+    };
+    let mut child_outputs = fields.iter().map(|field| match &field.value_type {
+        BhcpType::Option(result) => match result.as_ref() {
+            BhcpType::ExecutionResult(output) => Some(output.as_ref()),
+            _ => None,
+        },
+        _ => None,
+    });
+    let Some(first) = child_outputs.next() else {
+        return true;
+    };
+    let Some(first) = first else {
+        return false;
+    };
+    if child_outputs.any(|candidate| candidate != Some(first)) {
+        return false;
+    }
+    output
+        == &BhcpType::Record(vec![
+            FieldType {
+                name: "output".to_owned(),
+                value_type: first.clone(),
+            },
+            FieldType {
+                name: "tag".to_owned(),
+                value_type: BhcpType::Primitive("Text"),
+            },
+        ])
 }
 
 fn runtime_equal(left: &RuntimeValue, right: &RuntimeValue) -> Result<bool> {
@@ -1119,12 +1158,12 @@ fn evaluate_primitive(
             _ => Err(invalid("pending requires a non-empty list of child tags")),
         },
         "bhcp/kernel.refuted@0" => match arguments.as_slice() {
-            [RuntimeValue::Texts(evidence)] if !evidence.is_empty() => Ok(RuntimeValue::Result(
+            [RuntimeValue::Texts(evidence)] => Ok(RuntimeValue::Result(
                 ExecutionResult::Completed(Verdict::Refuted {
                     counter_evidence: evidence.clone(),
                 }),
             )),
-            _ => Err(invalid("refuted requires counter-evidence")),
+            _ => Err(invalid("refuted requires a counter-evidence list")),
         },
         "bhcp/kernel.faulted@0" => match arguments.as_slice() {
             [RuntimeValue::Fault(fault)] => Ok(RuntimeValue::Result(ExecutionResult::Faulted(

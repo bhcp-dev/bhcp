@@ -660,7 +660,9 @@ Thus a refuted branch can conclude `all` despite an unrelated fault, and a satis
 branch can conclude `any` despite unrelated faults. A satisfied branch refutes
 `none` despite unrelated faults. Implementations SHOULD cancel children no longer
 listed by the reducer, but cancellation MUST be represented and MUST respect resource
-cleanup.
+cleanup. When multiple `any` children are satisfied in the same sealed observation
+set, the lexicographically least normalized child tag is the stable winner; authoring
+order and observation arrival order do not change that choice.
 
 ### S8.4 Contracts, authority, and planning
 

@@ -61,6 +61,8 @@ fn compiler_artifacts_are_deterministic_and_match_root_shapes() {
         ("canonical-simple.ir.cbor", "semantic-ir"),
         ("canonical-all.ast.cbor", "canonical-ast"),
         ("canonical-all.ir.cbor", "semantic-ir"),
+        ("canonical-any.ast.cbor", "canonical-ast"),
+        ("canonical-any.ir.cbor", "semantic-ir"),
     ] {
         let bytes = fs::read(directory.join(file)).unwrap();
         let value = decode_deterministic(&bytes).unwrap();
