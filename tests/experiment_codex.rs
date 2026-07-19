@@ -32,8 +32,9 @@ fn codex_event_summary_fails_closed_on_unknown_or_incomplete_usage() {
     assert!(summarize_events(b"{\"type\":\"turn.started\"}\n".as_slice()).is_err());
 }
 
+#[cfg(target_os = "macos")]
 #[test]
-fn driver_forwards_the_controller_owned_target_to_codex() {
+fn driver_confines_codex_reads_and_forwards_the_controller_owned_target() {
     let root = std::env::temp_dir().join(format!("bhcp-codex-driver-{}", std::process::id()));
     if root.exists() {
         fs::remove_dir_all(&root).unwrap();
@@ -42,31 +43,39 @@ fn driver_forwards_the_controller_owned_target_to_codex() {
         "workspace/subject",
         "target",
         "codex-home",
-        "home",
         "cargo",
         "rustup",
-        "tools",
+        "denied/oracle/src",
     ] {
         fs::create_dir_all(root.join(directory)).unwrap();
     }
     fs::write(root.join("workspace/prompt.md"), "frozen prompt\n").unwrap();
+    fs::write(root.join("codex-home/auth.json"), "{}\n").unwrap();
+    let denied_probe = root.join("denied/oracle/src/lib.rs");
+    fs::write(&denied_probe, "withheld oracle\n").unwrap();
     let output = Command::new(env!("CARGO_BIN_EXE_bhcp_codex_experiment_driver"))
         .args([
             env!("CARGO_BIN_EXE_bhcp-experiment-fake-codex"),
             root.join("codex-home").to_str().unwrap(),
-            root.join("home").to_str().unwrap(),
             root.join("cargo").to_str().unwrap(),
             root.join("rustup").to_str().unwrap(),
-            root.join("tools").to_str().unwrap(),
+            env!("CARGO_BIN_EXE_bhcp-experiment-fake-agent"),
+            env!("CARGO_BIN_EXE_bhcp-experiment-fake-agent"),
             "1.97.1",
+            root.join("denied").to_str().unwrap(),
+            denied_probe.to_str().unwrap(),
         ])
         .current_dir(root.join("workspace"))
         .env_clear()
         .env("BHCP_EXPERIMENT_MODEL", "test-model")
         .env("BHCP_EXPERIMENT_REASONING", "medium")
-        .env("BHCP_EXPERIMENT_SANDBOX", "workspace-write/no-network")
+        .env(
+            "BHCP_EXPERIMENT_SANDBOX",
+            "workspace-write/no-network/read-confined",
+        )
         .env("BHCP_EXPERIMENT_TOOLCHAIN", "test-toolchain")
         .env("BHCP_EXPERIMENT_PROMPT", "prompt.md")
+        .env("BHCP_EXPERIMENT_DENIED_READ_PROBE", &denied_probe)
         .env("CARGO_TARGET_DIR", root.join("target"))
         .output()
         .unwrap();

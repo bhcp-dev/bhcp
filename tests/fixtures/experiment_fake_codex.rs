@@ -3,6 +3,12 @@ use std::io::Read;
 use std::path::PathBuf;
 
 fn main() {
+    if let Some(probe) = std::env::var_os("BHCP_EXPERIMENT_DENIED_READ_PROBE") {
+        assert!(
+            fs::read(&probe).is_err(),
+            "the original oracle remained readable inside the Codex boundary"
+        );
+    }
     let target = PathBuf::from(std::env::var_os("CARGO_TARGET_DIR").expect("missing target"));
     assert!(target.is_dir());
     let arguments: Vec<_> = std::env::args_os().collect();
