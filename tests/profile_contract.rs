@@ -47,8 +47,8 @@ fn mapping(category: Category, canonical: &'static str, surface: &'static str) -
 
 fn canonical_category(canonical: &str) -> Option<Category> {
     match canonical {
-        "§goal" | "§input" | "§output" | "§requires" | "§ensures" | "§allows" | "§forbids"
-        | "§limit" | "§prefer" | "§verify" => Some(Category::Keyword),
+        "goal" | "input" | "output" | "requires" | "ensures" | "allows" | "forbids" | "limit"
+        | "prefer" | "verify" => Some(Category::Keyword),
         "§" => Some(Category::Sigil),
         "{" | "(" | "[" => Some(Category::OpenDelimiter),
         "}" | ")" | "]" => Some(Category::CloseDelimiter),
@@ -58,11 +58,40 @@ fn canonical_category(canonical: &str) -> Option<Category> {
     }
 }
 
+fn canonical_defaults() -> BTreeMap<(Category, &'static str), Mapping> {
+    let mut defaults = BTreeMap::new();
+    for canonical in [
+        "goal", "input", "output", "requires", "ensures", "allows", "forbids", "limit", "prefer",
+        "verify",
+    ] {
+        let candidate = mapping(Category::Keyword, canonical, canonical);
+        defaults.insert((candidate.category, candidate.canonical), candidate);
+    }
+    for (category, canonical) in [
+        (Category::Sigil, "§"),
+        (Category::OpenDelimiter, "{"),
+        (Category::OpenDelimiter, "("),
+        (Category::OpenDelimiter, "["),
+        (Category::CloseDelimiter, "}"),
+        (Category::CloseDelimiter, ")"),
+        (Category::CloseDelimiter, "]"),
+        (Category::Terminator, ";"),
+    ] {
+        let candidate = mapping(category, canonical, canonical);
+        defaults.insert((candidate.category, candidate.canonical), candidate);
+    }
+    defaults
+}
+
 fn punctuation(category: Category) -> bool {
     matches!(
         category,
         Category::Sigil | Category::OpenDelimiter | Category::CloseDelimiter | Category::Terminator
     )
+}
+
+fn formatting_valid(indent_width: u8, line_width: u16) -> bool {
+    indent_width <= 16 && (40..=512).contains(&line_width)
 }
 
 fn resolve_syntax(
@@ -80,7 +109,7 @@ fn resolve_syntax(
         }
         let mut effective = match syntax.parent {
             Some(parent) => visit(parent, registry, active)?,
-            None => BTreeMap::new(),
+            None => canonical_defaults(),
         };
         let mut local = BTreeSet::new();
         for candidate in &syntax.mappings {
@@ -141,6 +170,20 @@ fn resolve_syntax(
     }
 
     visit(symbol, registry, &mut BTreeSet::new())
+}
+
+fn normalize(
+    tokens: &[&'static str],
+    effective: &BTreeMap<(Category, &'static str), Mapping>,
+) -> Vec<&'static str> {
+    let surfaces: BTreeMap<_, _> = effective
+        .values()
+        .map(|candidate| (candidate.surface, candidate.canonical))
+        .collect();
+    tokens
+        .iter()
+        .map(|token| surfaces.get(token).copied().unwrap_or(token))
+        .collect()
 }
 
 fn syntax_is_descendant(
@@ -228,7 +271,7 @@ fn base_syntaxes() -> BTreeMap<&'static str, Syntax> {
             "words",
             Syntax {
                 parent: Some("canonical"),
-                mappings: vec![mapping(Category::Keyword, "§goal", "outcome")],
+                mappings: vec![mapping(Category::Keyword, "goal", "outcome")],
             },
         ),
     ])
@@ -249,8 +292,19 @@ fn syntax_resolution_vectors_pin_safe_overrides_and_every_conflict_class() {
         },
     );
     let resolved = resolve_syntax("layout", &syntaxes).unwrap();
-    assert_eq!(resolved[&(Category::Keyword, "§goal")].surface, "outcome");
+    assert_eq!(resolved[&(Category::Keyword, "goal")].surface, "outcome");
     assert_eq!(resolved[&(Category::OpenDelimiter, "{")].surface, "<");
+    assert_eq!(
+        normalize(&["§", "outcome", "<", ">"], &resolved),
+        ["§", "goal", "{", "}"]
+    );
+    assert_eq!(
+        normalize(
+            &["§", "goal", "{", "}"],
+            &resolve_syntax("canonical", &syntaxes).unwrap()
+        ),
+        ["§", "goal", "{", "}"]
+    );
 
     let cases = [
         (
@@ -258,8 +312,8 @@ fn syntax_resolution_vectors_pin_safe_overrides_and_every_conflict_class() {
             Syntax {
                 parent: None,
                 mappings: vec![
-                    mapping(Category::Keyword, "§goal", "goal"),
-                    mapping(Category::Keyword, "§goal", "outcome"),
+                    mapping(Category::Keyword, "goal", "goal"),
+                    mapping(Category::Keyword, "goal", "outcome"),
                 ],
             },
             "duplicate-coordinate",
@@ -269,9 +323,17 @@ fn syntax_resolution_vectors_pin_safe_overrides_and_every_conflict_class() {
             Syntax {
                 parent: None,
                 mappings: vec![
-                    mapping(Category::Keyword, "§goal", "same"),
-                    mapping(Category::Keyword, "§input", "same"),
+                    mapping(Category::Keyword, "goal", "same"),
+                    mapping(Category::Keyword, "input", "same"),
                 ],
+            },
+            "ambiguous-surface",
+        ),
+        (
+            "canonical-collision",
+            Syntax {
+                parent: None,
+                mappings: vec![mapping(Category::Keyword, "goal", "input")],
             },
             "ambiguous-surface",
         ),
@@ -317,6 +379,14 @@ fn syntax_resolution_vectors_pin_safe_overrides_and_every_conflict_class() {
             },
             "core-override",
         ),
+        (
+            "invalid-surface",
+            Syntax {
+                parent: None,
+                mappings: vec![mapping(Category::Keyword, "goal", "two words")],
+            },
+            "invalid-surface",
+        ),
     ];
     for (name, syntax, expected) in cases {
         let registry = BTreeMap::from([(name, syntax)]);
@@ -348,6 +418,11 @@ fn syntax_resolution_vectors_pin_safe_overrides_and_every_conflict_class() {
         ),
     ]);
     assert_eq!(resolve_syntax("a", &cycle), Err("inheritance-cycle"));
+    assert!(formatting_valid(0, 40));
+    assert!(formatting_valid(16, 512));
+    assert!(!formatting_valid(17, 100));
+    assert!(!formatting_valid(2, 39));
+    assert!(!formatting_valid(2, 513));
 }
 
 #[test]
@@ -422,6 +497,44 @@ fn profile_resolution_vectors_pin_parent_overlay_and_type_mode_order() {
             "{name}"
         );
     }
+
+    let missing = BTreeMap::from([(
+        "orphan",
+        Profile {
+            parent: Some("absent"),
+            syntax: "canonical",
+            overlays: vec![],
+            type_mode: "dynamic",
+        },
+    )]);
+    assert_eq!(
+        resolve_profile("orphan", &missing, &syntaxes),
+        Err("missing-parent")
+    );
+    let cycle = BTreeMap::from([
+        (
+            "a",
+            Profile {
+                parent: Some("b"),
+                syntax: "canonical",
+                overlays: vec![],
+                type_mode: "dynamic",
+            },
+        ),
+        (
+            "b",
+            Profile {
+                parent: Some("a"),
+                syntax: "canonical",
+                overlays: vec![],
+                type_mode: "dynamic",
+            },
+        ),
+    ]);
+    assert_eq!(
+        resolve_profile("a", &cycle, &syntaxes),
+        Err("inheritance-cycle")
+    );
 }
 
 #[test]

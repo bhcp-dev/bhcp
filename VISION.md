@@ -84,8 +84,10 @@ BHCP keeps three often-confused layers separate:
 
 - **Surface source** is a profile-selected human notation. Profiles may remap
   keywords, sigils, delimiters, aliases, and formatting.
-- **Canonical AST** is the lossless, profile-independent result of parsing canonical
-  tokens. It retains source-oriented structure and spans for diagnostics.
+- **Canonical AST** is the structurally canonical result of parsing normalized
+  canonical tokens. Its artifact retains the selected profile plus source-oriented
+  structure and spans for diagnostics; those presentation inputs do not enter
+  semantic meaning.
 - **Semantic IR** is elaborated meaning: resolved symbols, inferred canonical types,
   effects, policy, obligations, minimal kernel networks, and their versioned reducer
   functions. It excludes spelling, formatting, delimiters, sigils, and source spans.
