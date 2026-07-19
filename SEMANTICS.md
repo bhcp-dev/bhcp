@@ -238,6 +238,27 @@ class or trust restriction MUST NOT be elaborated into a fabricated default. A
 registered verifier is an external evidence producer, not an expression primitive or
 kernel callback; registering one does not expand the trusted composition kernel.
 
+Canonical verifier bindings own the verifier symbol, closed typed input, declared
+evidence output, trust restrictions, and the structural obligations targeted by a
+binding. These fields are program meaning and remain in canonical AST/semantic IR.
+Project-local adapter declarations own only the host binding: one project-relative
+executable path, an argv vector, project working scope, input/output media types, a
+positive bounded timeout, a local effect ceiling, and the expected evidence kind.
+The manifest binding MUST name the same verifier symbol and MUST NOT change its
+canonical input, output, trust, targets, predicate, or evidence semantics.
+
+A project adapter MUST NOT use a shell or encode a shell command string. Its
+executable path MUST be lexically contained by the project and the runner MUST also
+reject symlink or canonicalization escape before execution. Arguments are passed as
+an argv vector without shell interpretation. Adapter effects are intersected with
+the canonical goal and policy ceiling; a local declaration cannot grant authority
+and MUST NOT grant ambient network. Unknown keys, duplicate symbols or fields,
+missing fields, invalid media types, and unsupported effects are manifest errors.
+The local manifest is deployment configuration rather than a canonical BHCP
+artifact: it does not change semantic identity, but the resolved adapter artifact
+and declaration MUST be retained as execution/evidence provenance. The v0 CDDL root
+inventory therefore does not gain a project-manifest document.
+
 The evaluator MAY provide fixed, versioned, total pure primitive definitions at the
 bottom of expression evaluation for constructing and inspecting language values,
 including sealed kernel observations and checked result construction.
