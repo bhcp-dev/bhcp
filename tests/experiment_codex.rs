@@ -38,7 +38,15 @@ fn driver_forwards_the_controller_owned_target_to_codex() {
     if root.exists() {
         fs::remove_dir_all(&root).unwrap();
     }
-    for directory in ["workspace/subject", "target", "codex-home", "home", "cargo", "rustup", "tools"] {
+    for directory in [
+        "workspace/subject",
+        "target",
+        "codex-home",
+        "home",
+        "cargo",
+        "rustup",
+        "tools",
+    ] {
         fs::create_dir_all(root.join(directory)).unwrap();
     }
     fs::write(root.join("workspace/prompt.md"), "frozen prompt\n").unwrap();
@@ -62,9 +70,15 @@ fn driver_forwards_the_controller_owned_target_to_codex() {
         .env("CARGO_TARGET_DIR", root.join("target"))
         .output()
         .unwrap();
-    assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
-    assert!(String::from_utf8(output.stdout)
-        .unwrap()
-        .contains("completed_commands=1"));
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(
+        String::from_utf8(output.stdout)
+            .unwrap()
+            .contains("completed_commands=1")
+    );
     fs::remove_dir_all(root).unwrap();
 }
