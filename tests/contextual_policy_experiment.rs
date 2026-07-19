@@ -10,6 +10,27 @@ fn experiment() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("experiments/contextual-policy-agent")
 }
 
+fn pinned_tool_command(tool: &str) -> Command {
+    let cargo_home = std::env::var_os("CARGO_HOME")
+        .map(PathBuf::from)
+        .or_else(|| std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".cargo")))
+        .expect("Cargo home is unavailable");
+    let rustup = cargo_home.join("bin/rustup");
+    assert!(
+        rustup.is_file(),
+        "Rustup is unavailable at {}",
+        rustup.display()
+    );
+    let mut command = Command::new(rustup);
+    command
+        .args(["run", "1.97.1", tool])
+        .env_remove("RUSTC")
+        .env_remove("RUSTDOC")
+        .env_remove("RUSTC_WRAPPER")
+        .env_remove("RUSTFLAGS");
+    command
+}
+
 #[test]
 fn replay_commands_select_exactly_rust_1_97_1() {
     let output = pinned_tool_command("rustc")
@@ -26,7 +47,7 @@ fn replay_commands_select_exactly_rust_1_97_1() {
 }
 
 fn cargo_test(manifest: &Path, target_name: &str) -> Output {
-    Command::new(env!("CARGO"))
+    pinned_tool_command("cargo")
         .args([
             "test",
             "--offline",
@@ -65,7 +86,7 @@ fn cargo_static_checks(manifest: &Path, target_name: &str) {
             "warnings",
         ],
     ] {
-        let output = Command::new(env!("CARGO"))
+        let output = pinned_tool_command("cargo")
             .args(arguments)
             .env("CARGO_TARGET_DIR", &target)
             .output()
