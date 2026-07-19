@@ -485,3 +485,30 @@ fn absolute_path(value: &std::ffi::OsStr, name: &str) -> Result<PathBuf, String>
     }
     Ok(path)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::write_patch;
+    use std::fs;
+
+    #[test]
+    fn unchanged_excluded_candidate_has_an_empty_patch_artifact() {
+        let root = std::env::temp_dir().join(format!(
+            "bhcp-empty-experiment-patch-{}",
+            std::process::id()
+        ));
+        if root.exists() {
+            fs::remove_dir_all(&root).unwrap();
+        }
+        fs::create_dir(&root).unwrap();
+        let original = root.join("original.rs");
+        let candidate = root.join("candidate.rs");
+        let patch = root.join("candidate.patch");
+        fs::write(&original, "unchanged\n").unwrap();
+        fs::write(&candidate, "unchanged\n").unwrap();
+
+        write_patch(&original, &candidate, &patch).unwrap();
+        assert_eq!(fs::read(patch).unwrap(), b"");
+        fs::remove_dir_all(root).unwrap();
+    }
+}

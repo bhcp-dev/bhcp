@@ -13,8 +13,12 @@ fn main() {
             "the original oracle remained readable inside the Codex boundary"
         );
     }
-    let auth = PathBuf::from(std::env::var_os("CODEX_HOME").expect("missing Codex home"))
-        .join("auth.json");
+    let codex_home = PathBuf::from(std::env::var_os("CODEX_HOME").expect("missing Codex home"));
+    assert!(
+        fs::canonicalize(&codex_home).is_ok(),
+        "Codex could not canonicalize its isolated home"
+    );
+    let auth = codex_home.join("auth.json");
     assert!(
         fs::read(&auth).is_ok(),
         "Codex could not read its credentials"
