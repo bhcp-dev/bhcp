@@ -1,0 +1,32 @@
+[[verifier_adapter]]
+symbol = "experiment/verifier/public-rust@0"
+executable = "subject/tools/in-session-evidence-adapter"
+argv = ["public"]
+working_scope = "project"
+input_media_type = "application/vnd.bhcp.verification-request+cbor"
+output_media_type = "application/vnd.bhcp.verifier-result+cbor"
+timeout_ms = 2000
+allowed_effects = ["bhcp-effect/fs.read@0"]
+evidence_kind = "static"
+
+[[verifier_adapter]]
+symbol = "experiment/verifier/in-session-oracle@0"
+executable = "subject/tools/in-session-evidence-adapter"
+argv = ["oracle"]
+working_scope = "project"
+input_media_type = "application/vnd.bhcp.verification-request+cbor"
+output_media_type = "application/vnd.bhcp.verifier-result+cbor"
+timeout_ms = 2000
+allowed_effects = ["bhcp-effect/fs.read@0"]
+evidence_kind = "static"
+
+[[verifier_adapter]]
+symbol = "experiment/verifier/change-policy@0"
+executable = "subject/tools/in-session-evidence-adapter"
+argv = ["change-policy"]
+working_scope = "project"
+input_media_type = "application/vnd.bhcp.verification-request+cbor"
+output_media_type = "application/vnd.bhcp.verifier-result+cbor"
+timeout_ms = 2000
+allowed_effects = ["bhcp-effect/fs.read@0"]
+evidence_kind = "static"
