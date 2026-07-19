@@ -152,6 +152,11 @@ distinct AST/IR artifact identities, yet resolve the same overlay and produce th
 same semantic ID. Their deterministic formatter snapshots, CBOR root round trips,
 policy-change control, and matched parser diagnostic prove the invariance and
 sensitivity rules stated normatively in S9.1.3 of [`SEMANTICS.md`](SEMANTICS.md).
+The [Phase 4 completion audit](conformance/v0/profile-phase-audit.md) maps all 27
+acceptance claims from issues #41–#49 to named executable tests, checks every local
+evidence link, and pins consistent maturity and non-goal language. This completes the
+bounded presentation-layer milestone; it does not make the repository a complete v0
+implementation or admit arbitrary grammars, parser plugins, or unrestricted macros.
 
 The Rust `profile` model decodes and emits both S9.1 root artifacts through the
 repository deterministic-CBOR codec. It covers every closed mapping category,
