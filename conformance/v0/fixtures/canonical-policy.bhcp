@@ -1,0 +1,7 @@
+§policy example/repository-policy@0 §extends example/base-policy@0 {
+  layer repository;
+  rule required-static-analysis "static analysis": requirement add {
+    requirement: example/requirement.static-analysis@0
+  } nonwaivable;
+  rule strict-types: type-mode strengthen strict nonwaivable;
+}

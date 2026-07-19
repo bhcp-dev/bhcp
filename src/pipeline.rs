@@ -13,6 +13,7 @@ use crate::parser::{
     ParsedProgram, SurfaceClauseKind, SurfaceComposition, SurfaceEffect, SurfaceExpression,
     SurfaceFunction, SurfaceGoal, SurfaceLiteral, SurfaceType, parse_canonical,
 };
+use crate::policy::SourcePolicyDocument;
 use crate::prelude::{
     ALL_FEATURE, ALL_LOWERER, ALL_REDUCER, DerivedChild, DerivedForm, NetworkShape, Prelude,
 };
@@ -29,6 +30,12 @@ pub struct Compilation {
     pub ir_hash: HashId,
 }
 
+#[derive(Clone, Debug)]
+pub struct ParsedPolicySource {
+    pub ast: CanonicalAstDocument,
+    pub documents: Vec<SourcePolicyDocument>,
+}
+
 pub fn parse_source(source: &str, source_name: &str) -> Result<CanonicalAstDocument> {
     parse_source_with_algorithm(source, source_name, HashAlgorithm::default())
 }
@@ -39,6 +46,35 @@ pub fn parse_source_with_algorithm(
     algorithm: HashAlgorithm,
 ) -> Result<CanonicalAstDocument> {
     Ok(parse_internal(source, source_name, algorithm)?.0)
+}
+
+pub fn parse_policy_source(source: &str, source_name: &str) -> Result<ParsedPolicySource> {
+    parse_policy_source_with_algorithm(source, source_name, HashAlgorithm::default())
+}
+
+pub fn parse_policy_source_with_algorithm(
+    source: &str,
+    source_name: &str,
+    algorithm: HashAlgorithm,
+) -> Result<ParsedPolicySource> {
+    let (ast, program) = parse_internal(source, source_name, algorithm)?;
+    if program.policies.is_empty() {
+        return Err(Diagnostic::new(
+            "BHCP1001",
+            "policy source must contain at least one §policy definition",
+            source_name,
+            1,
+            1,
+        ));
+    }
+    Ok(ParsedPolicySource {
+        ast,
+        documents: program
+            .policies
+            .into_iter()
+            .map(|policy| policy.document)
+            .collect(),
+    })
 }
 
 pub fn compile_source(source: &str, source_name: &str) -> Result<Compilation> {
@@ -119,6 +155,14 @@ fn elaborate(
     source_name: &str,
     algorithm: HashAlgorithm,
 ) -> Result<SemanticIrDocument> {
+    if !program.policies.is_empty() {
+        return Err(error(
+            "BHCP2004",
+            "policy definitions lower to policy documents, not executable goal IR",
+            source_name,
+            &program.policies[0].at,
+        ));
+    }
     if !program.functions.is_empty() {
         return Err(error(
             "BHCP2004",

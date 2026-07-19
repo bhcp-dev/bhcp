@@ -26,6 +26,12 @@ contract clauses. It does not yet claim general obligation-graph construction,
 process-backed project adapters, freshness windows, signatures, or full proof
 coverage.
 
+The canonical policy parser fixture `fixtures/canonical-policy.bhcp` executes the
+authored source boundary for POL-01: explicit layer and inheritance syntax, stable
+rule IDs, a diagnostic-only label, and closed typed rules lower to a validated source
+policy document. Policy composition and weakening enforcement remain later POL-01
+and POL-02 work rather than claims of this parser fixture.
+
 ## Syntax, identity, and encoding
 
 | ID | Scenario | Expected result |
