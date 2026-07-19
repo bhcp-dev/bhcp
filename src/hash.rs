@@ -84,7 +84,16 @@ pub fn format_hash(hash: &HashId) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{HashAlgorithm, format_hash};
+    use super::{HashAlgorithm, format_hash, hash_reader};
+
+    #[test]
+    fn streaming_hash_matches_the_in_memory_identity() {
+        let bytes = b"a deterministic input split across reader buffers";
+        assert_eq!(
+            hash_reader(bytes.as_slice()).unwrap(),
+            HashAlgorithm::Sha3_512.hash(bytes)
+        );
+    }
 
     #[test]
     fn sha3_512_matches_known_vectors() {
