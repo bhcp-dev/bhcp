@@ -90,6 +90,7 @@ pub struct VerifierContext<'a> {
     pub input: &'a Value,
     pub output: &'a Value,
     pub subject: &'a ContentReference,
+    pub subject_bytes: &'a [u8],
     pub obligations: &'a [String],
 }
 
@@ -919,14 +920,19 @@ struct DispatchResult {
     used_adapter: bool,
 }
 
+#[derive(Clone, Copy)]
+struct SubjectInput<'a> {
+    reference: &'a ContentReference,
+    bytes: &'a [u8],
+}
+
 fn dispatch_registered(
     registry: &VerifierRegistry,
     symbol: &str,
     goal: &GoalDefinition,
     input: &Value,
     output: &Value,
-    subject: &ContentReference,
-    subject_bytes: &[u8],
+    subject: SubjectInput<'_>,
     obligations: &[String],
 ) -> Result<Option<DispatchResult>> {
     let Some(verifier) = registry.verifiers.get(symbol) else {
@@ -936,7 +942,8 @@ fn dispatch_registered(
         goal,
         input,
         output,
-        subject,
+        subject: subject.reference,
+        subject_bytes: subject.bytes,
         obligations,
     };
     Ok(Some(match verifier {
@@ -974,8 +981,8 @@ fn dispatch_registered(
                         verifier: symbol,
                         obligations,
                         payload: &candidate,
-                        subject,
-                        subject_bytes,
+                        subject: subject.reference,
+                        subject_bytes: subject.bytes,
                         effect_ceiling,
                     },
                     cancellation,
@@ -1169,8 +1176,10 @@ fn verify(
             goal,
             request.input,
             request.output,
-            &request.subject,
-            request.subject_bytes,
+            SubjectInput {
+                reference: &request.subject,
+                bytes: request.subject_bytes,
+            },
             &targeted,
         )?
         else {
@@ -1280,8 +1289,10 @@ fn verify(
                 goal,
                 request.input,
                 request.output,
-                &request.subject,
-                request.subject_bytes,
+                SubjectInput {
+                    reference: &request.subject,
+                    bytes: request.subject_bytes,
+                },
                 &targeted,
             )?
             else {
