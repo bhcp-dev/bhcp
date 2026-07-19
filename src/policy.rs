@@ -2249,6 +2249,21 @@ pub fn apply_waiver(
             ));
         }
         match (&target.weakening, provenance.category) {
+            (WaiverWeakening::WeakenTypeMode { from, to }, PolicyCategory::TypeMode) => {
+                let rule = &mut output.effective.type_mode;
+                authorize_effective_rule(rule, authority_root)?;
+                if normalized_scope(&target.scope).is_some() {
+                    return Err(waiver_change(
+                        "type-mode waiver target must not declare a scope",
+                    ));
+                }
+                if from != &rule.value || to >= from {
+                    return Err(waiver_change(
+                        "waiver type-mode change is not an exact weakening",
+                    ));
+                }
+                rule.value = *to;
+            }
             (WaiverWeakening::BroadenCapability { from, to }, PolicyCategory::Capability) => {
                 let rule = output
                     .effective
