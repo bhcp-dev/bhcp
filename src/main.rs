@@ -5,6 +5,7 @@ use std::path::Path;
 use std::process::ExitCode;
 
 use bhcp::cbor::{decode_deterministic, encode_deterministic};
+use bhcp::formatting::format_source_bytes_with_profile_registry_and_algorithm;
 use bhcp::hash::{HashAlgorithm, format_hash};
 use bhcp::inspection::render_artifact;
 use bhcp::manifest::ProjectManifest;
@@ -13,6 +14,7 @@ use bhcp::pipeline::{
     parse_source_bytes_with_algorithm,
 };
 use bhcp::policy::{PolicyDocument, SourcePolicyDocument, compose_policies};
+use bhcp::profile::{PresentationDocument, ProfileRegistry};
 use bhcp::schema::validate_root;
 
 fn main() -> ExitCode {
@@ -33,6 +35,12 @@ fn run() -> Result<(), (u8, String)> {
     {
         return run_policy(&arguments[1..]);
     }
+    if arguments
+        .first()
+        .is_some_and(|argument| argument == "format")
+    {
+        return format_source_file(&arguments[1..]);
+    }
     if arguments.len() != 2
         || !matches!(
             arguments[0].as_str(),
@@ -41,7 +49,7 @@ fn run() -> Result<(), (u8, String)> {
     {
         return Err((
             2,
-            "usage: bhcp <parse|lower|inspect|hash> <source-or-cbor-file>".to_owned(),
+            "usage: bhcp <parse|lower|inspect|hash> <source-or-cbor-file> | bhcp format <source-file> [syntax-profile-or-policy-cbor]...".to_owned(),
         ));
     }
     let command = &arguments[0];
@@ -90,6 +98,67 @@ fn run() -> Result<(), (u8, String)> {
         );
         Ok(())
     }
+}
+
+fn format_source_file(arguments: &[String]) -> Result<(), (u8, String)> {
+    let Some((source_file, registry_files)) = arguments.split_first() else {
+        return Err((
+            2,
+            "usage: bhcp format <source-file> [syntax-profile-or-policy-cbor]...".to_owned(),
+        ));
+    };
+    let mut registry = ProfileRegistry::new();
+    for file in registry_files {
+        let bytes = fs::read(file).map_err(|error| (1, format!("{file}: {error}")))?;
+        let value = decode_deterministic(&bytes).map_err(|error| (1, error.to_string()))?;
+        match value.kind() {
+            Some("syntax" | "profile") => {
+                match PresentationDocument::from_value(&value)
+                    .map_err(|error| (1, error.to_string()))?
+                {
+                    PresentationDocument::Syntax(document) => registry
+                        .register_syntax(document)
+                        .map_err(|error| (1, error.to_string()))?,
+                    PresentationDocument::Profile(document) => registry
+                        .register_profile(document)
+                        .map_err(|error| (1, error.to_string()))?,
+                }
+            }
+            Some("policy") => {
+                match PolicyDocument::from_value(&value).map_err(|error| (1, error.to_string()))? {
+                    PolicyDocument::Source(document) => registry
+                        .register_policy(document)
+                        .map_err(|error| (1, error.to_string()))?,
+                    PolicyDocument::Effective(_) => {
+                        return Err((
+                            1,
+                            "BHCP9004: formatter registry accepts source policy artifacts only"
+                                .to_owned(),
+                        ));
+                    }
+                }
+            }
+            kind => {
+                return Err((
+                    1,
+                    format!(
+                        "BHCP9004: formatter registry input {file:?} has unsupported root kind {kind:?}"
+                    ),
+                ));
+            }
+        }
+    }
+    let source = fs::read(source_file).map_err(|error| (1, format!("{source_file}: {error}")))?;
+    let manifest = ProjectManifest::discover(Path::new(source_file))
+        .map_err(|error| (1, error.to_string()))?;
+    let formatted = format_source_bytes_with_profile_registry_and_algorithm(
+        &source,
+        source_file,
+        &registry,
+        manifest.identity_algorithm,
+    )
+    .map_err(|error| (1, error.to_string()))?;
+    write_stdout(formatted.as_bytes())
 }
 
 fn run_policy(arguments: &[String]) -> Result<(), (u8, String)> {

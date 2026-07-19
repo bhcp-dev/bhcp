@@ -138,6 +138,35 @@ pub fn parse_source_bytes_with_profiles_and_algorithm(
     Ok(parse_internal(source, source_name, algorithm, Some(profiles))?.0)
 }
 
+pub fn parse_source_bytes_with_profile_registry(
+    source: &[u8],
+    source_name: &str,
+    registry: &ProfileRegistry,
+) -> Result<CanonicalAstDocument> {
+    parse_source_bytes_with_profile_registry_and_algorithm(
+        source,
+        source_name,
+        registry,
+        HashAlgorithm::default(),
+    )
+}
+
+pub fn parse_source_bytes_with_profile_registry_and_algorithm(
+    source: &[u8],
+    source_name: &str,
+    registry: &ProfileRegistry,
+    algorithm: HashAlgorithm,
+) -> Result<CanonicalAstDocument> {
+    let selected = scan_profile_preamble(source, source_name)?;
+    if selected.profile == CANONICAL_PROFILE {
+        return Ok(parse_internal(source, source_name, algorithm, None)?.0);
+    }
+    let resolved = registry.resolve(&selected.profile, algorithm)?;
+    let mut syntaxes = ProfileSyntaxRegistry::new();
+    syntaxes.register(&selected.profile, resolved.syntax)?;
+    Ok(parse_internal(source, source_name, algorithm, Some(&syntaxes))?.0)
+}
+
 pub fn parse_policy_source(source: &str, source_name: &str) -> Result<ParsedPolicySource> {
     parse_policy_source_with_algorithm(source, source_name, HashAlgorithm::default())
 }
