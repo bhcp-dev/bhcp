@@ -22,6 +22,11 @@ fn workflow() -> String {
     fs::read_to_string(path).expect("the required Rust CI workflow must exist")
 }
 
+fn mise_config() -> String {
+    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(".mise.toml");
+    fs::read_to_string(path).expect("the pinned mise contract must exist")
+}
+
 #[test]
 fn workflow_exposes_independent_required_gates() {
     let workflow = workflow();
@@ -77,4 +82,11 @@ fn workflow_uses_only_commit_pinned_actions_and_caches_cargo_dependencies() {
     ] {
         assert!(workflow.contains(expected), "cache omitted {expected}");
     }
+}
+
+#[test]
+fn pinned_rust_toolchain_includes_quality_gate_components() {
+    let config = mise_config();
+    assert!(config.contains("version = \"1.97.1\""));
+    assert!(config.contains("components = [\"clippy\", \"rustfmt\"]"));
 }
