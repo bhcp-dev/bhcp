@@ -150,6 +150,35 @@ fn effective_policy() -> Value {
     Value::owned_map(entries)
 }
 
+fn artifact_reference() -> Value {
+    Value::map([
+        ("media_type", text("application/vnd.bhcp.waiver+cbor")),
+        ("size", Value::Integer(0)),
+        (
+            "digests",
+            array([Value::map([
+                ("algorithm", text("bhcp.hash/sha3-512@0")),
+                ("digest", Value::Bytes(vec![0; 64])),
+            ])]),
+        ),
+    ])
+}
+
+fn effective_policy_with_waivers(waivers: Value) -> Value {
+    let Value::Map(mut entries) = effective_policy() else {
+        unreachable!()
+    };
+    entries.retain(|(key, _)| key != "artifact_id");
+    entries.push(("waivers".to_owned(), waivers));
+    let without_artifact = Value::owned_map(entries);
+    let artifact_id = artifact_hash_with(&without_artifact, HashAlgorithm::default()).unwrap();
+    let Value::Map(mut entries) = without_artifact else {
+        unreachable!()
+    };
+    entries.push(("artifact_id".to_owned(), artifact_id.to_value()));
+    Value::owned_map(entries)
+}
+
 #[test]
 fn every_layer_and_typed_rule_round_trips_deterministically() {
     for (layer, expected_layer) in [
@@ -228,6 +257,34 @@ fn effective_policy_validates_semantic_and_artifact_identity() {
         error.message,
         "effective policy artifact_id does not match document"
     );
+}
+
+#[test]
+fn effective_policy_round_trips_typed_applied_waiver_audit_entries() {
+    let applied = Value::map([
+        ("waiver", artifact_reference()),
+        (
+            "targets",
+            array([
+                array([text("example/policy.org@0"), text("a-rule")]),
+                array([text("example/policy.org@0"), text("b-rule")]),
+            ]),
+        ),
+        (
+            "decision_time",
+            Value::Tag(0, Box::new(text("2026-07-19T13:00:00Z"))),
+        ),
+    ]);
+    let value = effective_policy_with_waivers(array([applied]));
+    let document = PolicyDocument::from_value(&value).unwrap();
+    let PolicyDocument::Effective(effective) = &document else {
+        panic!("effective policy parsed as source")
+    };
+    let waiver = &effective.waivers.as_ref().unwrap()[0];
+    assert_eq!(waiver.targets.len(), 2);
+    assert_eq!(waiver.decision_time, "2026-07-19T13:00:00Z");
+    assert_eq!(document.to_value(true), value);
+    assert_eq!(PolicyDocument::from_cbor(&document.to_cbor(true).unwrap()).unwrap(), document);
 }
 
 #[test]
