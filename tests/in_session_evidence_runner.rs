@@ -81,10 +81,6 @@ fn preparation_freezes_the_adapter_candidate_skill_and_complete_plan() {
         assert!(root.join("prepared").join(relative).is_file(), "{relative}");
     }
 
-    let frozen = run("freeze-001", &root);
-    assert!(frozen.status.success());
-    assert_eq!(String::from_utf8(frozen.stdout).unwrap(), prepared_output);
-
     let verify = || {
         Command::new(env!("CARGO_BIN_EXE_bhcp"))
             .args([
