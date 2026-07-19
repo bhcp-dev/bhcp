@@ -1,0 +1,69 @@
+diff --git a/src/lib.rs b/src/lib.rs
+--- a/src/lib.rs
++++ b/src/lib.rs
+@@ -67,17 +67,17 @@ impl Policy {
+ 
+     #[must_use]
+     pub fn decide(&self, tenant: &str, subject: &str, action: &str, resource: &str) -> Decision {
+-        let _requested_tenant = tenant;
+         let selected = self
+             .rules
+             .iter()
+             .filter(|rule| {
+                 rule.enabled
++                    && rule.tenant == tenant
+                     && pattern_matches(&rule.subject, subject)
+                     && pattern_matches(&rule.action, action)
+                     && pattern_matches(&rule.resource, resource)
+             })
+-            .max_by_key(|rule| (specificity_score(rule), rule.priority));
++            .max_by(compare_rules);
+ 
+         match selected {
+             Some(rule) => Decision {
+@@ -96,13 +96,36 @@ fn pattern_matches(pattern: &str, value: &str) -> bool {
+     pattern == "*" || pattern == value
+ }
+ 
+-fn specificity_score(rule: &Rule) -> usize {
+-    [
+-        rule.subject.as_str(),
+-        rule.action.as_str(),
+-        rule.resource.as_str(),
+-    ]
+-    .into_iter()
+-    .filter(|pattern| *pattern != "*")
+-    .count()
++fn pattern_specificity(pattern: &str) -> u8 {
++    u8::from(pattern != "*")
++}
++
++fn compare_rules(left: &&Rule, right: &&Rule) -> std::cmp::Ordering {
++    use std::cmp::Ordering;
++
++    let left_key = (
++        pattern_specificity(&left.resource),
++        pattern_specificity(&left.subject),
++        pattern_specificity(&left.action),
++        left.priority,
++        effect_rank(left.effect),
++        std::cmp::Reverse(left.id.as_str()),
++    );
++    let right_key = (
++        pattern_specificity(&right.resource),
++        pattern_specificity(&right.subject),
++        pattern_specificity(&right.action),
++        right.priority,
++        effect_rank(right.effect),
++        std::cmp::Reverse(right.id.as_str()),
++    );
++
++    left_key.cmp(&right_key).then(Ordering::Equal)
++}
++
++fn effect_rank(effect: Effect) -> u8 {
++    match effect {
++        Effect::Allow => 0,
++        Effect::Deny => 1,
++    }
+ }

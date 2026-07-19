@@ -1,0 +1,60 @@
+diff --git a/src/lib.rs b/src/lib.rs
+--- a/src/lib.rs
++++ b/src/lib.rs
+@@ -1,5 +1,7 @@
+ #![forbid(unsafe_code)]
+ 
++use std::cmp::Reverse;
++
+ #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+ pub enum Effect {
+     Allow,
+@@ -67,17 +69,26 @@ impl Policy {
+ 
+     #[must_use]
+     pub fn decide(&self, tenant: &str, subject: &str, action: &str, resource: &str) -> Decision {
+-        let _requested_tenant = tenant;
+         let selected = self
+             .rules
+             .iter()
+             .filter(|rule| {
+                 rule.enabled
++                    && rule.tenant == tenant
+                     && pattern_matches(&rule.subject, subject)
+                     && pattern_matches(&rule.action, action)
+                     && pattern_matches(&rule.resource, resource)
+             })
+-            .max_by_key(|rule| (specificity_score(rule), rule.priority));
++            .max_by_key(|rule| {
++                (
++                    resource_specificity(&rule.resource, resource),
++                    resource_specificity(&rule.subject, subject),
++                    resource_specificity(&rule.action, action),
++                    rule.priority,
++                    effect_rank(rule.effect),
++                    Reverse(rule.id.as_str()),
++                )
++            });
+ 
+         match selected {
+             Some(rule) => Decision {
+@@ -96,13 +107,10 @@ fn pattern_matches(pattern: &str, value: &str) -> bool {
+     pattern == "*" || pattern == value
+ }
+ 
+-fn specificity_score(rule: &Rule) -> usize {
+-    [
+-        rule.subject.as_str(),
+-        rule.action.as_str(),
+-        rule.resource.as_str(),
+-    ]
+-    .into_iter()
+-    .filter(|pattern| *pattern != "*")
+-    .count()
++fn resource_specificity(pattern: &str, value: &str) -> bool {
++    pattern_matches(pattern, value) && pattern != "*"
++}
++
++fn effect_rank(effect: Effect) -> bool {
++    matches!(effect, Effect::Deny)
+ }

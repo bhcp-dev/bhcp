@@ -28,6 +28,37 @@ fn cargo_test(manifest: &Path, target_name: &str) -> Output {
         .unwrap()
 }
 
+fn cargo_static_checks(manifest: &Path, target_name: &str) {
+    let target = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("target/contextual-policy-fixtures")
+        .join(target_name);
+    for arguments in [
+        vec![
+            "fmt",
+            "--check",
+            "--manifest-path",
+            manifest.to_str().unwrap(),
+        ],
+        vec![
+            "clippy",
+            "--offline",
+            "--manifest-path",
+            manifest.to_str().unwrap(),
+            "--all-targets",
+            "--",
+            "-D",
+            "warnings",
+        ],
+    ] {
+        let output = Command::new(env!("CARGO"))
+            .args(arguments)
+            .env("CARGO_TARGET_DIR", &target)
+            .output()
+            .unwrap();
+        assert!(output.status.success(), "{}", output_text(&output));
+    }
+}
+
 fn output_text(output: &Output) -> String {
     format!(
         "{}{}",
@@ -58,6 +89,7 @@ fn replay_candidate(result_directory: &str, patch_name: &str, expected_blob: &st
             "bhcp-contextual-policy-replays-{}",
             std::process::id()
         ))
+        .join(result_directory)
         .join(patch_name.trim_end_matches(".patch"));
     if replay.exists() {
         fs::remove_dir_all(&replay).unwrap();
@@ -95,6 +127,7 @@ fn replay_candidate(result_directory: &str, patch_name: &str, expected_blob: &st
         result_directory,
         patch_name.trim_end_matches(".patch")
     );
+    cargo_static_checks(&replay.join("subject/Cargo.toml"), &target_name);
     let public = cargo_test(&replay.join("subject/Cargo.toml"), &target_name);
     assert!(public.status.success(), "{}", output_text(&public));
 
@@ -356,5 +389,23 @@ fn multiseed_001_is_registered_against_the_exact_evaluated_skill() {
         ("seed-05.patch", "33784bf818a9cbef18906f9d70fc7926c8d9f148"),
     ] {
         replay_candidate("multiseed-001", patch, blob, true);
+    }
+
+    let second_registration =
+        fs::read_to_string(root.join("results/multiseed-002-registration.md")).unwrap();
+    assert!(second_registration.contains("does not relabel or replace a run-001 observation"));
+    assert!(second_registration.contains("sole protocol change is the trusted-driver fix"));
+}
+
+#[test]
+fn multiseed_002_patches_replay_through_static_public_and_oracle_checks() {
+    for (patch, blob) in [
+        ("seed-01.patch", "9ee5b644f8e1c4f5bbf6c351990f44142063ce67"),
+        ("seed-02.patch", "5813959adef78ffebc0ab9ce01affae5733a5530"),
+        ("seed-03.patch", "88432ab4c18f78e496e8983ff6c68a5776bbc08a"),
+        ("seed-04.patch", "afb9e5dda444d4968e53c91380aa6a9fd8ffc1f0"),
+        ("seed-05.patch", "b39de88677f4853b8d984fe1173e3759f487139b"),
+    ] {
+        replay_candidate("multiseed-002", patch, blob, true);
     }
 }

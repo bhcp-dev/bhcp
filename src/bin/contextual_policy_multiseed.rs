@@ -20,7 +20,7 @@ fn main() {
 fn run() -> Result<(), String> {
     let arguments: Vec<_> = std::env::args_os().skip(1).collect();
     if arguments.len() < 10 || arguments.len() > 11 {
-        return Err("expected MODE DRIVER CODEX CODEX_HOME HOME CARGO_HOME RUSTUP_HOME TOOL_BIN CARGO SCRATCH [OUTPUT]".to_owned());
+        return Err("expected MODE DRIVER CODEX CODEX_HOME HOME CARGO_HOME RUSTUP_HOME TOOL_BIN RUSTUP SCRATCH [OUTPUT]".to_owned());
     }
     let mode = arguments[0]
         .to_str()
@@ -39,7 +39,7 @@ fn run() -> Result<(), String> {
     let cargo_home = existing_directory(&arguments[5], "Cargo home")?;
     let rustup_home = existing_directory(&arguments[6], "Rustup home")?;
     let tool_bin = existing_directory(&arguments[7], "tool bin")?;
-    let cargo = existing_file(&arguments[8], "Cargo")?;
+    let rustup = existing_file(&arguments[8], "Rustup")?;
     let scratch = absolute_path(&arguments[9], "scratch")?;
     let fixture =
         PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("experiments/contextual-policy-agent");
@@ -54,7 +54,7 @@ fn run() -> Result<(), String> {
         &cargo_home,
         &rustup_home,
         &tool_bin,
-        &cargo,
+        &rustup,
     );
     let frozen = plan.freeze().map_err(|error| error.message)?;
     println!("plan_digest={}", frozen.plan_digest);
@@ -105,7 +105,7 @@ fn plan(
     cargo_home: &Path,
     rustup_home: &Path,
     tool_bin: &Path,
-    cargo: &Path,
+    rustup: &Path,
 ) -> ExperimentPlan {
     let mut plan = ExperimentPlan::new(
         experiment_id,
@@ -144,14 +144,14 @@ fn plan(
         .collect();
     plan.oracle_source = Some(fixture.join("oracle"));
     plan.judges = vec![
-        judge(
+        cargo_judge(
             "format",
-            cargo,
+            rustup,
             ["fmt", "--check", "--manifest-path", "subject/Cargo.toml"],
         ),
-        judge(
+        cargo_judge(
             "clippy",
-            cargo,
+            rustup,
             [
                 "clippy",
                 "--offline",
@@ -163,14 +163,14 @@ fn plan(
                 "warnings",
             ],
         ),
-        judge(
+        cargo_judge(
             "public",
-            cargo,
+            rustup,
             ["test", "--offline", "--manifest-path", "subject/Cargo.toml"],
         ),
-        judge(
+        cargo_judge(
             "oracle",
-            cargo,
+            rustup,
             ["test", "--offline", "--manifest-path", "oracle/Cargo.toml"],
         )
         .with_oracle(),
@@ -178,8 +178,12 @@ fn plan(
     plan
 }
 
-fn judge<const N: usize>(name: &str, cargo: &Path, arguments: [&str; N]) -> JudgeCommand {
-    JudgeCommand::new(name, cargo, arguments)
+fn cargo_judge<const N: usize>(name: &str, rustup: &Path, arguments: [&str; N]) -> JudgeCommand {
+    let arguments = ["run", "1.97.1", "cargo"]
+        .into_iter()
+        .chain(arguments)
+        .collect::<Vec<_>>();
+    JudgeCommand::new(name, rustup, arguments)
 }
 
 fn write_patch(original: &Path, candidate: &Path, destination: &Path) -> Result<(), String> {
