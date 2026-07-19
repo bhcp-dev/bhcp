@@ -15,10 +15,12 @@ ID-02, and deterministic emission for CBOR-01 using
 `fixtures/canonical-simple.bhcp`. The adjacent presentation fixture proves that
 comments, formatting, and diagnostic labels do not affect semantic identity. The
 checked-in `.ast.cbor` and `.ir.cbor` files are compiler output and are validated by
-the same Rust harness as the 17 root diagnostic fixtures. The self-hosted `all`
-fixture additionally exercises executable portions of KRN-01 through KRN-09,
-KRN-12, and ALG-ALL, including source-defined precedence and generic reducer
-re-evaluation. Obligation-graph proof coverage and all unlisted scenarios remain
+the same Rust harness as the 17 root diagnostic fixtures. The self-hosted `all` and
+`any` fixtures additionally exercise executable portions of KRN-01 through KRN-09,
+KRN-12, KRN-13, ALG-ALL, and ALG-ANY, including source-defined precedence, stable
+winner selection, empty identities, and generic reducer re-evaluation. The `any`
+slice currently covers homogeneous child outputs represented as a closed tagged
+winner record. Obligation-graph proof coverage and all unlisted scenarios remain
 normative acceptance requirements, not claimed implementation support.
 
 The registered verifier slice additionally executes EVD-01 through EVD-04 for flat

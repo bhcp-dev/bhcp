@@ -1,0 +1,17 @@
+§goal example/Cache@0 {
+    §output value: Text;
+}
+
+§goal example/Source@0 {
+    §output value: Text;
+}
+
+§goal example/Acquire@0 {
+    §output output: { value: Text };
+    §output tag: Text;
+
+    §compose using bhcp/prelude.any-reducer@0 {
+        cache = example/Cache@0();
+        source = example/Source@0();
+    };
+}

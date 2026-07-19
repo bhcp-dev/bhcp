@@ -159,6 +159,10 @@ pub enum SurfaceComposition {
         branches: Vec<SurfaceBranch>,
         at: Point,
     },
+    DerivedAny {
+        branches: Vec<SurfaceBranch>,
+        at: Point,
+    },
     Compose {
         reducer: String,
         branches: Vec<SurfaceBranch>,
@@ -169,13 +173,17 @@ pub enum SurfaceComposition {
 impl SurfaceComposition {
     pub fn branches(&self) -> &[SurfaceBranch] {
         match self {
-            Self::DerivedAll { branches, .. } | Self::Compose { branches, .. } => branches,
+            Self::DerivedAll { branches, .. }
+            | Self::DerivedAny { branches, .. }
+            | Self::Compose { branches, .. } => branches,
         }
     }
 
     pub fn at(&self) -> &Point {
         match self {
-            Self::DerivedAll { at, .. } | Self::Compose { at, .. } => at,
+            Self::DerivedAll { at, .. }
+            | Self::DerivedAny { at, .. }
+            | Self::Compose { at, .. } => at,
         }
     }
 }
@@ -1002,7 +1010,7 @@ impl Parser<'_> {
                     &keyword.start,
                 ));
             }
-            if self.matches("§all") || self.matches("§compose") {
+            if self.matches("§all") || self.matches("§any") || self.matches("§compose") {
                 if body.is_some() {
                     return self.fail(
                         "BHCP1004",
@@ -1038,6 +1046,7 @@ impl Parser<'_> {
 
     fn composition(&mut self) -> Result<(SurfaceComposition, AstNode)> {
         let keyword = self.consume();
+        let derived = keyword.text.clone();
         let reducer = if keyword.text == "§compose" {
             self.expect("using")?;
             Some(self.qualified_name()?.0)
@@ -1094,7 +1103,13 @@ impl Parser<'_> {
         self.consume();
         let end = self.expect(";")?.end;
         let ast = self.ast(
-            if reducer.is_some() { "compose" } else { "all" },
+            if reducer.is_some() {
+                "compose"
+            } else if derived == "§any" {
+                "any"
+            } else {
+                "all"
+            },
             Some(&keyword.text),
             keyword.start.clone(),
             end,
@@ -1107,6 +1122,11 @@ impl Parser<'_> {
         let composition = if let Some(reducer) = reducer {
             SurfaceComposition::Compose {
                 reducer,
+                branches,
+                at: keyword.start,
+            }
+        } else if derived == "§any" {
+            SurfaceComposition::DerivedAny {
                 branches,
                 at: keyword.start,
             }

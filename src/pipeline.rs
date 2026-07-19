@@ -15,7 +15,8 @@ use crate::parser::{
 };
 use crate::policy::SourcePolicyDocument;
 use crate::prelude::{
-    ALL_FEATURE, ALL_LOWERER, ALL_REDUCER, DerivedChild, DerivedForm, NetworkShape, Prelude,
+    ALL_FEATURE, ALL_LOWERER, ALL_REDUCER, ANY_FEATURE, ANY_LOWERER, ANY_REDUCER, DerivedChild,
+    DerivedForm, NetworkShape, Prelude,
 };
 use crate::value::Value;
 
@@ -123,6 +124,9 @@ fn parse_internal(
     if uses_self_hosted_all(&program) {
         features.push(ALL_FEATURE.to_owned());
     }
+    if uses_self_hosted_any(&program) {
+        features.push(ANY_FEATURE.to_owned());
+    }
     let mut ast = CanonicalAstDocument {
         features,
         root: program.ast.clone(),
@@ -216,6 +220,9 @@ fn elaborate(
     if uses_self_hosted_all(program) {
         features.push(ALL_FEATURE.to_owned());
     }
+    if uses_self_hosted_any(program) {
+        features.push(ANY_FEATURE.to_owned());
+    }
     Ok(SemanticIrDocument {
         features,
         functions,
@@ -230,7 +237,15 @@ fn uses_self_hosted_all(program: &ParsedProgram) -> bool {
     program.goals.iter().any(|goal| match &goal.body {
         Some(SurfaceComposition::DerivedAll { .. }) => true,
         Some(SurfaceComposition::Compose { reducer, .. }) => reducer == ALL_REDUCER,
-        None => false,
+        _ => false,
+    })
+}
+
+fn uses_self_hosted_any(program: &ParsedProgram) -> bool {
+    program.goals.iter().any(|goal| match &goal.body {
+        Some(SurfaceComposition::DerivedAny { .. }) => true,
+        Some(SurfaceComposition::Compose { reducer, .. }) => reducer == ANY_REDUCER,
+        _ => false,
     })
 }
 
@@ -527,6 +542,15 @@ fn lower_composition(
             ALL_LOWERER,
             DerivedForm {
                 input: parent.input.clone(),
+                output: parent.output.clone(),
+                children,
+            },
+        )?,
+        SurfaceComposition::DerivedAny { .. } => prelude.lower(
+            ANY_LOWERER,
+            DerivedForm {
+                input: parent.input.clone(),
+                output: parent.output.clone(),
                 children,
             },
         )?,
@@ -825,8 +849,13 @@ fn lower_reducer_expression(
                 "bhcp/kernel.satisfied-record@0"
                 | "bhcp/kernel.first-satisfied-output@0"
                 | "bhcp/kernel.last-satisfied-output@0"
-                | "bhcp/kernel.first-satisfied-winner@0"
                     if argument_types == [observations_type.clone()] =>
+                {
+                    output_type.as_ref().clone()
+                }
+                "bhcp/kernel.first-satisfied-winner@0"
+                    if argument_types == [observations_type.clone()]
+                        && winner_type_matches(observations_type, output_type) =>
                 {
                     output_type.as_ref().clone()
                 }
@@ -903,6 +932,39 @@ fn lower_reducer_expression(
         value_type,
         form,
     })
+}
+
+fn winner_type_matches(observations: &BhcpType, output: &BhcpType) -> bool {
+    let BhcpType::Record(fields) = observations else {
+        return false;
+    };
+    let mut child_outputs = fields.iter().map(|field| match &field.value_type {
+        BhcpType::Option(result) => match result.as_ref() {
+            BhcpType::ExecutionResult(output) => Some(output.as_ref()),
+            _ => None,
+        },
+        _ => None,
+    });
+    let Some(first) = child_outputs.next() else {
+        return true;
+    };
+    let Some(first) = first else {
+        return false;
+    };
+    if child_outputs.any(|candidate| candidate != Some(first)) {
+        return false;
+    }
+    output
+        == &BhcpType::Record(vec![
+            FieldType {
+                name: "output".to_owned(),
+                value_type: first.clone(),
+            },
+            FieldType {
+                name: "tag".to_owned(),
+                value_type: BhcpType::Primitive("Text"),
+            },
+        ])
 }
 
 fn lower_type(
