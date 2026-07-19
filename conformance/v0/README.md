@@ -74,6 +74,11 @@ sharing one policy-governed semantic ID. Every syntax, profile, AST, and IR arti
 round-trips through deterministic CBOR and its CDDL root. A meaningful overlay change
 changes semantic identity; presentation-only edits do not; equivalent malformed forms
 keep the same parser code/message while source and column remain presentation-sensitive.
+`tests/profile_phase_audit.rs`, `profile-phase-audit.txt`, and the human-readable
+[`profile-phase-audit.md`](profile-phase-audit.md) close SYN-08. The machine manifest
+requires exactly three acceptance claims for each Phase 4 issue #41–#49, resolves
+every named test function, audits local evidence links, and keeps incomplete-v0 and
+unrestricted-macro/grammar-plugin non-goals consistent across public documentation.
 
 The registered verifier slice additionally executes EVD-01 through EVD-06 for flat
 contract clauses, including capability-bounded project adapters and their deterministic
@@ -104,6 +109,7 @@ represented only by WAV-01/WAV-02 acceptance requirements.
 | SYN-05 | An effective profile introduces ambiguous/recursive aliases, captures canonical words, or rebinds reserved core symbols. | `BHCP9002` before program parsing; diagnostic identifies profile, syntax, mapping index, coordinate/surface, and violated rule; no AST/IR/source output. |
 | SYN-06 | A syntax/profile artifact embeds parser code, unrestricted macros, or semantic overrides. | Closed-model `BHCP9001`; no registry activation or later artifact. |
 | SYN-07 | Two checked-in profiles map and format one policy-governed goal with substantially different comments, labels, words, punctuation, widths, and indentation. | Selected profile and artifact IDs differ; resolved overlay, semantic projection, and semantic ID match; all syntax/profile/AST/IR roots round-trip deterministically. |
+| SYN-08 | The Phase 4 implementation, evidence, documentation, issue graph, and milestone maturity are audited. | Every #41–#49 acceptance claim links to an existing named test; all local report links resolve; arbitrary grammar/plugins/macros remain non-goals; the bounded presentation milestone is complete without claiming complete v0. |
 | ID-01 | Only whitespace, comments, labels, source spans, or formatting change. | Semantic ID unchanged; artifact ID changes when complete artifact metadata changes. |
 | ID-02 | An observable output field, branch tag, effect, preference, policy, or native extension changes. | Semantic ID changes. |
 | ID-03 | Alpha-equivalent local binders and the same tagged derived `all` branches in a different source order lower where effects make order unobservable. | Identical normalized kernel-network bytes and semantic ID. |

@@ -93,7 +93,8 @@ fn maturity_and_closed_profile_non_goals_remain_consistent() {
     assert!(readme.contains("not yet a complete v0"));
     assert!(vision.contains("current Rust slice"));
     assert!(agents.contains("not yet a complete parser, checker, planner"));
-    assert!(profile.contains("Roadmap completion means all milestone acceptance outcomes"));
+    assert!(profile.contains("Roadmap completion means"));
+    assert!(profile.contains("all milestone acceptance outcomes are demonstrable"));
     assert!(conformance.contains("does not yet claim general obligation-graph construction"));
 
     for document in [&readme, &vision, &semantics, &conformance, &report] {

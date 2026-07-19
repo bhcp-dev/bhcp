@@ -131,8 +131,11 @@ semantic overrides fail atomically with auditable mapping diagnostics. The check
 symbolic and narrative layouts now compile one governed goal through distinct profile
 and artifact identities to the same semantic identity, with formatting, comments,
 labels, overlays, CBOR, and diagnostics pinned at their intended boundaries. The
-presentation-layer completion audit is the remaining Phase 4 stage; an unregistered
-custom profile still fails closed.
+[Phase 4 audit](conformance/v0/profile-phase-audit.md) links every presentation-layer
+acceptance claim to executable evidence and reconciles the maturity boundary across
+the repository. The bounded presentation milestone is complete; an unregistered
+custom profile still fails closed, and the current Rust slice remains short of a
+complete v0 system.
 
 ## Effects, policy, and evidence
 
