@@ -445,6 +445,12 @@ fn multiseed_002_patches_replay_through_static_public_and_oracle_checks() {
     assert!(registration.contains("workspace-write/no-network/read-confined"));
     assert!(registration.contains("Run 002"));
     assert!(registration.contains("without replacement"));
+    let third_report = fs::read_to_string(root.join("results/multiseed-003/README.md")).unwrap();
+    assert!(third_report.contains("five unreplaced infrastructure exclusions"));
+    let fourth_registration =
+        fs::read_to_string(root.join("results/multiseed-004-registration.md")).unwrap();
+    assert!(fourth_registration.contains("contextual-policy-multiseed-004"));
+    assert!(fourth_registration.contains("real Codex smoke request"));
 
     for (patch, blob) in [
         ("seed-01.patch", "9ee5b644f8e1c4f5bbf6c351990f44142063ce67"),
