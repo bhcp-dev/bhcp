@@ -75,8 +75,30 @@ fn historical_run_ids_retain_their_direct_cargo_judges() {
     assert!(output.status.success(), "{}", text(&output));
     let output = text(&output);
     assert!(output.contains("experiment_id=contextual-policy-multiseed-002"));
-    assert!(output.contains(&format!("judge=format:{}:fmt", cargo.display())));
-    assert!(!output.contains(":run:1.97.1:cargo:fmt"));
+    assert_eq!(
+        output
+            .lines()
+            .filter(|line| line.starts_with("judge="))
+            .collect::<Vec<_>>(),
+        [
+            format!(
+                "judge=format:{}:fmt:--check:--manifest-path:subject/Cargo.toml",
+                cargo.display()
+            ),
+            format!(
+                "judge=clippy:{}:clippy:--offline:--manifest-path:subject/Cargo.toml:--all-targets:--:-D:warnings",
+                cargo.display()
+            ),
+            format!(
+                "judge=public:{}:test:--offline:--manifest-path:subject/Cargo.toml",
+                cargo.display()
+            ),
+            format!(
+                "judge=oracle:{}:test:--offline:--manifest-path:oracle/Cargo.toml",
+                cargo.display()
+            ),
+        ]
+    );
     fs::remove_dir_all(root).unwrap();
 }
 
