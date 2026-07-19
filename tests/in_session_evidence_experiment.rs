@@ -106,3 +106,21 @@ fn bounded_adapters_accept_the_exact_focused_candidate() {
     }
     fs::remove_dir_all(root).unwrap();
 }
+
+#[test]
+fn forward_001_preserves_the_unreplaced_negative_result() {
+    let result = experiment().join("results/forward-001");
+    let registration =
+        fs::read_to_string(experiment().join("results/forward-001-registration.md")).unwrap();
+    let report = fs::read_to_string(result.join("README.md")).unwrap();
+    let controller = fs::read_to_string(result.join("CONTROLLER.md")).unwrap();
+    assert!(registration.contains("one fixed arm, `forward-01`, with no replacement"));
+    assert!(report.contains("**0/1 accepted**"));
+    assert!(report.contains("included forward-test failure"));
+    assert!(report.contains("no in-session evidence bundle"));
+    assert!(report.contains("`claimed_success=false` was calibrated"));
+    assert!(controller.contains("| forward-01 | rejected (verification-failed) | no |"));
+    assert!(controller.contains("- Completed commands: 0"));
+    assert_eq!(controller.matches("rejected (exit Some(").count(), 3);
+    assert_eq!(fs::metadata(result.join("forward-01.patch")).unwrap().len(), 0);
+}
