@@ -1895,9 +1895,10 @@ impl WaiverDocument {
             if expected.is_some_and(|value| value != delegation.delegator) {
                 return Err(waiver_authority("waiver authority chain is disconnected"));
             }
-            if !principals.insert(delegation.delegator.as_str())
-                || !principals.insert(delegation.delegate.as_str())
-            {
+            if expected.is_none() {
+                principals.insert(delegation.delegator.as_str());
+            }
+            if !principals.insert(delegation.delegate.as_str()) {
                 return Err(waiver_authority(
                     "waiver authority chain repeats a principal",
                 ));
