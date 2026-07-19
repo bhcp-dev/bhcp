@@ -267,6 +267,16 @@ and MUST NOT be extensible implementation callbacks. Every orchestration decisio
 and precedence rule remains in an ordinary retained or compile-time-eliminated BHCP
 definition.
 
+**Implementation status:** the Rust reducer boundary evaluates typed literals,
+Boolean negation/conjunction/disjunction and equality, total consistently typed
+conditionals, parameter references, and a closed versioned primitive set. The set
+can inspect only sealed observation status/output/evidence, select stable first/last
+observations in canonical child order, construct `Unit`, and build checked pending or
+concluded results. The complete expression tree is validated before evaluation, so
+an unsupported call in an unselected branch still fails closed and cannot dispatch
+to a host callback. A satisfied conclusion is dynamically checked against the
+network output type, and the generic checker re-evaluates the same definition.
+
 Schema anchors: `expression`, `pattern`, `function-definition`,
 `predicate-definition`, and `verifier-binding`.
 

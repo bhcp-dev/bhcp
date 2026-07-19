@@ -33,7 +33,11 @@ fn observations_type(child_output: &BhcpType) -> BhcpType {
     }])
 }
 
-fn ir(output: BhcpType, child_output: Option<BhcpType>, definition: Expression) -> SemanticIrDocument {
+fn ir(
+    output: BhcpType,
+    child_output: Option<BhcpType>,
+    definition: Expression,
+) -> SemanticIrDocument {
     let input = BhcpType::Record(vec![]);
     let observations = child_output
         .as_ref()
@@ -166,12 +170,7 @@ fn typed_literals_boolean_operations_and_total_conditionals_execute_without_call
             )),
         ),
     );
-    let unit = call(
-        "unit",
-        unit_type.clone(),
-        "bhcp/kernel.unit@0",
-        vec![],
-    );
+    let unit = call("unit", unit_type.clone(), "bhcp/kernel.unit@0", vec![]);
     let conclusion = conclude_satisfied("conclude-true", unit_type.clone(), unit);
     let alternative = conclude_satisfied(
         "conclude-false",
@@ -240,7 +239,7 @@ fn observation_primitives_cover_choice_negation_and_sequential_demand() {
     let winner_evidence = call(
         "winner-evidence",
         BhcpType::List(Box::new(text.clone())),
-        "bhcp/kernel.satisfied-evidence@0",
+        "bhcp/kernel.first-satisfied-evidence@0",
         vec![observation_reference("observations-evidence")],
     );
     let winner_result = call(
@@ -267,13 +266,46 @@ fn observation_primitives_cover_choice_negation_and_sequential_demand() {
         "bhcp/kernel.pending@0",
         vec![next],
     );
+    let all_refuted = call(
+        "all-refuted",
+        BhcpType::Primitive("Bool"),
+        "bhcp/kernel.all-refuted@0",
+        vec![observation_reference("observations-all-refuted")],
+    );
+    let counter_evidence = call(
+        "all-counter-evidence",
+        BhcpType::List(Box::new(BhcpType::Primitive("Text"))),
+        "bhcp/kernel.all-counter-evidence@0",
+        vec![observation_reference("observations-counter-evidence")],
+    );
+    let refuted = call(
+        "refuted",
+        BhcpType::ExecutionResult(Box::new(winner.clone())),
+        "bhcp/kernel.refuted@0",
+        vec![counter_evidence],
+    );
+    let refuted_conclusion = call(
+        "refuted-conclusion",
+        BhcpType::Reduction(Box::new(winner.clone())),
+        "bhcp/kernel.conclude@0",
+        vec![refuted],
+    );
+    let incomplete = expression(
+        "refuted-or-pending",
+        BhcpType::Reduction(Box::new(winner.clone())),
+        ExpressionForm::If(
+            Box::new(all_refuted),
+            Box::new(refuted_conclusion),
+            Box::new(pending),
+        ),
+    );
     let definition = expression(
         "choice",
         BhcpType::Reduction(Box::new(winner.clone())),
         ExpressionForm::If(
             Box::new(has_satisfied),
             Box::new(winner_conclusion),
-            Box::new(pending),
+            Box::new(incomplete),
         ),
     );
     let ir = ir(winner, Some(BhcpType::Primitive("Text")), definition);
@@ -294,11 +326,7 @@ fn observation_primitives_cover_choice_negation_and_sequential_demand() {
         }),
     };
     let reduction = runtime
-        .reduce(
-            "network-1",
-            Value::owned_map(vec![]),
-            &[observation],
-        )
+        .reduce("network-1", Value::owned_map(vec![]), &[observation])
         .unwrap();
     assert!(matches!(
         reduction,
@@ -309,6 +337,23 @@ fn observation_primitives_cover_choice_negation_and_sequential_demand() {
             ("output", Value::Text("chosen".to_owned())),
             ("tag", Value::Text("only".to_owned())),
         ])
+    ));
+
+    let refuted = ChildObservation {
+        child: "child-only".to_owned(),
+        result: ExecutionResult::Completed(Verdict::Refuted {
+            counter_evidence: vec!["counter-choice".to_owned()],
+        }),
+    };
+    let reduction = runtime
+        .reduce("network-1", Value::owned_map(vec![]), &[refuted])
+        .unwrap();
+    assert!(matches!(
+        reduction,
+        Reduction::Concluded {
+            result: ExecutionResult::Completed(Verdict::Refuted { counter_evidence }),
+            ..
+        } if counter_evidence.contains(&"counter-choice".to_owned())
     ));
 }
 
@@ -370,15 +415,11 @@ fn unreachable_unsupported_calls_and_runtime_output_mismatch_fail_closed() {
         }),
     };
     let error = KernelRuntime::new(&mismatch_ir)
-        .reduce(
-            "network-1",
-            Value::owned_map(vec![]),
-            &[observation],
-        )
+        .reduce("network-1", Value::owned_map(vec![]), &[observation])
         .unwrap_err();
     assert_eq!(error.code, "BHCP4101");
     assert_eq!(
         error.message,
-        "reducer conclusion output does not match the network output type"
+        "reducer primitive result does not match its declared expression type"
     );
 }

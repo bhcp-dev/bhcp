@@ -140,6 +140,14 @@ fault/unresolved precedence, and generic re-evaluation rejection of tampering:
 cargo test --test self_hosted_all
 ```
 
+The reducer evaluator now statically checks every branch before execution, supports
+typed literals, Boolean negation/conjunction/disjunction, equality, and total
+conditionals, and exposes a closed behavior-neutral API over sealed observations for
+stable winners, sequential missing-tag demand, counter-evidence aggregation, unit,
+and checked result construction. Unknown calls cannot become host callbacks, even in
+an unreachable branch. Every satisfied conclusion is checked against the network
+output type before the generic derivation checker can accept it.
+
 The retained reducer currently calls a small, fixed typed API for sealed-observation
 queries and checked result construction. General S5 pattern matching and immutable
 record/collection operations are the intended source-level replacement; adding the
@@ -271,9 +279,9 @@ scheduling order, or parallelism hint. Quantifiers expand to finite children bef
 IR; recursive bounds belong to the recursive child call; and budget/concurrency
 decisions live in execution graphs. Pending reducers name stable child tags, which the
 kernel resolves through the network; reducers never allocate child or derivation IDs.
-The next executable boundary is to generalize the total pure expression evaluator and
-the metamodel beyond this `all` slice, then add `gate`, `any`, `none`, and `chain` as
-checked-in prelude source without adding behavior kinds to Rust or semantic IR.
+The next executable boundary is to define `any`, `none`, `chain`, and `gate` as
+checked-in prelude source over the generalized total-pure evaluator, without adding
+behavior kinds to Rust or semantic IR.
 
 ## Contributing and autonomous delivery
 

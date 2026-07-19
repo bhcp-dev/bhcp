@@ -36,6 +36,11 @@ proof-rule registry is part of the kernel.
 Reducer validation requires exactly the parent input and a closed record containing
 one `Option<ExecutionResult<ChildOutput>>` field per child, and requires
 `Reduction<ParentOutput>` as the result.
+The executable evaluator validates the complete retained expression before running
+it, admits only typed literals, a finite Boolean/equality calculus, total
+conditionals, parameter references, and a closed behavior-neutral primitive set,
+and checks every satisfied output against `ParentOutput`. Unsupported calls remain
+ordinary stable diagnostics rather than an extension or host-callback mechanism.
 
 Self-hosted lowerers use compile-time-only `meta-type` values. A lowerer receives a
 typed `derived-form-shape` and returns an ID-free `network-shape`; both use
