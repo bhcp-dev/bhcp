@@ -113,6 +113,25 @@ fn replace_target(document: Value, rule: &str, weakening: Value) -> Value {
     Value::owned_map(entries)
 }
 
+fn remove_target_scope(document: Value) -> Value {
+    let Value::Map(mut entries) = document else {
+        unreachable!()
+    };
+    let Value::Array(targets) = &mut entries
+        .iter_mut()
+        .find(|(key, _)| key == "targets")
+        .unwrap()
+        .1
+    else {
+        unreachable!()
+    };
+    let Value::Map(target) = &mut targets[0] else {
+        unreachable!()
+    };
+    target.retain(|(key, _)| key != "scope");
+    Value::owned_map(entries)
+}
+
 fn policy(waivable: bool) -> bhcp::policy::EffectivePolicyDocument {
     let governance = if waivable {
         "waivable by [\"security-team\"]"
@@ -143,6 +162,15 @@ fn capability_policy() -> bhcp::policy::EffectivePolicyDocument {
   } waivable by ["security-team"];
 }"#;
     let parsed = parse_policy_source(source, "waiver-capability.bhcp").unwrap();
+    compose_policies(&parsed.documents, HashAlgorithm::default()).unwrap()
+}
+
+fn type_mode_policy() -> bhcp::policy::EffectivePolicyDocument {
+    let source = r#"§policy example/policy.org@0 {
+  layer organization;
+  rule typing: type-mode strengthen strict waivable by ["security-team"];
+}"#;
+    let parsed = parse_policy_source(source, "waiver-type-mode.bhcp").unwrap();
     compose_policies(&parsed.documents, HashAlgorithm::default()).unwrap()
 }
 
@@ -278,5 +306,32 @@ fn capability_broadening_applies_the_same_exact_scope_authority_and_audit_bounda
             .as_ref()
             .unwrap(),
         &["example/goal.deploy@0", "example/goal.preview@0"]
+    );
+}
+
+#[test]
+fn type_mode_weakening_is_exact_and_preserves_the_audit_boundary() {
+    let weakening = Value::map([
+        ("category", text("type-mode")),
+        ("operation", text("weaken")),
+        ("from", text("strict")),
+        ("to", text("infer-strict")),
+    ]);
+    let value = remove_target_scope(replace_target(
+        waiver_value("security-team", "typing"),
+        "typing",
+        weakening,
+    ));
+    let waiver = WaiverDocument::from_value(&value).unwrap();
+    let effective = apply_waiver(
+        &type_mode_policy(),
+        &waiver,
+        "2026-07-19T13:30:00Z",
+        HashAlgorithm::default(),
+    )
+    .unwrap();
+    assert_eq!(
+        effective.effective.type_mode.value,
+        bhcp::policy::TypeMode::InferStrict
     );
 }
