@@ -171,6 +171,11 @@ pub enum SurfaceComposition {
         branches: Vec<SurfaceBranch>,
         at: Point,
     },
+    DerivedGate {
+        condition: SurfaceExpression,
+        branches: Vec<SurfaceBranch>,
+        at: Point,
+    },
     Compose {
         reducer: String,
         branches: Vec<SurfaceBranch>,
@@ -185,6 +190,7 @@ impl SurfaceComposition {
             | Self::DerivedAny { branches, .. }
             | Self::DerivedNone { branches, .. }
             | Self::DerivedChain { branches, .. }
+            | Self::DerivedGate { branches, .. }
             | Self::Compose { branches, .. } => branches,
         }
     }
@@ -195,6 +201,7 @@ impl SurfaceComposition {
             | Self::DerivedAny { at, .. }
             | Self::DerivedNone { at, .. }
             | Self::DerivedChain { at, .. }
+            | Self::DerivedGate { at, .. }
             | Self::Compose { at, .. } => at,
         }
     }
@@ -1044,6 +1051,7 @@ impl Parser<'_> {
                 || self.matches("§any")
                 || self.matches("§none")
                 || self.matches("§chain")
+                || self.matches("§gate")
                 || self.matches("§compose")
             {
                 if body.is_some() {
@@ -1088,8 +1096,15 @@ impl Parser<'_> {
         } else {
             None
         };
-        let permits_arguments =
-            derived == "§chain" || reducer.as_deref() == Some("bhcp/prelude.chain-reducer@0");
+        let condition = if derived == "§gate" {
+            self.expect("when")?;
+            Some(self.expression(0)?)
+        } else {
+            None
+        };
+        let permits_arguments = derived == "§chain"
+            || derived == "§gate"
+            || reducer.as_deref() == Some("bhcp/prelude.chain-reducer@0");
         self.expect("{")?;
         let mut branches = Vec::new();
         while !self.matches("}") {
@@ -1201,6 +1216,8 @@ impl Parser<'_> {
                 "none"
             } else if derived == "§chain" {
                 "chain"
+            } else if derived == "§gate" {
+                "gate"
             } else {
                 "all"
             },
@@ -1231,6 +1248,12 @@ impl Parser<'_> {
             }
         } else if derived == "§chain" {
             SurfaceComposition::DerivedChain {
+                branches,
+                at: keyword.start,
+            }
+        } else if derived == "§gate" {
+            SurfaceComposition::DerivedGate {
+                condition: condition.expect("gate parsed a condition"),
                 branches,
                 at: keyword.start,
             }

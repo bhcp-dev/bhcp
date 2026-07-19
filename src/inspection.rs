@@ -239,6 +239,31 @@ fn render_type(value: &Value) -> String {
                 .collect::<Vec<_>>()
                 .join(", ")
         ),
+        [Value::Text(kind), Value::Array(cases)] if kind == "variant" => cases
+            .iter()
+            .filter_map(|case| match case {
+                Value::Array(parts) if parts.len() == 2 => {
+                    let tag = text_value(&parts[0])?;
+                    let Value::Array(payload) = &parts[1] else {
+                        return None;
+                    };
+                    Some(if payload.is_empty() {
+                        tag.to_owned()
+                    } else {
+                        format!(
+                            "{tag}<{}>",
+                            payload
+                                .iter()
+                                .map(render_type)
+                                .collect::<Vec<_>>()
+                                .join(", ")
+                        )
+                    })
+                }
+                _ => None,
+            })
+            .collect::<Vec<_>>()
+            .join(" | "),
         [Value::Text(kind), element] if kind == "list" || kind == "option" => {
             format!("{kind}<{}>", render_type(element))
         }

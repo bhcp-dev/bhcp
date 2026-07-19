@@ -5,7 +5,7 @@ use std::collections::HashMap;
 use crate::diagnostic::{Diagnostic, Result};
 use crate::hash::HashAlgorithm;
 use crate::kernel::KernelArgument;
-use crate::model::{BhcpType, ContentReference, FieldType};
+use crate::model::{BhcpType, ContentReference, Expression, FieldType, VariantCaseType};
 use crate::parser::{
     ParsedProgram, SurfaceExpression, SurfaceFunction, SurfaceLiteral, SurfaceType, parse_canonical,
 };
@@ -22,6 +22,9 @@ pub const NONE_FEATURE: &str = "bhcp/feature.self-hosted-none@0";
 pub const CHAIN_LOWERER: &str = "bhcp/prelude.lower-chain@0";
 pub const CHAIN_REDUCER: &str = "bhcp/prelude.chain-reducer@0";
 pub const CHAIN_FEATURE: &str = "bhcp/feature.self-hosted-chain@0";
+pub const GATE_LOWERER: &str = "bhcp/prelude.lower-gate@0";
+pub const GATE_REDUCER: &str = "bhcp/prelude.gate-reducer@0";
+pub const GATE_FEATURE: &str = "bhcp/feature.self-hosted-gate@0";
 
 const SOURCE_NAME: &str = "prelude/v0/standard.bhcp";
 const SOURCE: &str = concat!(
@@ -31,7 +34,9 @@ const SOURCE: &str = concat!(
     "\n",
     include_str!("../prelude/v0/none.bhcp"),
     "\n",
-    include_str!("../prelude/v0/chain.bhcp")
+    include_str!("../prelude/v0/chain.bhcp"),
+    "\n",
+    include_str!("../prelude/v0/gate.bhcp")
 );
 const INVALID_PRELUDE: &str = "BHCP3001";
 
@@ -48,6 +53,7 @@ pub struct DerivedForm {
     pub input: BhcpType,
     pub output: BhcpType,
     pub children: Vec<DerivedChild>,
+    pub condition: Option<Expression>,
 }
 
 #[derive(Clone, Debug)]
@@ -93,6 +99,8 @@ impl Prelude {
         prelude.validate_none_reducer()?;
         prelude.validate_chain_lowerer()?;
         prelude.validate_chain_reducer()?;
+        prelude.validate_gate_lowerer()?;
+        prelude.validate_gate_reducer()?;
         Ok(prelude)
     }
 
@@ -152,6 +160,14 @@ impl Prelude {
 
     fn validate_chain_reducer(&self) -> Result<()> {
         self.validate_reducer(CHAIN_REDUCER, "chain-reducer")
+    }
+
+    fn validate_gate_lowerer(&self) -> Result<()> {
+        self.validate_lowerer(GATE_LOWERER, "lower-gate")
+    }
+
+    fn validate_gate_reducer(&self) -> Result<()> {
+        self.validate_reducer(GATE_REDUCER, "gate-reducer")
     }
 
     fn validate_lowerer(&self, symbol: &str, name: &str) -> Result<()> {
@@ -281,6 +297,28 @@ fn evaluate_meta(
                         FieldType {
                             name: "tag".to_owned(),
                             value_type: BhcpType::Primitive("Text"),
+                        },
+                    ])))
+                }
+                ("bhcp/meta.gate-output@0", [MetaValue::Form(form)]) => {
+                    let [child] = form.children.as_slice() else {
+                        return Err(invalid("gate requires exactly one child"));
+                    };
+                    if form
+                        .condition
+                        .as_ref()
+                        .is_none_or(|condition| condition.value_type != BhcpType::Primitive("Bool"))
+                    {
+                        return Err(invalid("gate requires one total pure Bool condition"));
+                    }
+                    Ok(MetaValue::Type(BhcpType::Variant(vec![
+                        VariantCaseType {
+                            tag: "Excluded".to_owned(),
+                            payload: vec![],
+                        },
+                        VariantCaseType {
+                            tag: "Included".to_owned(),
+                            payload: vec![child.output.clone()],
                         },
                     ])))
                 }

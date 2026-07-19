@@ -6,11 +6,11 @@ discover acceptable executions.
 
 This repository defines the normative v0 foundation and focused executable slices.
 The Rust implementation accepts canonical clause goals plus self-hosted `all`,
-homogeneous-output `any`, `none`, and typed `chain`, emits validated canonical AST
-and semantic IR, dispatches registered verifier bindings, and emits deterministic
-evidence bundles. Canonical artifacts use deterministic CBOR and algorithm-tagged
-semantic or artifact identities. It is not yet a complete v0 parser, checker,
-planner, runtime, or SDK.
+homogeneous-output `any`, `none`, typed `chain`, and unary `gate`, emits validated
+canonical AST and semantic IR, dispatches registered verifier bindings, and emits
+deterministic evidence bundles. Canonical artifacts use deterministic CBOR and
+algorithm-tagged semantic or artifact identities. It is not yet a complete v0
+parser, checker, planner, runtime, or SDK.
 
 ## Start here
 
@@ -68,15 +68,19 @@ expressions; `§allows` and `§forbids` effect atoms; ranked `§prefer`; and `§
 bindings with optional explicit contract-label targets. Scalar literals, binding
 references, parentheses, unary `!`/`-`, and the
 checked Boolean, comparison, and `+` operators form the clause-expression subset.
-Closed record field types, one top-level `§all`, `§any`, `§none`, or `§chain`
-body, and equivalent explicit `§compose` source using its standard reducer are also
-executable. `any` currently requires homogeneous child output types and exposes its
-winner as `{output: T, tag: Text}`. A `none` goal with no declared output facts has
-canonical `Unit`. Each later `chain` child has exactly one typed input bound by
-`value`, `move`, `borrow`, or `share` to the immediate predecessor's whole output;
-the first child is input-free. Other composition children remain zero-argument goal
-calls. Nested compositions, project functions, and constructs outside the slice are
-rejected with a stable diagnostic rather than erased.
+Closed record field types, one top-level `§all`, `§any`, `§none`, `§chain`, or
+`§gate` body, and equivalent explicit `§compose` source for the first four forms
+are also executable. `any` currently requires homogeneous child output types and
+exposes its winner as `{output: T, tag: Text}`. A `none` goal with no declared output
+facts has canonical `Unit`. Each later `chain` child has exactly one typed input
+bound by `value`, `move`, `borrow`, or `share` to the immediate predecessor's whole
+output; the first child is input-free. A gate has one total pure `Bool` condition,
+one child, inferred `Excluded | Included<T>` output, and typed child arguments bound
+to parent input fields. A false condition accepts no child observation; a true one
+requests its child and propagates its semantic or operational result. Other
+composition children remain zero-argument goal calls. Nested compositions, project
+functions, and constructs outside the slice are rejected with a stable diagnostic
+rather than erased.
 
 | Canonical definition | Implemented source slice | Explicitly deferred |
 | --- | --- | --- |
@@ -128,30 +132,35 @@ Git dependency caches are keyed by the pinned toolchain and `Cargo.lock`.
 
 `cargo run --bin generate-fixtures` regenerates the checked-in AST and IR CBOR
 artifacts for the canonical simple-goal and self-hosted
-`all`/`any`/`none`/`chain` fixtures. The semantic model defines the minimal
+`all`/`any`/`none`/`chain`/`gate` fixtures. The semantic model defines the minimal
 `kernel-network`: total pure reducers return adjectival `Pending | Concluded`
 reduction states over factored execution results.
 
-[`prelude/v0/all.bhcp`](prelude/v0/all.bhcp) and
-[`prelude/v0/any.bhcp`](prelude/v0/any.bhcp), and
-[`prelude/v0/none.bhcp`](prelude/v0/none.bhcp), and
-[`prelude/v0/chain.bhcp`](prelude/v0/chain.bhcp) are parsed and checked as canonical
+[`prelude/v0/all.bhcp`](prelude/v0/all.bhcp),
+[`prelude/v0/any.bhcp`](prelude/v0/any.bhcp),
+[`prelude/v0/none.bhcp`](prelude/v0/none.bhcp),
+[`prelude/v0/chain.bhcp`](prelude/v0/chain.bhcp), and
+[`prelude/v0/gate.bhcp`](prelude/v0/gate.bhcp) are parsed and checked as canonical
 BHCP source. Their compile-time lowerers construct ID-free network shapes through
 the restricted metamodel, disappear, and leave monomorphized runtime reducers in
 semantic IR. The generic Rust kernel implements only typed sealed-observation
 queries, result construction, tag-to-child resolution, and derivation sealing; the
 prelude source determines behavior precedence and selects aggregation operations.
-Each convenience form and its explicit `§compose` equivalent produce byte-identical
-semantic IR and semantic IDs. Runtime tests cover pending requests, product,
-stable tagged-winner, `Unit`, and last-step satisfaction, all four empty identities,
-decisive verdicts, causal early stop, fault/unresolved precedence, typed data-edge
-rejection, and generic re-evaluation rejection of tampering:
+The `all`, `any`, `none`, and `chain` convenience forms and their explicit
+`§compose` equivalents produce byte-identical semantic IR and semantic IDs. Gate
+conditions are specialized into the retained reducer definition and never become
+network metadata. Runtime tests cover pending requests, product, stable tagged
+winner, `Unit`, last-step satisfaction, closed/open gate selection, all four empty
+identities, decisive verdicts, causal early stop, fault/unresolved precedence,
+typed predecessor and parent-field edges, non-observation, and generic
+re-evaluation rejection of tampering:
 
 ```sh
 cargo test --test self_hosted_all
 cargo test --test self_hosted_any
 cargo test --test self_hosted_none
 cargo test --test self_hosted_chain
+cargo test --test self_hosted_gate
 ```
 
 The reducer evaluator now statically checks every branch before execution, supports
@@ -293,9 +302,9 @@ scheduling order, or parallelism hint. Quantifiers expand to finite children bef
 IR; recursive bounds belong to the recursive child call; and budget/concurrency
 decisions live in execution graphs. Pending reducers name stable child tags, which the
 kernel resolves through the network; reducers never allocate child or derivation IDs.
-The next executable boundary is to define `any`, `none`, `chain`, and `gate` as
-checked-in prelude source over the generalized total-pure evaluator, without adding
-behavior kinds to Rust or semantic IR.
+The next executable prelude boundary is retained-value behavior over explicit
+state-read and compare-and-swap capabilities, without adding behavior kinds or
+stateful callbacks to Rust or semantic IR.
 
 ## Contributing and autonomous delivery
 

@@ -1,0 +1,13 @@
+§goal example/Approve@0 {
+    §input request: Text;
+    §output approval: Text;
+}
+
+§goal example/Review@0 {
+    §input enabled: Bool;
+    §input request: Text;
+
+    §gate when enabled {
+        approval = example/Approve@0(request = borrow request);
+    };
+}

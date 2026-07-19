@@ -205,6 +205,7 @@ pub enum BhcpType {
     Primitive(&'static str),
     ExactNumber(&'static str),
     Record(Vec<FieldType>),
+    Variant(Vec<VariantCaseType>),
     List(Box<BhcpType>),
     Nominal(String, Vec<BhcpType>),
     Option(Box<BhcpType>),
@@ -218,6 +219,12 @@ pub enum BhcpType {
 pub struct FieldType {
     pub name: String,
     pub value_type: BhcpType,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct VariantCaseType {
+    pub tag: String,
+    pub payload: Vec<BhcpType>,
 }
 
 impl BhcpType {
@@ -242,6 +249,20 @@ impl BhcpType {
                                 Value::Text(field.name.clone()),
                                 field.value_type.to_value(),
                                 Value::Bool(false),
+                            ])
+                        })
+                        .collect(),
+                ),
+            ]),
+            Self::Variant(cases) => Value::Array(vec![
+                Value::Text("variant".to_owned()),
+                Value::Array(
+                    cases
+                        .iter()
+                        .map(|case| {
+                            Value::Array(vec![
+                                Value::Text(case.tag.clone()),
+                                Value::Array(case.payload.iter().map(BhcpType::to_value).collect()),
                             ])
                         })
                         .collect(),
@@ -306,6 +327,28 @@ impl BhcpType {
                             name == &field.name && field.value_type.accepts(value)
                         })
                     })
+            }
+            (Value::Array(parts), Self::Variant(cases)) => {
+                let [Value::Text(kind), Value::Text(tag), payload] = parts.as_slice() else {
+                    return false;
+                };
+                if kind != "variant" {
+                    return false;
+                }
+                let Some(case) = cases.iter().find(|case| case.tag == *tag) else {
+                    return false;
+                };
+                match case.payload.as_slice() {
+                    [] => payload == &Value::Array(vec![Value::Text("unit".to_owned())]),
+                    [value_type] => value_type.accepts(payload),
+                    value_types => match payload {
+                        Value::Array(values) if values.len() == value_types.len() => value_types
+                            .iter()
+                            .zip(values)
+                            .all(|(value_type, value)| value_type.accepts(value)),
+                        _ => false,
+                    },
+                }
             }
             _ => false,
         }
@@ -832,7 +875,7 @@ impl SemanticIrDocument {
                 .iter()
                 .find(|function| function.symbol == network.reducer)
                 .expect("reducer resolution was checked above");
-            validate_network_arguments(network, &self.goals)?;
+            validate_network_arguments(parent, network, &self.goals)?;
             let mut observation_fields = Vec::with_capacity(network.children.len());
             for child in &network.children {
                 let child_goal = self
@@ -870,7 +913,11 @@ impl SemanticIrDocument {
     }
 }
 
-fn validate_network_arguments(network: &KernelNetwork, goals: &[GoalDefinition]) -> Result<()> {
+fn validate_network_arguments(
+    parent: &GoalDefinition,
+    network: &KernelNetwork,
+    goals: &[GoalDefinition],
+) -> Result<()> {
     for (child_index, child) in network.children.iter().enumerate() {
         let goal = goals
             .iter()
@@ -923,6 +970,27 @@ fn validate_network_arguments(network: &KernelNetwork, goals: &[GoalDefinition])
                     "observed-output data edge must use a literal predecessor tag",
                 ));
             };
+            if symbol == "bhcp/kernel.parent-field@0" {
+                let BhcpType::Record(parent_fields) = &parent.input else {
+                    unreachable!("goal inputs are records in the implemented source slice")
+                };
+                let Some(parent_field) = parent_fields.iter().find(|field| field.name == *tag)
+                else {
+                    return Err(Diagnostic::plain(
+                        "BHCP4001",
+                        "parent-field data edge must name a parent input field",
+                    ));
+                };
+                if parameter.value_type != BhcpType::Primitive("Text")
+                    || argument.value.value_type != parent_field.value_type
+                {
+                    return Err(Diagnostic::plain(
+                        "BHCP4001",
+                        "parent-field data edge has an invalid field type",
+                    ));
+                }
+                continue;
+            }
             let Some(predecessor) = network.children[..child_index]
                 .iter()
                 .find(|candidate| candidate.tag == *tag)

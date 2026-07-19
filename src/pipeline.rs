@@ -7,7 +7,7 @@ use crate::kernel::{ArgumentMode, KernelArgument, KernelChild, KernelNetwork};
 use crate::model::{
     BhcpType, Binding, CanonicalAstDocument, Clause, ClauseKind, ContentReference, Effect,
     Expression, ExpressionForm, FieldType, FunctionDefinition, GoalDefinition, HashId,
-    SemanticIrDocument, VerifierBinding, features_for,
+    SemanticIrDocument, VariantCaseType, VerifierBinding, features_for,
 };
 use crate::parser::{
     ParsedProgram, SurfaceArgumentMode, SurfaceClauseKind, SurfaceComposition, SurfaceEffect,
@@ -16,8 +16,8 @@ use crate::parser::{
 use crate::policy::SourcePolicyDocument;
 use crate::prelude::{
     ALL_FEATURE, ALL_LOWERER, ALL_REDUCER, ANY_FEATURE, ANY_LOWERER, ANY_REDUCER, CHAIN_FEATURE,
-    CHAIN_LOWERER, CHAIN_REDUCER, DerivedChild, DerivedForm, NONE_FEATURE, NONE_LOWERER,
-    NONE_REDUCER, NetworkShape, Prelude,
+    CHAIN_LOWERER, CHAIN_REDUCER, DerivedChild, DerivedForm, GATE_FEATURE, GATE_LOWERER,
+    NONE_FEATURE, NONE_LOWERER, NONE_REDUCER, NetworkShape, Prelude,
 };
 use crate::value::Value;
 
@@ -134,6 +134,9 @@ fn parse_internal(
     if uses_self_hosted_chain(&program) {
         features.push(CHAIN_FEATURE.to_owned());
     }
+    if uses_self_hosted_gate(&program) {
+        features.push(GATE_FEATURE.to_owned());
+    }
     let mut ast = CanonicalAstDocument {
         features,
         root: program.ast.clone(),
@@ -207,6 +210,7 @@ fn elaborate(
         let signature = goal_signature(goal, index, source_name)?;
         signatures.insert(goal.symbol.clone(), signature);
     }
+    resolve_gate_outputs(program, &mut signatures, source_name)?;
     let prelude = Prelude::load()?;
     let mut ids = Ids::new();
     let mut goals = Vec::new();
@@ -235,6 +239,9 @@ fn elaborate(
     }
     if uses_self_hosted_chain(program) {
         features.push(CHAIN_FEATURE.to_owned());
+    }
+    if uses_self_hosted_gate(program) {
+        features.push(GATE_FEATURE.to_owned());
     }
     Ok(SemanticIrDocument {
         features,
@@ -292,6 +299,98 @@ fn is_self_hosted_chain_composition(composition: &SurfaceComposition) -> bool {
         SurfaceComposition::Compose { reducer, .. } => reducer == CHAIN_REDUCER,
         _ => false,
     }
+}
+
+fn uses_self_hosted_gate(program: &ParsedProgram) -> bool {
+    program
+        .goals
+        .iter()
+        .any(|goal| matches!(&goal.body, Some(SurfaceComposition::DerivedGate { .. })))
+}
+
+fn gate_output(child: BhcpType) -> BhcpType {
+    BhcpType::Variant(vec![
+        VariantCaseType {
+            tag: "Excluded".to_owned(),
+            payload: vec![],
+        },
+        VariantCaseType {
+            tag: "Included".to_owned(),
+            payload: vec![child],
+        },
+    ])
+}
+
+fn resolve_gate_outputs(
+    program: &ParsedProgram,
+    signatures: &mut HashMap<String, GoalSignature>,
+    source_name: &str,
+) -> Result<()> {
+    let by_symbol: HashMap<_, _> = program
+        .goals
+        .iter()
+        .map(|goal| (goal.symbol.as_str(), goal))
+        .collect();
+    let symbols: Vec<_> = program
+        .goals
+        .iter()
+        .map(|goal| goal.symbol.clone())
+        .collect();
+    for symbol in symbols {
+        let mut visiting = HashSet::new();
+        resolve_gate_output(&symbol, &by_symbol, signatures, source_name, &mut visiting)?;
+    }
+    Ok(())
+}
+
+fn resolve_gate_output(
+    symbol: &str,
+    goals: &HashMap<&str, &SurfaceGoal>,
+    signatures: &mut HashMap<String, GoalSignature>,
+    source_name: &str,
+    visiting: &mut HashSet<String>,
+) -> Result<BhcpType> {
+    let goal = goals[symbol];
+    let Some(SurfaceComposition::DerivedGate { branches, at, .. }) = &goal.body else {
+        return Ok(signatures[symbol].output.clone());
+    };
+    if goal
+        .clauses
+        .iter()
+        .any(|clause| matches!(clause.kind, SurfaceClauseKind::Fact { kind: "output", .. }))
+    {
+        return Ok(signatures[symbol].output.clone());
+    }
+    let [branch] = branches.as_slice() else {
+        return Err(error(
+            "BHCP2003",
+            "gate composition requires exactly one child",
+            source_name,
+            at,
+        ));
+    };
+    if !visiting.insert(symbol.to_owned()) {
+        return Err(error(
+            "BHCP2003",
+            "gate output inference cannot contain a recursive gate cycle",
+            source_name,
+            at,
+        ));
+    }
+    let child = goals.get(branch.goal.as_str()).ok_or_else(|| {
+        error(
+            "BHCP2001",
+            format!("unresolved goal {}", branch.goal),
+            source_name,
+            &branch.at,
+        )
+    })?;
+    let child_output =
+        resolve_gate_output(&child.symbol, goals, signatures, source_name, visiting)?;
+    visiting.remove(symbol);
+    let output = gate_output(child_output);
+    signatures.get_mut(symbol).expect("signature exists").output = output.clone();
+    Ok(output)
 }
 
 fn has_implicit_unit_output(goal: &SurfaceGoal) -> bool {
@@ -427,6 +526,8 @@ fn lower_goal(
     debug_assert!(
         signature.output == declared_output
             || (declared_output == BhcpType::Record(vec![]) && has_implicit_unit_output(goal))
+            || (declared_output == BhcpType::Record(vec![])
+                && matches!(&goal.body, Some(SurfaceComposition::DerivedGate { .. })))
     );
     let output = signature.output.clone();
     let mut clauses = Vec::new();
@@ -564,6 +665,33 @@ fn lower_composition(
     ids: &mut Ids,
 ) -> Result<KernelNetwork> {
     let is_chain = is_self_hosted_chain_composition(composition);
+    let gate_condition = match composition {
+        SurfaceComposition::DerivedGate {
+            condition,
+            branches,
+            ..
+        } => {
+            if branches.len() != 1 {
+                return Err(error(
+                    "BHCP2003",
+                    "gate composition requires exactly one child",
+                    source_name,
+                    composition.at(),
+                ));
+            }
+            let condition = lower_gate_condition(condition, &parent.input, source_name, ids)?;
+            if condition.value_type != BhcpType::Primitive("Bool") {
+                return Err(error(
+                    "BHCP2003",
+                    "gate condition must have type Bool",
+                    source_name,
+                    composition.at(),
+                ));
+            }
+            Some(condition)
+        }
+        _ => None,
+    };
     let mut tags = HashSet::new();
     let mut children = Vec::new();
     for branch in composition.branches() {
@@ -585,6 +713,8 @@ fn lower_composition(
         })?;
         let arguments = if is_chain {
             lower_chain_arguments(branch, child, children.last(), source_name, ids)?
+        } else if gate_condition.is_some() {
+            lower_gate_arguments(branch, child, &parent.input, source_name, ids)?
         } else {
             if child.input != BhcpType::Record(vec![]) || !branch.arguments.is_empty() {
                 return Err(error(
@@ -613,6 +743,7 @@ fn lower_composition(
                 input: parent.input.clone(),
                 output: parent.output.clone(),
                 children,
+                condition: None,
             },
         )?,
         SurfaceComposition::DerivedAny { .. } => prelude.lower(
@@ -621,6 +752,7 @@ fn lower_composition(
                 input: parent.input.clone(),
                 output: parent.output.clone(),
                 children,
+                condition: None,
             },
         )?,
         SurfaceComposition::DerivedNone { .. } => prelude.lower(
@@ -629,6 +761,7 @@ fn lower_composition(
                 input: parent.input.clone(),
                 output: parent.output.clone(),
                 children,
+                condition: None,
             },
         )?,
         SurfaceComposition::DerivedChain { .. } => prelude.lower(
@@ -637,6 +770,16 @@ fn lower_composition(
                 input: parent.input.clone(),
                 output: parent.output.clone(),
                 children,
+                condition: None,
+            },
+        )?,
+        SurfaceComposition::DerivedGate { .. } => prelude.lower(
+            GATE_LOWERER,
+            DerivedForm {
+                input: parent.input.clone(),
+                output: parent.output.clone(),
+                children,
+                condition: gate_condition.clone(),
             },
         )?,
         SurfaceComposition::Compose { reducer, .. } => NetworkShape {
@@ -676,8 +819,19 @@ fn lower_composition(
             composition.at(),
         )
     })?;
-    let reducer_symbol =
-        specialized_reducer_symbol(&shape.reducer, &parent.input, &observations, &parent.output)?;
+    let condition_identity = match composition {
+        SurfaceComposition::DerivedGate { condition, .. } => {
+            Some(surface_expression_identity(condition)?)
+        }
+        _ => None,
+    };
+    let reducer_symbol = specialized_reducer_symbol(
+        &shape.reducer,
+        &parent.input,
+        &observations,
+        &parent.output,
+        condition_identity.as_ref(),
+    )?;
     if !functions
         .iter()
         .any(|function| function.symbol == reducer_symbol)
@@ -685,9 +839,12 @@ fn lower_composition(
         functions.push(instantiate_reducer(
             reducer_source,
             reducer_symbol.clone(),
-            parent.input.clone(),
-            observations,
-            parent.output.clone(),
+            ReducerSpecialization {
+                input: parent.input.clone(),
+                observations,
+                output: parent.output.clone(),
+                gate_condition: gate_condition.as_ref(),
+            },
             source_name,
             ids,
         )?);
@@ -792,18 +949,329 @@ fn lower_chain_arguments(
     }])
 }
 
+fn lower_gate_arguments(
+    branch: &crate::parser::SurfaceBranch,
+    child: &GoalSignature,
+    parent_input: &BhcpType,
+    source_name: &str,
+    ids: &mut Ids,
+) -> Result<Vec<KernelArgument>> {
+    let (BhcpType::Record(child_fields), BhcpType::Record(parent_fields)) =
+        (&child.input, parent_input)
+    else {
+        unreachable!("goal inputs are records in the implemented source slice")
+    };
+    if branch.arguments.len() != child_fields.len() {
+        return Err(error(
+            "BHCP2003",
+            "gate child arguments must exactly cover its typed input fields",
+            source_name,
+            &branch.at,
+        ));
+    }
+    let mut lowered = Vec::with_capacity(child_fields.len());
+    for field in child_fields {
+        let Some(argument) = branch
+            .arguments
+            .iter()
+            .find(|argument| argument.name == field.name)
+        else {
+            return Err(error(
+                "BHCP2001",
+                format!("gate argument does not name child input {:?}", field.name),
+                source_name,
+                &branch.at,
+            ));
+        };
+        let Some(parent_field) = parent_fields
+            .iter()
+            .find(|parent_field| parent_field.name == argument.source)
+        else {
+            return Err(error(
+                "BHCP2001",
+                format!(
+                    "gate argument source {:?} is not a parent input",
+                    argument.source
+                ),
+                source_name,
+                &argument.at,
+            ));
+        };
+        if parent_field.value_type != field.value_type {
+            return Err(error(
+                "BHCP2003",
+                "gate parent input does not match the child input type",
+                source_name,
+                &argument.at,
+            ));
+        }
+        let field_name = Expression {
+            id: ids.next("expr"),
+            value_type: BhcpType::Primitive("Text"),
+            form: ExpressionForm::Literal(Value::Text(argument.source.clone())),
+        };
+        let value = Expression {
+            id: ids.next("expr"),
+            value_type: field.value_type.clone(),
+            form: ExpressionForm::Call("bhcp/kernel.parent-field@0".to_owned(), vec![field_name]),
+        };
+        let mode = match argument.mode {
+            SurfaceArgumentMode::Value => ArgumentMode::Value,
+            SurfaceArgumentMode::Move => ArgumentMode::Move,
+            SurfaceArgumentMode::Borrow => ArgumentMode::Borrow,
+            SurfaceArgumentMode::Share => ArgumentMode::Share,
+        };
+        lowered.push(KernelArgument {
+            name: argument.name.clone(),
+            mode,
+            value,
+        });
+    }
+    Ok(lowered)
+}
+
+fn parent_field_type<'a>(parent: &'a BhcpType, name: &str) -> Option<&'a BhcpType> {
+    let BhcpType::Record(fields) = parent else {
+        return None;
+    };
+    fields
+        .iter()
+        .find(|field| field.name == name)
+        .map(|field| &field.value_type)
+}
+
+fn surface_expression_identity(expression: &SurfaceExpression) -> Result<Value> {
+    Ok(match expression {
+        SurfaceExpression::Literal { value, .. } => Value::Array(vec![
+            Value::Text("literal".to_owned()),
+            match value {
+                SurfaceLiteral::Bool(value) => Value::Bool(*value),
+                SurfaceLiteral::Text(value) => Value::Text(value.clone()),
+                SurfaceLiteral::Integer(value) => Value::Array(vec![
+                    Value::Text("integer".to_owned()),
+                    Value::Integer(*value),
+                ]),
+            },
+        ]),
+        SurfaceExpression::Reference { name, .. } => Value::Array(vec![
+            Value::Text("parent-field".to_owned()),
+            Value::Text(name.clone()),
+        ]),
+        SurfaceExpression::Unary {
+            operator, operand, ..
+        } => Value::Array(vec![
+            Value::Text("unary".to_owned()),
+            Value::Text(operator.clone()),
+            surface_expression_identity(operand)?,
+        ]),
+        SurfaceExpression::Binary {
+            operator,
+            left,
+            right,
+            ..
+        } => Value::Array(vec![
+            Value::Text("binary".to_owned()),
+            Value::Text(operator.clone()),
+            surface_expression_identity(left)?,
+            surface_expression_identity(right)?,
+        ]),
+        SurfaceExpression::If {
+            condition,
+            consequent,
+            alternative,
+            ..
+        } => Value::Array(vec![
+            Value::Text("if".to_owned()),
+            surface_expression_identity(condition)?,
+            surface_expression_identity(consequent)?,
+            surface_expression_identity(alternative)?,
+        ]),
+        SurfaceExpression::Call {
+            function,
+            arguments,
+            ..
+        } => Value::Array(vec![
+            Value::Text("call".to_owned()),
+            Value::Text(function.clone()),
+            Value::Array(
+                arguments
+                    .iter()
+                    .map(surface_expression_identity)
+                    .collect::<Result<Vec<_>>>()?,
+            ),
+        ]),
+    })
+}
+
+fn lower_gate_condition(
+    surface: &SurfaceExpression,
+    parent: &BhcpType,
+    source_name: &str,
+    ids: &mut Ids,
+) -> Result<Expression> {
+    let (value_type, form) = match surface {
+        SurfaceExpression::Literal { value, .. } => match value {
+            SurfaceLiteral::Bool(value) => (
+                BhcpType::Primitive("Bool"),
+                ExpressionForm::Literal(Value::Bool(*value)),
+            ),
+            SurfaceLiteral::Text(value) => (
+                BhcpType::Primitive("Text"),
+                ExpressionForm::Literal(Value::Text(value.clone())),
+            ),
+            SurfaceLiteral::Integer(value) => (
+                BhcpType::ExactNumber("Integer"),
+                ExpressionForm::Literal(Value::Array(vec![
+                    Value::Text("integer".to_owned()),
+                    Value::Integer(*value),
+                ])),
+            ),
+        },
+        SurfaceExpression::Reference { name, at } => {
+            let value_type = parent_field_type(parent, name).cloned().ok_or_else(|| {
+                error(
+                    "BHCP2003",
+                    format!("unresolved gate-condition input {name:?}"),
+                    source_name,
+                    at,
+                )
+            })?;
+            let field = Expression {
+                id: ids.next("expr"),
+                value_type: BhcpType::Primitive("Text"),
+                form: ExpressionForm::Literal(Value::Text(name.clone())),
+            };
+            (
+                value_type,
+                ExpressionForm::Call("bhcp/kernel.parent-field@0".to_owned(), vec![field]),
+            )
+        }
+        SurfaceExpression::Unary {
+            operator,
+            operand,
+            at,
+        } => {
+            let operand = lower_gate_condition(operand, parent, source_name, ids)?;
+            if operator != "!" || operand.value_type != BhcpType::Primitive("Bool") {
+                return Err(error(
+                    "BHCP2003",
+                    "gate unary condition must preserve Bool",
+                    source_name,
+                    at,
+                ));
+            }
+            (
+                BhcpType::Primitive("Bool"),
+                ExpressionForm::Unary(operator.clone(), Box::new(operand)),
+            )
+        }
+        SurfaceExpression::Binary {
+            operator,
+            left,
+            right,
+            at,
+        } => {
+            let left = lower_gate_condition(left, parent, source_name, ids)?;
+            let right = lower_gate_condition(right, parent, source_name, ids)?;
+            let valid = match operator.as_str() {
+                "==" | "!=" => left.value_type == right.value_type,
+                "&&" | "||" => {
+                    left.value_type == BhcpType::Primitive("Bool")
+                        && right.value_type == BhcpType::Primitive("Bool")
+                }
+                _ => false,
+            };
+            if !valid {
+                return Err(error(
+                    "BHCP2003",
+                    "gate binary condition is not total and consistently typed",
+                    source_name,
+                    at,
+                ));
+            }
+            (
+                BhcpType::Primitive("Bool"),
+                ExpressionForm::Binary(operator.clone(), Box::new(left), Box::new(right)),
+            )
+        }
+        SurfaceExpression::If {
+            condition,
+            consequent,
+            alternative,
+            at,
+        } => {
+            let condition = lower_gate_condition(condition, parent, source_name, ids)?;
+            let consequent = lower_gate_condition(consequent, parent, source_name, ids)?;
+            let alternative = lower_gate_condition(alternative, parent, source_name, ids)?;
+            if condition.value_type != BhcpType::Primitive("Bool")
+                || consequent.value_type != alternative.value_type
+            {
+                return Err(error(
+                    "BHCP2003",
+                    "gate conditional is not total and consistently typed",
+                    source_name,
+                    at,
+                ));
+            }
+            let value_type = consequent.value_type.clone();
+            (
+                value_type,
+                ExpressionForm::If(
+                    Box::new(condition),
+                    Box::new(consequent),
+                    Box::new(alternative),
+                ),
+            )
+        }
+        SurfaceExpression::Call { at, .. } => {
+            return Err(error(
+                "BHCP2004",
+                "gate condition calls are outside the implemented total-pure slice",
+                source_name,
+                at,
+            ));
+        }
+    };
+    Ok(Expression {
+        id: ids.next("expr"),
+        value_type,
+        form,
+    })
+}
+
+fn gate_type_matches(observations: &BhcpType, output: &BhcpType) -> bool {
+    let BhcpType::Record(fields) = observations else {
+        return false;
+    };
+    let [field] = fields.as_slice() else {
+        return false;
+    };
+    let BhcpType::Option(result) = &field.value_type else {
+        return false;
+    };
+    let BhcpType::ExecutionResult(child_output) = result.as_ref() else {
+        return false;
+    };
+    output == &gate_output(child_output.as_ref().clone())
+}
+
 fn specialized_reducer_symbol(
     base: &str,
     input: &BhcpType,
     observations: &BhcpType,
     output: &BhcpType,
+    condition: Option<&Value>,
 ) -> Result<String> {
-    let signature = Value::Array(vec![
+    let mut signature = vec![
         Value::Text(base.to_owned()),
         input.to_value(),
         observations.to_value(),
         output.to_value(),
-    ]);
+    ];
+    if let Some(condition) = condition {
+        signature.push(condition.clone());
+    }
+    let signature = Value::Array(signature);
     let bytes = encode_deterministic(&signature)?;
     let digest = HashAlgorithm::default().hash(&bytes).digest;
     let suffix: String = digest[..16]
@@ -819,15 +1287,26 @@ fn specialized_reducer_symbol(
     Ok(format!("{path}-{suffix}@{version}"))
 }
 
-fn instantiate_reducer(
-    source: &SurfaceFunction,
-    symbol: String,
+struct ReducerSpecialization<'a> {
     input: BhcpType,
     observations: BhcpType,
     output: BhcpType,
+    gate_condition: Option<&'a Expression>,
+}
+
+fn instantiate_reducer(
+    source: &SurfaceFunction,
+    symbol: String,
+    specialization: ReducerSpecialization<'_>,
     source_name: &str,
     ids: &mut Ids,
 ) -> Result<FunctionDefinition> {
+    let ReducerSpecialization {
+        input,
+        observations,
+        output,
+        gate_condition,
+    } = specialization;
     let parent = Binding {
         id: ids.next("parameter"),
         name: source.parameters[0].name.clone(),
@@ -843,8 +1322,14 @@ fn instantiate_reducer(
         (observed.name.clone(), observed.clone()),
     ]);
     let result = BhcpType::Reduction(Box::new(output));
-    let definition =
-        lower_reducer_expression(&source.definition, &environment, &result, source_name, ids)?;
+    let definition = lower_reducer_expression(
+        &source.definition,
+        &environment,
+        &result,
+        gate_condition,
+        source_name,
+        ids,
+    )?;
     if definition.value_type != result {
         return Err(Diagnostic::plain(
             "BHCP3001",
@@ -864,6 +1349,7 @@ fn lower_reducer_expression(
     surface: &SurfaceExpression,
     environment: &HashMap<String, Binding>,
     result_type: &BhcpType,
+    gate_condition: Option<&Expression>,
     source_name: &str,
     ids: &mut Ids,
 ) -> Result<Expression> {
@@ -904,8 +1390,14 @@ fn lower_reducer_expression(
             operand,
             at,
         } => {
-            let operand =
-                lower_reducer_expression(operand, environment, result_type, source_name, ids)?;
+            let operand = lower_reducer_expression(
+                operand,
+                environment,
+                result_type,
+                gate_condition,
+                source_name,
+                ids,
+            )?;
             if operator != "!" || operand.value_type != BhcpType::Primitive("Bool") {
                 return Err(error(
                     "BHCP3001",
@@ -925,9 +1417,22 @@ fn lower_reducer_expression(
             right,
             at,
         } => {
-            let left = lower_reducer_expression(left, environment, result_type, source_name, ids)?;
-            let right =
-                lower_reducer_expression(right, environment, result_type, source_name, ids)?;
+            let left = lower_reducer_expression(
+                left,
+                environment,
+                result_type,
+                gate_condition,
+                source_name,
+                ids,
+            )?;
+            let right = lower_reducer_expression(
+                right,
+                environment,
+                result_type,
+                gate_condition,
+                source_name,
+                ids,
+            )?;
             let valid = match operator.as_str() {
                 "==" | "!=" => {
                     left.value_type == right.value_type
@@ -959,10 +1464,36 @@ fn lower_reducer_expression(
             arguments,
             at,
         } => {
+            if function == "bhcp/prelude.gate-condition@0" {
+                let Some(condition) = gate_condition else {
+                    return Err(error(
+                        "BHCP3001",
+                        "gate-condition placeholder is valid only in a gate reducer specialization",
+                        source_name,
+                        at,
+                    ));
+                };
+                if arguments.len() != 1 {
+                    return Err(error(
+                        "BHCP3001",
+                        "gate-condition placeholder requires the parent parameter",
+                        source_name,
+                        at,
+                    ));
+                }
+                return Ok(condition.clone());
+            }
             let arguments = arguments
                 .iter()
                 .map(|argument| {
-                    lower_reducer_expression(argument, environment, result_type, source_name, ids)
+                    lower_reducer_expression(
+                        argument,
+                        environment,
+                        result_type,
+                        gate_condition,
+                        source_name,
+                        ids,
+                    )
                 })
                 .collect::<Result<Vec<_>>>()?;
             let observations_type = environment
@@ -1027,6 +1558,18 @@ fn lower_reducer_expression(
                 {
                     output_type.as_ref().clone()
                 }
+                "bhcp/kernel.included@0"
+                    if argument_types == [observations_type.clone()]
+                        && gate_type_matches(observations_type, output_type) =>
+                {
+                    output_type.as_ref().clone()
+                }
+                "bhcp/kernel.excluded@0"
+                    if argument_types == [observations_type.clone()]
+                        && gate_type_matches(observations_type, output_type) =>
+                {
+                    output_type.as_ref().clone()
+                }
                 "bhcp/kernel.unit@0" if argument_types.is_empty() => BhcpType::Primitive("Unit"),
                 "bhcp/kernel.pending@0" if argument_types == [refs_type.clone()] => {
                     result_type.clone()
@@ -1068,12 +1611,30 @@ fn lower_reducer_expression(
             alternative,
             at,
         } => {
-            let condition =
-                lower_reducer_expression(condition, environment, result_type, source_name, ids)?;
-            let consequent =
-                lower_reducer_expression(consequent, environment, result_type, source_name, ids)?;
-            let alternative =
-                lower_reducer_expression(alternative, environment, result_type, source_name, ids)?;
+            let condition = lower_reducer_expression(
+                condition,
+                environment,
+                result_type,
+                gate_condition,
+                source_name,
+                ids,
+            )?;
+            let consequent = lower_reducer_expression(
+                consequent,
+                environment,
+                result_type,
+                gate_condition,
+                source_name,
+                ids,
+            )?;
+            let alternative = lower_reducer_expression(
+                alternative,
+                environment,
+                result_type,
+                gate_condition,
+                source_name,
+                ids,
+            )?;
             if condition.value_type != BhcpType::Primitive("Bool")
                 || consequent.value_type != alternative.value_type
             {

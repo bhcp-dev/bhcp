@@ -570,8 +570,9 @@ impl<'a> KernelRuntime<'a> {
                 continue;
             }
             for argument in &child.arguments {
-                let predecessor_tag = observed_output_tag(&argument.value)
-                    .expect("IR validation checked observed-output data edges");
+                let Some(predecessor_tag) = observed_output_tag(&argument.value) else {
+                    continue;
+                };
                 let predecessor = network
                     .children
                     .iter()
@@ -630,8 +631,9 @@ fn validate_pending_data_edges(
             .find(|child| child.tag == *tag)
             .expect("pending validation resolved required tags");
         for argument in &child.arguments {
-            let predecessor_tag = observed_output_tag(&argument.value)
-                .expect("IR validation checked observed-output data edges");
+            let Some(predecessor_tag) = observed_output_tag(&argument.value) else {
+                continue;
+            };
             if !slots.iter().any(|slot| {
                 slot.tag == predecessor_tag
                     && matches!(
@@ -764,7 +766,7 @@ fn evaluate_expression(
                     observations.clone(),
                 )?);
             }
-            let value = evaluate_primitive(symbol, derivation_id, values)?;
+            let value = evaluate_primitive(symbol, derivation_id, &parent, values)?;
             if !runtime_value_matches_type(&value, &expression.value_type) {
                 return Err(invalid(
                     "reducer primitive result does not match its declared expression type",
@@ -902,6 +904,16 @@ fn validate_primitive_signature(
         .map(|argument| argument.value_type.clone())
         .collect::<Vec<_>>();
     let expected = match symbol {
+        "bhcp/kernel.parent-field@0"
+            if argument_types == [BhcpType::Primitive("Text")]
+                && parent_field_primitive_matches(
+                    arguments,
+                    &function.parameters[0].value_type,
+                    &expression.value_type,
+                ) =>
+        {
+            expression.value_type.clone()
+        }
         "bhcp/kernel.has-refuted@0"
         | "bhcp/kernel.has-missing@0"
         | "bhcp/kernel.has-faulted@0"
@@ -938,6 +950,18 @@ fn validate_primitive_signature(
         "bhcp/kernel.first-satisfied-winner@0"
             if argument_types == [observations.clone()]
                 && winner_type_matches(observations, output) =>
+        {
+            output.as_ref().clone()
+        }
+        "bhcp/kernel.included@0"
+            if argument_types == [observations.clone()]
+                && gate_type_matches(observations, output) =>
+        {
+            output.as_ref().clone()
+        }
+        "bhcp/kernel.excluded@0"
+            if argument_types == [observations.clone()]
+                && gate_type_matches(observations, output) =>
         {
             output.as_ref().clone()
         }
@@ -997,6 +1021,51 @@ fn winner_type_matches(observations: &BhcpType, output: &BhcpType) -> bool {
         ])
 }
 
+fn parent_field_primitive_matches(
+    arguments: &[Expression],
+    parent: &BhcpType,
+    output: &BhcpType,
+) -> bool {
+    let [argument] = arguments else {
+        return false;
+    };
+    let ExpressionForm::Literal(Value::Text(name)) = &argument.form else {
+        return false;
+    };
+    let BhcpType::Record(fields) = parent else {
+        return false;
+    };
+    fields
+        .iter()
+        .any(|field| field.name == *name && field.value_type == *output)
+}
+
+fn gate_type_matches(observations: &BhcpType, output: &BhcpType) -> bool {
+    let BhcpType::Record(fields) = observations else {
+        return false;
+    };
+    let [field] = fields.as_slice() else {
+        return false;
+    };
+    let BhcpType::Option(result) = &field.value_type else {
+        return false;
+    };
+    let BhcpType::ExecutionResult(child_output) = result.as_ref() else {
+        return false;
+    };
+    let BhcpType::Variant(cases) = output else {
+        return false;
+    };
+    matches!(
+        cases.as_slice(),
+        [excluded, included]
+            if excluded.tag == "Excluded"
+                && excluded.payload.is_empty()
+                && included.tag == "Included"
+                && included.payload.as_slice() == [child_output.as_ref().clone()]
+    )
+}
+
 fn runtime_equal(left: &RuntimeValue, right: &RuntimeValue) -> Result<bool> {
     match (left, right) {
         (RuntimeValue::Data(left), RuntimeValue::Data(right)) => Ok(left == right),
@@ -1009,9 +1078,26 @@ fn runtime_equal(left: &RuntimeValue, right: &RuntimeValue) -> Result<bool> {
 fn evaluate_primitive(
     symbol: &str,
     derivation_id: &str,
+    parent: &Value,
     arguments: Vec<RuntimeValue>,
 ) -> Result<RuntimeValue> {
     match symbol {
+        "bhcp/kernel.parent-field@0" => match arguments.as_slice() {
+            [RuntimeValue::Data(Value::Text(name))] => {
+                let Value::Map(entries) = parent else {
+                    return Err(invalid("parent-field requires a record parent input"));
+                };
+                let value = entries
+                    .iter()
+                    .find_map(|(field, value)| (field == name).then_some(value.clone()))
+                    .ok_or_else(|| invalid("parent-field does not resolve in the parent input"))?;
+                Ok(match value {
+                    Value::Bool(value) => RuntimeValue::Bool(value),
+                    value => RuntimeValue::Data(value),
+                })
+            }
+            _ => Err(invalid("parent-field requires one literal field name")),
+        },
         "bhcp/kernel.has-refuted@0" => with_observations(arguments, |observations| {
             RuntimeValue::Bool(observations.iter().any(|slot| {
                 matches!(
@@ -1207,6 +1293,34 @@ fn evaluate_primitive(
             Ok(RuntimeValue::Data(Value::map([
                 ("output", output),
                 ("tag", Value::Text(tag)),
+            ])))
+        }
+        "bhcp/kernel.included@0" => {
+            let observations = take_observations(arguments)?;
+            let output = observations
+                .iter()
+                .find_map(|slot| match &slot.result {
+                    Some(ExecutionResult::Completed(Verdict::Satisfied { output, .. })) => {
+                        Some(output.clone())
+                    }
+                    _ => None,
+                })
+                .ok_or_else(|| invalid("included requires a satisfied gate child"))?;
+            Ok(RuntimeValue::Data(Value::Array(vec![
+                Value::Text("variant".to_owned()),
+                Value::Text("Included".to_owned()),
+                output,
+            ])))
+        }
+        "bhcp/kernel.excluded@0" => {
+            let observations = take_observations(arguments)?;
+            if observations.iter().any(|slot| slot.result.is_some()) {
+                return Err(invalid("a closed gate cannot observe its unselected child"));
+            }
+            Ok(RuntimeValue::Data(Value::Array(vec![
+                Value::Text("variant".to_owned()),
+                Value::Text("Excluded".to_owned()),
+                Value::Array(vec![Value::Text("unit".to_owned())]),
             ])))
         }
         "bhcp/kernel.first-satisfied-evidence@0" => {
