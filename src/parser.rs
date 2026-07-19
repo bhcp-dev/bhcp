@@ -1082,6 +1082,15 @@ pub fn normalize_syntax_tokens(
     )
 }
 
+pub(crate) fn normalize_source_for_formatting(
+    source: &str,
+    source_name: &str,
+    document: &SyntaxDocument,
+) -> Result<String> {
+    let effective = EffectiveSyntax::from_document(document)?;
+    Ok(effective.normalize(source, source_name)?.text)
+}
+
 pub fn parse_with_syntax(
     source: &str,
     source_name: &str,

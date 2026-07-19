@@ -53,6 +53,7 @@ cargo run -- lower conformance/v0/fixtures/canonical-simple.bhcp > /tmp/canonica
 cargo run -- inspect conformance/v0/fixtures/canonical-simple.bhcp
 cargo run -- inspect /tmp/canonical-simple.ir.cbor
 cargo run -- hash conformance/v0/fixtures/canonical-simple.bhcp
+cargo run -- format conformance/v0/fixtures/canonical-simple-presentation.bhcp
 cargo run -- policy inspect conformance/v0/fixtures/canonical-policy.bhcp
 cargo run -- policy compose conformance/v0/fixtures/canonical-policy.bhcp > /tmp/effective-policy.cbor
 cargo run -- policy inspect /tmp/effective-policy.cbor
@@ -66,6 +67,16 @@ concise Rust-owned outline of typed goal interfaces, structural clause IDs, lowe
 conditions and effects, preferences, and expanded verifier targets. That outline is
 presentation only and does not participate in semantic identity. `hash` emits the
 single algorithm-tagged semantic identity as text.
+
+`format` validates and canonicalizes the selected source before applying the resolved
+whitespace rules, writes source text to stdout, reparses it, and rejects any change to
+the canonical token stream or AST shape as `BHCP9004`. Canonical source needs no
+registry arguments. Custom source supplies its syntax, profile, and any source-policy
+CBOR artifacts explicitly after the source path; registry file order is irrelevant.
+The formatter emits an exact custom preamble, inverts the resolved token map, retains
+comments, wraps only between tokens, and honors `indent_width`, `line_width`, and
+`final_newline`. The canonical profile uses the fixed `{ 4, 100, true }` layout and
+preserves an explicit canonical preamble or leading BOM when present.
 
 `policy compose` accepts one or more explicitly ordered canonical policy source or
 source-policy CBOR inputs. It requires organization → team → repository → user
@@ -99,7 +110,7 @@ rather than erased.
 | --- | --- | --- |
 | `§goal` / `§function` | Goals and the checked prelude-function boundary described above | General project functions and the remaining S7 goal grammar |
 | `§policy` | Layer, `§extends`, six closed typed rules, scopes/parameters, waivability, issuers, composition, inspection, policy-aware elaboration, and no-waiver conformance fixtures | Expression-valued policy clauses, waiver/profile shorthand, and enforcement beyond the compile-time/evidence boundary |
-| `§syntax` / `§profile` | Fixed byte-level selection, typed deterministic artifacts, exact one-parent syntax/profile resolution, monotonic attached overlays, resolved-profile inspection, and span-aware custom-source compilation | Syntax/profile source definitions and profile-aware formatting |
+| `§syntax` / `§profile` | Fixed byte-level selection, typed deterministic artifacts, exact one-parent syntax/profile resolution, monotonic attached overlays, resolved-profile inspection, span-aware custom-source compilation, and deterministic profile-aware formatting | Syntax/profile source definitions |
 | Other S7 definitions | None | `§type`, `§predicate`, `§waiver`, `§extension`, and `§refines` |
 
 The Phase 4 decision boundary admits only one-token keyword, punctuation, and symbol
@@ -149,7 +160,11 @@ duplicate/missing overlays, follows policy parents, and invokes the existing
 monotonic composer before elaboration. Registry topology failures use `BHCP9003`;
 policy weakening retains its category-specific `BHCP8101`–`BHCP8107` diagnostic.
 `render_profile_resolution` exposes the resolved chains, overlays, type mode, and
-effective-policy identity. Profile-aware formatting remains the next roadmap issue.
+effective-policy identity. The formatter consumes that resolved leaf, canonicalizes
+custom input without touching comments or literals, lays out canonical tokens through
+the leaf formatting record, and maps them back to the selected surface. Its output is
+idempotent, and an internal canonical-token plus AST-shape round trip prevents
+formatting from becoming semantic.
 
 `bhcp.hash/sha3-512@0` is the default and only currently registered identity
 algorithm, implemented through the pinned pure-Rust `sha3` crate. It provides a roughly 256-bit

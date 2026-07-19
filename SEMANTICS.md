@@ -858,6 +858,18 @@ ASCII spaces, line width is 1 through 512 columns, and the final-newline choice 
 Boolean. A formatter may add or remove only insignificant whitespace according to
 that record; it MUST NOT change the normalized token stream.
 
+The Rust formatter first validates the complete selected source and resolves the
+same registry leaf used by compilation. It preserves comment text, canonicalizes
+all program tokens, lays them out deterministically, and then applies the inverse
+effective surface map. Lines wrap only at token boundaries; an indivisible token may
+exceed the configured width. The result is reparsed through the selected profile and
+must reproduce the exact canonical token sequence and equivalent AST structure.
+Failure is atomic as `BHCP9004`; no partially formatted source is returned. Repeating
+the operation produces identical bytes, including the configured final-newline choice.
+The canonical profile uses `indent_width = 4`, `line_width = 100`, and
+`final_newline = true`; an explicit canonical preamble and a valid leading BOM are
+preserved rather than treated as layout whitespace.
+
 #### S9.1.2 Syntax inheritance and conflict resolution
 
 Syntax documents form a symbol-indexed registry. A symbol is unique and `extends`

@@ -86,6 +86,7 @@ represented only by WAV-01/WAV-02 acceptance requirements.
 | SYN-01 | Canonical source and a remapped keyword/sigil/delimiter profile lower to equivalent meaning. | Different AST presentation metadata; byte-identical normalized semantic IR and semantic ID. |
 | SYN-02 | Source omits the profile preamble. | Exact profile `bhcp/canonical@0` is selected. |
 | SYN-03 | Custom source has a malformed or non-first preamble. | Parse rejection before profile rules run. |
+| SYN-04 | Canonical or custom source is formatted repeatedly through a validated resolved profile. | Byte-idempotent output; comments and mapped Unicode spellings survive; the canonical token stream, AST shape, semantic IR, and semantic ID remain equivalent. |
 | ID-01 | Only whitespace, comments, labels, source spans, or formatting change. | Semantic ID unchanged; artifact ID changes when complete artifact metadata changes. |
 | ID-02 | An observable output field, branch tag, effect, preference, policy, or native extension changes. | Semantic ID changes. |
 | ID-03 | Alpha-equivalent local binders and the same tagged derived `all` branches in a different source order lower where effects make order unobservable. | Identical normalized kernel-network bytes and semantic ID. |

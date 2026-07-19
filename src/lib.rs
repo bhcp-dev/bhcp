@@ -1,6 +1,7 @@
 pub mod adapter;
 pub mod cbor;
 pub mod diagnostic;
+pub mod formatting;
 pub mod hash;
 pub mod inspection;
 pub mod kernel;
