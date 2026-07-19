@@ -43,9 +43,24 @@ fn chain_and_explicit_compose_have_identical_typed_edges_and_semantics() {
     assert_eq!(derived.ir.semantic_id, explicit.ir.semantic_id);
     assert_eq!(derived.ir.semantic_value(), explicit.ir.semantic_value());
     assert_ne!(derived.ast.artifact_id, explicit.ast.artifact_id);
+    assert_eq!(
+        derived.ast_bytes,
+        fs::read(fixture("canonical-chain.ast.cbor")).unwrap()
+    );
+    assert_eq!(
+        derived.ir_bytes,
+        fs::read(fixture("canonical-chain.ir.cbor")).unwrap()
+    );
 
     let network = derived.ir.goals[3].body.as_ref().unwrap();
-    assert_eq!(network.children.iter().map(|child| child.tag.as_str()).collect::<Vec<_>>(), ["patch", "checked", "saved"]);
+    assert_eq!(
+        network
+            .children
+            .iter()
+            .map(|child| child.tag.as_str())
+            .collect::<Vec<_>>(),
+        ["patch", "checked", "saved"]
+    );
     assert!(network.reducer.starts_with("bhcp/prelude.chain-reducer-"));
     assert!(network.to_value().get("kind").is_none());
     assert!(network.to_value().get("order").is_none());
@@ -73,16 +88,74 @@ fn chain_and_explicit_compose_have_identical_typed_edges_and_semantics() {
 fn chain_requests_only_the_next_child_and_returns_the_last_output() {
     let compiled = compile("canonical-chain.bhcp");
     let runtime = KernelRuntime::new(&compiled.ir);
-    assert_eq!(runtime.reduce("network-1", Value::owned_map(vec![]), &[]).unwrap(), Reduction::Pending { required: vec!["patch".to_owned()] });
-    let patch = ChildObservation { child: "child-1".to_owned(), result: satisfied(Value::map([("value", Value::Text("diff".to_owned()))]), "evidence-edit") };
-    assert_eq!(runtime.reduce("network-1", Value::owned_map(vec![]), std::slice::from_ref(&patch)).unwrap(), Reduction::Pending { required: vec!["checked".to_owned()] });
-    let checked = ChildObservation { child: "child-2".to_owned(), result: satisfied(Value::map([("passed", Value::Bool(true))]), "evidence-check") };
-    assert_eq!(runtime.reduce("network-1", Value::owned_map(vec![]), &[patch.clone(), checked.clone()]).unwrap(), Reduction::Pending { required: vec!["saved".to_owned()] });
-    let saved = ChildObservation { child: "child-3".to_owned(), result: satisfied(Value::map([("receipt", Value::Text("stored".to_owned()))]), "evidence-save") };
+    assert_eq!(
+        runtime
+            .reduce("network-1", Value::owned_map(vec![]), &[])
+            .unwrap(),
+        Reduction::Pending {
+            required: vec!["patch".to_owned()]
+        }
+    );
+    let patch = ChildObservation {
+        child: "child-1".to_owned(),
+        result: satisfied(
+            Value::map([("value", Value::Text("diff".to_owned()))]),
+            "evidence-edit",
+        ),
+    };
+    assert_eq!(
+        runtime
+            .reduce(
+                "network-1",
+                Value::owned_map(vec![]),
+                std::slice::from_ref(&patch)
+            )
+            .unwrap(),
+        Reduction::Pending {
+            required: vec!["checked".to_owned()]
+        }
+    );
+    let checked = ChildObservation {
+        child: "child-2".to_owned(),
+        result: satisfied(
+            Value::map([("passed", Value::Bool(true))]),
+            "evidence-check",
+        ),
+    };
+    assert_eq!(
+        runtime
+            .reduce(
+                "network-1",
+                Value::owned_map(vec![]),
+                &[patch.clone(), checked.clone()]
+            )
+            .unwrap(),
+        Reduction::Pending {
+            required: vec!["saved".to_owned()]
+        }
+    );
+    let saved = ChildObservation {
+        child: "child-3".to_owned(),
+        result: satisfied(
+            Value::map([("receipt", Value::Text("stored".to_owned()))]),
+            "evidence-save",
+        ),
+    };
     let observations = vec![patch, checked, saved];
-    let result = runtime.reduce("network-1", Value::owned_map(vec![]), &observations).unwrap();
-    assert!(matches!(result, Reduction::Concluded { result: ExecutionResult::Completed(Verdict::Satisfied { ref output, ref evidence }), .. } if output == &Value::map([("receipt", Value::Text("stored".to_owned()))]) && evidence.starts_with(&["evidence-edit".to_owned(), "evidence-check".to_owned(), "evidence-save".to_owned()])));
-    runtime.verify("network-1", Value::owned_map(vec![]), &observations, &result).unwrap();
+    let result = runtime
+        .reduce("network-1", Value::owned_map(vec![]), &observations)
+        .unwrap();
+    assert!(
+        matches!(result, Reduction::Concluded { result: ExecutionResult::Completed(Verdict::Satisfied { ref output, ref evidence }), .. } if output == &Value::map([("receipt", Value::Text("stored".to_owned()))]) && evidence.starts_with(&["evidence-edit".to_owned(), "evidence-check".to_owned(), "evidence-save".to_owned()]))
+    );
+    runtime
+        .verify(
+            "network-1",
+            Value::owned_map(vec![]),
+            &observations,
+            &result,
+        )
+        .unwrap();
 }
 
 #[test]
@@ -90,14 +163,51 @@ fn refutation_unresolved_and_fault_stop_the_chain() {
     let compiled = compile("canonical-chain.bhcp");
     let runtime = KernelRuntime::new(&compiled.ir);
     let cases = [
-        ExecutionResult::Completed(Verdict::Refuted { counter_evidence: vec!["counter-edit".to_owned()] }),
-        ExecutionResult::Completed(Verdict::Unresolved { reason: reason("bhcp.reason/evidence-missing@0"), partial_evidence: vec!["partial-edit".to_owned()] }),
-        ExecutionResult::Faulted(OperationalFault { error: reason("bhcp.fault/executor@0"), trace: vec![] }),
+        ExecutionResult::Completed(Verdict::Refuted {
+            counter_evidence: vec!["counter-edit".to_owned()],
+        }),
+        ExecutionResult::Completed(Verdict::Unresolved {
+            reason: reason("bhcp.reason/evidence-missing@0"),
+            partial_evidence: vec!["partial-edit".to_owned()],
+        }),
+        ExecutionResult::Faulted(OperationalFault {
+            error: reason("bhcp.fault/executor@0"),
+            trace: vec![],
+        }),
     ];
     for result in cases {
-        let observation = ChildObservation { child: "child-1".to_owned(), result };
-        assert!(matches!(runtime.reduce("network-1", Value::owned_map(vec![]), &[observation]).unwrap(), Reduction::Concluded { .. }));
+        let observation = ChildObservation {
+            child: "child-1".to_owned(),
+            result,
+        };
+        assert!(matches!(
+            runtime
+                .reduce("network-1", Value::owned_map(vec![]), &[observation])
+                .unwrap(),
+            Reduction::Concluded { .. }
+        ));
     }
+}
+
+#[test]
+fn later_observations_require_a_satisfied_predecessor() {
+    let compiled = compile("canonical-chain.bhcp");
+    let runtime = KernelRuntime::new(&compiled.ir);
+    let premature = ChildObservation {
+        child: "child-2".to_owned(),
+        result: satisfied(
+            Value::map([("passed", Value::Bool(true))]),
+            "evidence-check",
+        ),
+    };
+    let diagnostic = runtime
+        .reduce("network-1", Value::owned_map(vec![]), &[premature])
+        .unwrap_err();
+    assert_eq!(diagnostic.code, "BHCP4101");
+    assert_eq!(
+        diagnostic.message,
+        "child observation requires a satisfied data-edge predecessor"
+    );
 }
 
 #[test]
@@ -108,27 +218,56 @@ fn chain_order_is_semantic_and_edge_types_fail_closed() {
         "        checked = example/Check@0(patch = borrow patch);\n        patch = example/Edit@0();",
     );
     let diagnostic = compile_source(&reordered, "forward-chain-edge.bhcp").unwrap_err();
-    assert_eq!(diagnostic.code, "BHCP2001");
+    assert_eq!(diagnostic.code, "BHCP2003");
 
     let wrong_type = source.replace("§input patch: { value: Text };", "§input patch: Text;");
     let diagnostic = compile_source(&wrong_type, "wrong-chain-edge.bhcp").unwrap_err();
     assert_eq!(diagnostic.code, "BHCP2003");
+
+    let ordered = "§goal example/Seed@0 { §output value: Text; }\n\
+                   §goal example/A@0 { §input prior: { value: Text }; §output value: Text; }\n\
+                   §goal example/B@0 { §input prior: { value: Text }; §output value: Text; }\n\
+                   §goal example/P@0 { §output value: Text; §chain {\n\
+                     seed = example/Seed@0();\n\
+                     a = example/A@0(prior = borrow seed);\n\
+                     b = example/B@0(prior = borrow a);\n\
+                   }; }";
+    let reordered = "§goal example/Seed@0 { §output value: Text; }\n\
+                     §goal example/A@0 { §input prior: { value: Text }; §output value: Text; }\n\
+                     §goal example/B@0 { §input prior: { value: Text }; §output value: Text; }\n\
+                     §goal example/P@0 { §output value: Text; §chain {\n\
+                       seed = example/Seed@0();\n\
+                       b = example/B@0(prior = borrow seed);\n\
+                       a = example/A@0(prior = borrow b);\n\
+                     }; }";
+    let ordered = compile_source(ordered, "ordered-chain.bhcp").unwrap();
+    let reordered = compile_source(reordered, "reordered-chain.bhcp").unwrap();
+    assert_ne!(ordered.ir.semantic_id, reordered.ir.semantic_id);
 }
 
 #[test]
 fn forged_observation_edge_is_rejected_before_reduction() {
     let mut compiled = compile("canonical-chain.bhcp");
     let argument = &mut compiled.ir.goals[3].body.as_mut().unwrap().children[1].arguments[0];
-    let ExpressionForm::Call(_, parameters) = &mut argument.value.form else { unreachable!() };
+    let ExpressionForm::Call(_, parameters) = &mut argument.value.form else {
+        unreachable!()
+    };
     parameters[0].form = ExpressionForm::Literal(Value::Text("saved".to_owned()));
-    let diagnostic = KernelRuntime::new(&compiled.ir).reduce("network-1", Value::owned_map(vec![]), &[]).unwrap_err();
+    let diagnostic = KernelRuntime::new(&compiled.ir)
+        .reduce("network-1", Value::owned_map(vec![]), &[])
+        .unwrap_err();
     assert_eq!(diagnostic.code, "BHCP4001");
 }
 
 #[test]
 fn empty_chain_is_a_premise_free_satisfied_unit_identity() {
-    let compiled = compile_source("§goal example/Empty@0 { §chain { }; }", "empty-chain.bhcp").unwrap();
+    let compiled =
+        compile_source("§goal example/Empty@0 { §chain { }; }", "empty-chain.bhcp").unwrap();
     assert_eq!(compiled.ir.goals[0].output, BhcpType::Primitive("Unit"));
-    let result = KernelRuntime::new(&compiled.ir).reduce("network-1", Value::owned_map(vec![]), &[]).unwrap();
-    assert!(matches!(result, Reduction::Concluded { result: ExecutionResult::Completed(Verdict::Satisfied { output, .. }), ref derivation } if output == Value::Array(vec![Value::Text("unit".to_owned())]) && derivation.premises.is_empty()));
+    let result = KernelRuntime::new(&compiled.ir)
+        .reduce("network-1", Value::owned_map(vec![]), &[])
+        .unwrap();
+    assert!(
+        matches!(result, Reduction::Concluded { result: ExecutionResult::Completed(Verdict::Satisfied { output, .. }), ref derivation } if output == Value::Array(vec![Value::Text("unit".to_owned())]) && derivation.premises.is_empty())
+    );
 }

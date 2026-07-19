@@ -19,6 +19,9 @@ pub const ANY_FEATURE: &str = "bhcp/feature.self-hosted-any@0";
 pub const NONE_LOWERER: &str = "bhcp/prelude.lower-none@0";
 pub const NONE_REDUCER: &str = "bhcp/prelude.none-reducer@0";
 pub const NONE_FEATURE: &str = "bhcp/feature.self-hosted-none@0";
+pub const CHAIN_LOWERER: &str = "bhcp/prelude.lower-chain@0";
+pub const CHAIN_REDUCER: &str = "bhcp/prelude.chain-reducer@0";
+pub const CHAIN_FEATURE: &str = "bhcp/feature.self-hosted-chain@0";
 
 const SOURCE_NAME: &str = "prelude/v0/standard.bhcp";
 const SOURCE: &str = concat!(
@@ -26,7 +29,9 @@ const SOURCE: &str = concat!(
     "\n",
     include_str!("../prelude/v0/any.bhcp"),
     "\n",
-    include_str!("../prelude/v0/none.bhcp")
+    include_str!("../prelude/v0/none.bhcp"),
+    "\n",
+    include_str!("../prelude/v0/chain.bhcp")
 );
 const INVALID_PRELUDE: &str = "BHCP3001";
 
@@ -86,6 +91,8 @@ impl Prelude {
         prelude.validate_any_reducer()?;
         prelude.validate_none_lowerer()?;
         prelude.validate_none_reducer()?;
+        prelude.validate_chain_lowerer()?;
+        prelude.validate_chain_reducer()?;
         Ok(prelude)
     }
 
@@ -137,6 +144,14 @@ impl Prelude {
 
     fn validate_none_reducer(&self) -> Result<()> {
         self.validate_reducer(NONE_REDUCER, "none-reducer")
+    }
+
+    fn validate_chain_lowerer(&self) -> Result<()> {
+        self.validate_lowerer(CHAIN_LOWERER, "lower-chain")
+    }
+
+    fn validate_chain_reducer(&self) -> Result<()> {
+        self.validate_reducer(CHAIN_REDUCER, "chain-reducer")
     }
 
     fn validate_lowerer(&self, symbol: &str, name: &str) -> Result<()> {
@@ -225,6 +240,14 @@ fn evaluate_meta(
                 .collect::<Result<Vec<_>>>()?;
             match (function.as_str(), values.as_slice()) {
                 ("bhcp/meta.unit-type@0", []) => Ok(MetaValue::Type(BhcpType::Primitive("Unit"))),
+                ("bhcp/meta.last-child-output-or-unit@0", [MetaValue::Form(form)]) => {
+                    Ok(MetaValue::Type(
+                        form.children
+                            .last()
+                            .map(|child| child.output.clone())
+                            .unwrap_or(BhcpType::Primitive("Unit")),
+                    ))
+                }
                 ("bhcp/meta.child-output-record@0", [MetaValue::Form(form)]) => {
                     let mut fields: Vec<_> = form
                         .children

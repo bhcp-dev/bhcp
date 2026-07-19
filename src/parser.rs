@@ -167,6 +167,10 @@ pub enum SurfaceComposition {
         branches: Vec<SurfaceBranch>,
         at: Point,
     },
+    DerivedChain {
+        branches: Vec<SurfaceBranch>,
+        at: Point,
+    },
     Compose {
         reducer: String,
         branches: Vec<SurfaceBranch>,
@@ -180,6 +184,7 @@ impl SurfaceComposition {
             Self::DerivedAll { branches, .. }
             | Self::DerivedAny { branches, .. }
             | Self::DerivedNone { branches, .. }
+            | Self::DerivedChain { branches, .. }
             | Self::Compose { branches, .. } => branches,
         }
     }
@@ -189,6 +194,7 @@ impl SurfaceComposition {
             Self::DerivedAll { at, .. }
             | Self::DerivedAny { at, .. }
             | Self::DerivedNone { at, .. }
+            | Self::DerivedChain { at, .. }
             | Self::Compose { at, .. } => at,
         }
     }
@@ -198,6 +204,24 @@ impl SurfaceComposition {
 pub struct SurfaceBranch {
     pub tag: String,
     pub goal: String,
+    pub arguments: Vec<SurfaceGoalArgument>,
+    pub at: Point,
+    pub ast: AstNode,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum SurfaceArgumentMode {
+    Value,
+    Move,
+    Borrow,
+    Share,
+}
+
+#[derive(Clone, Debug)]
+pub struct SurfaceGoalArgument {
+    pub name: String,
+    pub mode: SurfaceArgumentMode,
+    pub source: String,
     pub at: Point,
     pub ast: AstNode,
 }
@@ -1019,6 +1043,7 @@ impl Parser<'_> {
             if self.matches("§all")
                 || self.matches("§any")
                 || self.matches("§none")
+                || self.matches("§chain")
                 || self.matches("§compose")
             {
                 if body.is_some() {
@@ -1063,6 +1088,8 @@ impl Parser<'_> {
         } else {
             None
         };
+        let permits_arguments =
+            derived == "§chain" || reducer.as_deref() == Some("bhcp/prelude.chain-reducer@0");
         self.expect("{")?;
         let mut branches = Vec::new();
         while !self.matches("}") {
@@ -1084,11 +1111,54 @@ impl Parser<'_> {
             }
             let (goal, _) = self.qualified_name()?;
             self.expect("(")?;
-            if !self.matches(")") {
+            if !self.matches(")") && !permits_arguments {
                 return self.fail(
                     "BHCP1004",
                     "goal-call arguments are outside the implemented composition slice",
                 );
+            }
+            let mut arguments = Vec::new();
+            if !self.matches(")") {
+                loop {
+                    let name = self.identifier("argument name")?;
+                    self.expect("=")?;
+                    let (mode, mode_name) = if self.matches("move") {
+                        self.consume();
+                        (SurfaceArgumentMode::Move, "move")
+                    } else if self.matches("borrow") {
+                        self.consume();
+                        (SurfaceArgumentMode::Borrow, "borrow")
+                    } else if self.matches("share") {
+                        self.consume();
+                        (SurfaceArgumentMode::Share, "share")
+                    } else {
+                        (SurfaceArgumentMode::Value, "value")
+                    };
+                    let source = self.identifier("argument source")?;
+                    let argument_ast = self.ast(
+                        "argument",
+                        None,
+                        name.start.clone(),
+                        source.end.clone(),
+                        vec![
+                            ("name".to_owned(), Value::Text(name.text.clone())),
+                            ("mode".to_owned(), Value::Text(mode_name.to_owned())),
+                            ("source".to_owned(), Value::Text(source.text.clone())),
+                        ],
+                        vec![],
+                    );
+                    arguments.push(SurfaceGoalArgument {
+                        name: name.text,
+                        mode,
+                        source: source.text,
+                        at: name.start,
+                        ast: argument_ast,
+                    });
+                    if !self.matches(",") {
+                        break;
+                    }
+                    self.consume();
+                }
             }
             self.consume();
             let branch_end = self.expect(";")?.end;
@@ -1101,16 +1171,26 @@ impl Parser<'_> {
                     ("tag".to_owned(), Value::Text(tag.text.clone())),
                     ("goal".to_owned(), Value::Text(goal.clone())),
                 ],
-                vec![],
+                arguments
+                    .iter()
+                    .map(|argument| argument.ast.clone())
+                    .collect(),
             );
             branches.push(SurfaceBranch {
                 tag: tag.text,
                 goal,
+                arguments,
                 at: tag.start,
                 ast: branch_ast,
             });
         }
         self.consume();
+        if !permits_arguments && branches.iter().any(|branch| !branch.arguments.is_empty()) {
+            return self.fail(
+                "BHCP1004",
+                "goal-call arguments are outside the implemented composition slice",
+            );
+        }
         let end = self.expect(";")?.end;
         let ast = self.ast(
             if reducer.is_some() {
@@ -1119,6 +1199,8 @@ impl Parser<'_> {
                 "any"
             } else if derived == "§none" {
                 "none"
+            } else if derived == "§chain" {
+                "chain"
             } else {
                 "all"
             },
@@ -1144,6 +1226,11 @@ impl Parser<'_> {
             }
         } else if derived == "§none" {
             SurfaceComposition::DerivedNone {
+                branches,
+                at: keyword.start,
+            }
+        } else if derived == "§chain" {
+            SurfaceComposition::DerivedChain {
                 branches,
                 at: keyword.start,
             }

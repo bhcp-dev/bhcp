@@ -85,7 +85,7 @@ fixture to its expected root kind. The Rust validation harness:
 - decodes and re-encodes each instance deterministically, requiring byte equality;
   and
 - validates the checked-in compiler-emitted canonical AST and semantic IR CBOR
-  artifacts for the simple, self-hosted `all`, `any`, and `none` programs under
+  artifacts for the simple, self-hosted `all`, `any`, `none`, and `chain` programs under
   [`conformance/v0/fixtures/`](../../conformance/v0/fixtures/).
 
 The Rust implementation also has a strongly typed `evidence-bundle-document` model

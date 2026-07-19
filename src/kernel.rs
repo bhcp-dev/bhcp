@@ -480,6 +480,7 @@ impl<'a> KernelRuntime<'a> {
             .filter_map(|slot| slot.result.as_ref().map(|_| slot.tag.clone()))
             .collect();
         reduction.validate(network, &observed_tags)?;
+        validate_pending_data_edges(&reduction, network, &slots)?;
         if let Reduction::Concluded {
             result: ExecutionResult::Completed(Verdict::Satisfied { output, .. }),
             ..
@@ -564,6 +565,28 @@ impl<'a> KernelRuntime<'a> {
                 return Err(invalid("child observations must be unique"));
             }
         }
+        for child in &network.children {
+            if !supplied.contains_key(child.id.as_str()) {
+                continue;
+            }
+            for argument in &child.arguments {
+                let predecessor_tag = observed_output_tag(&argument.value)
+                    .expect("IR validation checked observed-output data edges");
+                let predecessor = network
+                    .children
+                    .iter()
+                    .find(|candidate| candidate.tag == predecessor_tag)
+                    .expect("IR validation resolved predecessor tag");
+                if !matches!(
+                    supplied.get(predecessor.id.as_str()).copied(),
+                    Some(ExecutionResult::Completed(Verdict::Satisfied { .. }))
+                ) {
+                    return Err(invalid(
+                        "child observation requires a satisfied data-edge predecessor",
+                    ));
+                }
+            }
+        }
         network
             .children
             .iter()
@@ -590,6 +613,52 @@ impl<'a> KernelRuntime<'a> {
             })
             .collect()
     }
+}
+
+fn validate_pending_data_edges(
+    reduction: &Reduction,
+    network: &KernelNetwork,
+    slots: &[ObservationSlot],
+) -> Result<()> {
+    let Reduction::Pending { required } = reduction else {
+        return Ok(());
+    };
+    for tag in required {
+        let child = network
+            .children
+            .iter()
+            .find(|child| child.tag == *tag)
+            .expect("pending validation resolved required tags");
+        for argument in &child.arguments {
+            let predecessor_tag = observed_output_tag(&argument.value)
+                .expect("IR validation checked observed-output data edges");
+            if !slots.iter().any(|slot| {
+                slot.tag == predecessor_tag
+                    && matches!(
+                        &slot.result,
+                        Some(ExecutionResult::Completed(Verdict::Satisfied { .. }))
+                    )
+            }) {
+                return Err(invalid(
+                    "pending child requires a satisfied data-edge predecessor",
+                ));
+            }
+        }
+    }
+    Ok(())
+}
+
+fn observed_output_tag(expression: &Expression) -> Option<&str> {
+    let ExpressionForm::Call(symbol, arguments) = &expression.form else {
+        return None;
+    };
+    let [argument] = arguments.as_slice() else {
+        return None;
+    };
+    let ExpressionForm::Literal(Value::Text(tag)) = &argument.form else {
+        return None;
+    };
+    (symbol == "bhcp/kernel.observed-output@0").then_some(tag.as_str())
 }
 
 fn evaluate_expression(
@@ -861,6 +930,7 @@ fn validate_primitive_signature(
         "bhcp/kernel.satisfied-record@0"
         | "bhcp/kernel.first-satisfied-output@0"
         | "bhcp/kernel.last-satisfied-output@0"
+        | "bhcp/kernel.last-satisfied-output-or-unit@0"
             if argument_types == [observations.clone()] =>
         {
             output.as_ref().clone()
@@ -1107,6 +1177,21 @@ fn evaluate_primitive(
                 })
                 .ok_or_else(|| invalid("no satisfied observation supplies an output"))?;
             Ok(RuntimeValue::Data(output))
+        }
+        "bhcp/kernel.last-satisfied-output-or-unit@0" => {
+            let observations = take_observations(arguments)?;
+            let output = observations
+                .iter()
+                .rev()
+                .find_map(|slot| match &slot.result {
+                    Some(ExecutionResult::Completed(Verdict::Satisfied { output, .. })) => {
+                        Some(output.clone())
+                    }
+                    _ => None,
+                });
+            Ok(RuntimeValue::Data(output.unwrap_or_else(|| {
+                Value::Array(vec![Value::Text("unit".to_owned())])
+            })))
         }
         "bhcp/kernel.first-satisfied-winner@0" => {
             let observations = take_observations(arguments)?;
