@@ -239,7 +239,6 @@ pub struct ExperimentArm {
     pub executable: PathBuf,
     pub arguments: Vec<String>,
     pub contract_files: Vec<PathBuf>,
-    pub trusted_executables: Vec<PathBuf>,
 }
 
 impl ExperimentArm {
@@ -254,7 +253,6 @@ impl ExperimentArm {
             executable: executable.into(),
             arguments: Vec::new(),
             contract_files: Vec::new(),
-            trusted_executables: Vec::new(),
         }
     }
 }
@@ -298,6 +296,7 @@ pub struct ExperimentPlan {
     pub judges: Vec<JudgeCommand>,
     pub oracle_source: Option<PathBuf>,
     pub allowed_changes: Vec<PathBuf>,
+    pub trusted_executables: Vec<PathBuf>,
 }
 
 impl ExperimentPlan {
@@ -317,6 +316,7 @@ impl ExperimentPlan {
             judges: Vec::new(),
             oracle_source: None,
             allowed_changes: vec![PathBuf::from("subject/src/lib.rs")],
+            trusted_executables: Vec::new(),
         }
     }
 
@@ -343,15 +343,6 @@ impl ExperimentPlan {
                 )));
             }
             path_text(&arm.executable)?;
-            for executable in &arm.trusted_executables {
-                if !executable.is_absolute() || !executable.is_file() {
-                    return Err(invalid(format!(
-                        "arm {:?} trusted executable must be an absolute existing file",
-                        arm.id
-                    )));
-                }
-                path_text(executable)?;
-            }
             let mut visible_files = BTreeSet::from([&arm.prompt_file]);
             for file in &arm.contract_files {
                 validate_relative_file("contract file", file)?;
@@ -363,6 +354,14 @@ impl ExperimentPlan {
                     )));
                 }
             }
+        }
+        for executable in &self.trusted_executables {
+            if !executable.is_absolute() || !executable.is_file() {
+                return Err(invalid(
+                    "trusted executable must be an absolute existing file",
+                ));
+            }
+            path_text(executable)?;
         }
         for path in &self.allowed_changes {
             validate_relative_file("allowed change", path)?;
@@ -1330,20 +1329,6 @@ fn plan_digest(plan: &ExperimentPlan, fixture_digest: &str) -> Result<String> {
                             .collect::<Result<Vec<_>>>()?,
                     ),
                 ),
-                (
-                    "trusted_executables",
-                    Value::Array(
-                        arm.trusted_executables
-                            .iter()
-                            .map(|executable| {
-                                Ok(Value::map([
-                                    ("path", Value::Text(path_text(executable)?)),
-                                    ("digest", Value::Text(digest_file(executable)?)),
-                                ]))
-                            })
-                            .collect::<Result<Vec<_>>>()?,
-                    ),
-                ),
             ]))
         })
         .collect::<Result<Vec<_>>>()?;
@@ -1366,7 +1351,7 @@ fn plan_digest(plan: &ExperimentPlan, fixture_digest: &str) -> Result<String> {
             ]))
         })
         .collect::<Result<Vec<_>>>()?;
-    let value = Value::map([
+    let Value::Map(mut fields) = Value::map([
         ("kind", Value::Text("experiment-plan@0".to_owned())),
         ("id", Value::Text(plan.id.clone())),
         ("fixture_digest", Value::Text(fixture_digest.to_owned())),
@@ -1407,7 +1392,26 @@ fn plan_digest(plan: &ExperimentPlan, fixture_digest: &str) -> Result<String> {
             ),
         ),
         ("withheld_oracle", Value::Bool(plan.oracle_source.is_some())),
-    ]);
+    ]) else {
+        unreachable!("Value::map must create a map")
+    };
+    if !plan.trusted_executables.is_empty() {
+        fields.push((
+            "trusted_executables".to_owned(),
+            Value::Array(
+                plan.trusted_executables
+                    .iter()
+                    .map(|executable| {
+                        Ok(Value::map([
+                            ("path", Value::Text(path_text(executable)?)),
+                            ("digest", Value::Text(digest_file(executable)?)),
+                        ]))
+                    })
+                    .collect::<Result<Vec<_>>>()?,
+            ),
+        ));
+    }
+    let value = Value::owned_map(fields);
     Ok(format_hash(&hash_value(&value, HashAlgorithm::default())?))
 }
 

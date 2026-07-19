@@ -47,9 +47,9 @@ fn frozen_plan_tracks_every_nested_trusted_executable() {
         &scratch,
         pins(),
     );
-    let mut arm = ExperimentArm::new("prose", "TASK.md", fake_agent());
-    arm.trusted_executables.push(trusted.clone());
-    plan.arms.push(arm);
+    plan.trusted_executables.push(trusted.clone());
+    plan.arms
+        .push(ExperimentArm::new("prose", "TASK.md", fake_agent()));
     plan.judges.push(fake_judge());
 
     let before = plan.freeze().unwrap();

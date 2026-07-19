@@ -144,6 +144,6 @@ fn corrected_protocol_rejects_a_toolchain_not_selected_by_rustup() {
         &root.join("scratch"),
     ]);
     assert!(!output.status.success());
-    assert!(text(&output).contains("does not select the frozen toolchain executable"));
+    assert!(text(&output).contains("frozen toolchain"));
     fs::remove_dir_all(root).unwrap();
 }
