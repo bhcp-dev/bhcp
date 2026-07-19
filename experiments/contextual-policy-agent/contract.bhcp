@@ -1,0 +1,56 @@
+// Canonical intent for contextual-policy-resolution@0.
+§goal experiment/ResolveContextualPolicy@0 {
+    §input repository: Text;
+    §input task: Text;
+
+    §output patch: Text;
+    §output publicTestsPassed: Bool;
+    §output tenantIsolationPassed: Bool;
+    §output defaultDenyPassed: Bool;
+    §output resourceSpecificityPassed: Bool;
+    §output subjectSpecificityPassed: Bool;
+    §output actionSpecificityPassed: Bool;
+    §output priorityTieBreakPassed: Bool;
+    §output denyTieBreakPassed: Bool;
+    §output ruleIdTieBreakPassed: Bool;
+    §output insertionOrderIndependentPassed: Bool;
+    §output disabledRuleExclusionPassed: Bool;
+    §output policyCheckPassed: Bool;
+    §output changedFiles: Integer;
+
+    §requires "pinned subject": repository == "contextual-policy@0";
+    §requires "pinned ticket": task == "contextual-policy-resolution@0";
+
+    §ensures "visible verification": publicTestsPassed;
+    §ensures "rules remain tenant-local": tenantIsolationPassed;
+    §ensures "no eligible rule is denied": defaultDenyPassed;
+    §ensures "resource specificity dominates": resourceSpecificityPassed;
+    §ensures "subject specificity breaks resource ties": subjectSpecificityPassed;
+    §ensures "action specificity breaks subject ties": actionSpecificityPassed;
+    §ensures "priority breaks equal-shape ties": priorityTieBreakPassed;
+    §ensures "deny breaks equal policy ties": denyTieBreakPassed;
+    §ensures "smaller rule ID breaks remaining ties": ruleIdTieBreakPassed;
+    §ensures "insertion order has no meaning": insertionOrderIndependentPassed;
+    §ensures "disabled rules remain ineligible": disabledRuleExclusionPassed;
+    §ensures "change policy": policyCheckPassed;
+
+    §allows "read the subject": bhcp-effect/fs-read@0;
+    §allows "edit the subject": bhcp-effect/fs-write@0;
+    §allows "run Rust checks": bhcp-effect/process@0;
+    §forbids "offline task": bhcp-effect/network@0;
+
+    §limit "one-file patch": changedFiles <= 1;
+    §prefer 1: "minimal change": changedFiles;
+
+    §verify "public Rust checks": with experiment/verifier/public-rust@0
+        for "visible verification";
+    §verify "withheld contextual-policy oracle": with experiment/verifier/contextual-policy@0
+        for "rules remain tenant-local", "no eligible rule is denied",
+            "resource specificity dominates", "subject specificity breaks resource ties",
+            "action specificity breaks subject ties", "priority breaks equal-shape ties",
+            "deny breaks equal policy ties", "smaller rule ID breaks remaining ties",
+            "insertion order has no meaning", "disabled rules remain ineligible";
+    §verify "scope and dependency policy": with experiment/verifier/change-policy@0
+        for "change policy", "one-file patch";
+}
+

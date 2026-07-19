@@ -421,6 +421,14 @@ equal-information syntax comparison, and its checked oracle exposes five distinc
 reasonable-but-policy-invalid implementations while retaining two passing control
 invariants.
 
+[`experiments/contextual-policy-agent/`](experiments/contextual-policy-agent/)
+extends that benchmark to an ordered resource → subject → action specificity
+lattice with ten withheld invariants. Pilot 006 records accepted prose and raw-BHCP
+patches, one compact-skill run that collapsed the lattice and failed two invariants,
+and a latest-main skill follow-up that passed all ten with substantially higher
+token intake. The paired skill outcomes make run variance and ordered-obligation
+retention explicit rather than reporting only a favorable sample.
+
 The v0 policy wire and restriction algebra are now specified in
 [`SEMANTICS.md`](SEMANTICS.md#s92-monotonic-policy) and the CDDL bundle. Six closed
 category/operation/value shapes replace the former unrestricted policy value, and a
@@ -489,7 +497,6 @@ and need for a waiver; no effective policy is returned from an invalid layer.
   rule strict-types: type-mode strengthen strict nonwaivable;
 }
 ```
-
 The trusted composition boundary is deliberately narrow. A network carries its
 structural ID, output type, finite typed children, and reducer symbol—nothing else.
 It carries no behavior kind, quantifier family, guard, dependency list, budget,

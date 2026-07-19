@@ -1,0 +1,42 @@
+diff --git a/src/lib.rs b/src/lib.rs
+index 3f126bf..8536cc2 100644
+--- a/src/lib.rs
++++ b/src/lib.rs
+@@ -67,17 +67,24 @@ impl Policy {
+ 
+     #[must_use]
+     pub fn decide(&self, tenant: &str, subject: &str, action: &str, resource: &str) -> Decision {
+-        let _requested_tenant = tenant;
+         let selected = self
+             .rules
+             .iter()
+             .filter(|rule| {
+                 rule.enabled
++                    && rule.tenant == tenant
+                     && pattern_matches(&rule.subject, subject)
+                     && pattern_matches(&rule.action, action)
+                     && pattern_matches(&rule.resource, resource)
+             })
+-            .max_by_key(|rule| (specificity_score(rule), rule.priority));
++            .max_by_key(|rule| {
++                (
++                    specificity_score(rule),
++                    rule.priority,
++                    effect_score(rule.effect),
++                    std::cmp::Reverse(rule.id.clone()),
++                )
++            });
+ 
+         match selected {
+             Some(rule) => Decision {
+@@ -106,3 +113,10 @@ fn specificity_score(rule: &Rule) -> usize {
+     .filter(|pattern| *pattern != "*")
+     .count()
+ }
++
++fn effect_score(effect: Effect) -> u8 {
++    match effect {
++        Effect::Deny => 1,
++        Effect::Allow => 0,
++    }
++}
