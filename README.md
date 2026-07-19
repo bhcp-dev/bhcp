@@ -92,6 +92,21 @@ cargo test --all-targets
 cargo build --release
 ```
 
+The `Rust quality` GitHub Actions workflow runs the same commands with Rust
+`1.97.1` from `.mise.toml` on every pull request and every update to `main`.
+It exposes five independent required-check candidates so a failure remains
+attributable instead of being hidden behind one aggregate job:
+
+- `Rust quality / Format`
+- `Rust quality / Clippy`
+- `Rust quality / Tests`
+- `Rust quality / Release build`
+- `Rust quality / 17-root CDDL fixtures`
+
+The final check runs the 17-root fixture invariant directly; the complete test
+suite also includes it. Workflow actions are commit-pinned, and Cargo registry and
+Git dependency caches are keyed by the pinned toolchain and `Cargo.lock`.
+
 `cargo run --bin generate-fixtures` regenerates the checked-in AST and IR CBOR
 artifacts for the canonical simple-goal and self-hosted `all` fixtures. The semantic
 model defines the minimal `kernel-network`: total pure reducers return adjectival
