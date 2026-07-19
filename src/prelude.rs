@@ -16,12 +16,17 @@ pub const ALL_FEATURE: &str = "bhcp/feature.self-hosted-all@0";
 pub const ANY_LOWERER: &str = "bhcp/prelude.lower-any@0";
 pub const ANY_REDUCER: &str = "bhcp/prelude.any-reducer@0";
 pub const ANY_FEATURE: &str = "bhcp/feature.self-hosted-any@0";
+pub const NONE_LOWERER: &str = "bhcp/prelude.lower-none@0";
+pub const NONE_REDUCER: &str = "bhcp/prelude.none-reducer@0";
+pub const NONE_FEATURE: &str = "bhcp/feature.self-hosted-none@0";
 
 const SOURCE_NAME: &str = "prelude/v0/standard.bhcp";
 const SOURCE: &str = concat!(
     include_str!("../prelude/v0/all.bhcp"),
     "\n",
-    include_str!("../prelude/v0/any.bhcp")
+    include_str!("../prelude/v0/any.bhcp"),
+    "\n",
+    include_str!("../prelude/v0/none.bhcp")
 );
 const INVALID_PRELUDE: &str = "BHCP3001";
 
@@ -79,6 +84,8 @@ impl Prelude {
         prelude.validate_all_reducer()?;
         prelude.validate_any_lowerer()?;
         prelude.validate_any_reducer()?;
+        prelude.validate_none_lowerer()?;
+        prelude.validate_none_reducer()?;
         Ok(prelude)
     }
 
@@ -122,6 +129,14 @@ impl Prelude {
 
     fn validate_any_reducer(&self) -> Result<()> {
         self.validate_reducer(ANY_REDUCER, "any-reducer")
+    }
+
+    fn validate_none_lowerer(&self) -> Result<()> {
+        self.validate_lowerer(NONE_LOWERER, "lower-none")
+    }
+
+    fn validate_none_reducer(&self) -> Result<()> {
+        self.validate_reducer(NONE_REDUCER, "none-reducer")
     }
 
     fn validate_lowerer(&self, symbol: &str, name: &str) -> Result<()> {
@@ -209,6 +224,7 @@ fn evaluate_meta(
                 .map(|argument| evaluate_meta(argument, environment))
                 .collect::<Result<Vec<_>>>()?;
             match (function.as_str(), values.as_slice()) {
+                ("bhcp/meta.unit-type@0", []) => Ok(MetaValue::Type(BhcpType::Primitive("Unit"))),
                 ("bhcp/meta.child-output-record@0", [MetaValue::Form(form)]) => {
                     let mut fields: Vec<_> = form
                         .children

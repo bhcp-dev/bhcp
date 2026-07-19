@@ -52,6 +52,14 @@ fn none_and_explicit_compose_lower_to_identical_unit_semantics_and_bytes() {
     assert_ne!(derived.ast.artifact_id, explicit.ast.artifact_id);
     assert_eq!(derived.ast_bytes, repeated.ast_bytes);
     assert_eq!(derived.ir_bytes, repeated.ir_bytes);
+    assert_eq!(
+        derived.ast_bytes,
+        fs::read(fixture("canonical-none.ast.cbor")).unwrap()
+    );
+    assert_eq!(
+        derived.ir_bytes,
+        fs::read(fixture("canonical-none.ir.cbor")).unwrap()
+    );
     assert_eq!(derived.ir.goals[2].output, BhcpType::Primitive("Unit"));
     assert_eq!(
         derived.ir.goals[2].body.as_ref().unwrap().output,
@@ -65,6 +73,22 @@ fn none_and_explicit_compose_lower_to_identical_unit_semantics_and_bytes() {
             .reducer
             .starts_with("bhcp/prelude.none-reducer-")
     );
+    let encoded = derived.ir.goals[2].body.as_ref().unwrap().to_value();
+    assert!(encoded.get("kind").is_none());
+    assert!(encoded.get("lowerer").is_none());
+}
+
+#[test]
+fn none_branch_source_order_is_not_semantic() {
+    let source = fs::read_to_string(fixture("canonical-none.bhcp")).unwrap();
+    let reversed = source.replace(
+        "        malware = example/Malware@0();\n        violation = example/Violation@0();",
+        "        violation = example/Violation@0();\n        malware = example/Malware@0();",
+    );
+    let normal = compile_source(&source, "normal-none.bhcp").unwrap();
+    let reversed = compile_source(&reversed, "reversed-none.bhcp").unwrap();
+    assert_eq!(normal.ir.semantic_id, reversed.ir.semantic_id);
+    assert_ne!(normal.ast.artifact_id, reversed.ast.artifact_id);
 }
 
 #[test]
@@ -100,7 +124,10 @@ fn none_requests_all_children_and_all_refutations_prove_unit() {
         panic!("all refuted children must satisfy none")
     };
     assert_eq!(output, &Value::Array(vec![Value::Text("unit".to_owned())]));
-    assert_eq!(derivation.premises, ["counter-malware", "counter-violation"]);
+    assert_eq!(
+        derivation.premises,
+        ["counter-malware", "counter-violation"]
+    );
     assert!(evidence.contains(&derivation.id));
     runtime
         .verify(
@@ -204,8 +231,8 @@ fn none_obeys_missing_fault_and_unresolved_precedence() {
 
 #[test]
 fn empty_none_is_a_premise_free_satisfied_unit_identity() {
-    let compiled = compile_source("§goal example/Empty@0 { §none { }; }", "empty-none.bhcp")
-        .unwrap();
+    let compiled =
+        compile_source("§goal example/Empty@0 { §none { }; }", "empty-none.bhcp").unwrap();
     let reduction = KernelRuntime::new(&compiled.ir)
         .reduce("network-1", Value::owned_map(vec![]), &[])
         .unwrap();
@@ -234,6 +261,20 @@ fn none_rejects_an_explicit_output_shape() {
     assert_eq!(
         diagnostic.message,
         "composition output does not match the parent goal output"
+    );
+}
+
+#[test]
+fn unsupported_nested_none_fails_with_a_stable_diagnostic() {
+    let source = "§goal example/Leaf@0 { }\n\
+                  §goal example/Parent@0 {\n\
+                      §none { nested = §none { leaf = example/Leaf@0(); }; };\n\
+                  }";
+    let diagnostic = compile_source(source, "nested-none.bhcp").unwrap_err();
+    assert_eq!(diagnostic.code, "BHCP1004");
+    assert_eq!(
+        diagnostic.message,
+        "nested composition is outside the implemented vertical slice"
     );
 }
 

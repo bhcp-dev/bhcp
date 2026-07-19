@@ -5,10 +5,10 @@ people declare outcomes, authority, limits, and required evidence while machines
 discover acceptable executions.
 
 This repository defines the normative v0 foundation and focused executable slices.
-The Rust implementation accepts canonical clause goals plus self-hosted `all` and
-homogeneous-output `any`, emits validated canonical AST and semantic IR, dispatches
-registered verifier bindings, and emits deterministic evidence bundles. Canonical
-artifacts use deterministic CBOR and algorithm-tagged semantic or artifact
+The Rust implementation accepts canonical clause goals plus self-hosted `all`,
+homogeneous-output `any`, and `none`, emits validated canonical AST and semantic IR,
+dispatches registered verifier bindings, and emits deterministic evidence bundles.
+Canonical artifacts use deterministic CBOR and algorithm-tagged semantic or artifact
 identities. It is not yet a complete v0 parser, checker, planner, runtime, or SDK.
 
 ## Start here
@@ -67,12 +67,14 @@ expressions; `§allows` and `§forbids` effect atoms; ranked `§prefer`; and `§
 bindings with optional explicit contract-label targets. Scalar literals, binding
 references, parentheses, unary `!`/`-`, and the
 checked Boolean, comparison, and `+` operators form the clause-expression subset.
-Closed record field types, one top-level `§all` or `§any` body, and equivalent
-explicit `§compose` source using its standard reducer are also executable. `any`
-currently requires homogeneous child output types and exposes its winner as the
-closed record `{output: T, tag: Text}`. Composition children are zero-argument goal
-calls; nested compositions, project functions, and every other reserved construct
-outside the slice are rejected with a stable diagnostic rather than erased.
+Closed record field types, one top-level `§all`, `§any`, or `§none` body, and
+equivalent explicit `§compose` source using its standard reducer are also
+executable. `any` currently requires homogeneous child output types and exposes its
+winner as the closed record `{output: T, tag: Text}`. A `none` goal with no declared
+output facts has the canonical `Unit` output. Composition children are zero-argument
+goal calls; nested compositions, project functions, and every other reserved
+construct outside the slice are rejected with a stable diagnostic rather than
+erased.
 
 | Canonical definition | Implemented source slice | Explicitly deferred |
 | --- | --- | --- |
@@ -123,25 +125,28 @@ suite also includes it. Workflow actions are commit-pinned, and Cargo registry a
 Git dependency caches are keyed by the pinned toolchain and `Cargo.lock`.
 
 `cargo run --bin generate-fixtures` regenerates the checked-in AST and IR CBOR
-artifacts for the canonical simple-goal and self-hosted `all`/`any` fixtures. The
-semantic model defines the minimal `kernel-network`: total pure reducers return
+artifacts for the canonical simple-goal and self-hosted `all`/`any`/`none` fixtures.
+The semantic model defines the minimal `kernel-network`: total pure reducers return
 adjectival `Pending | Concluded` reduction states over factored execution results.
 
 [`prelude/v0/all.bhcp`](prelude/v0/all.bhcp) and
-[`prelude/v0/any.bhcp`](prelude/v0/any.bhcp) are parsed and checked as canonical BHCP
-source. Their compile-time lowerers construct ID-free network shapes through the
-restricted metamodel, disappear, and leave monomorphized runtime reducers in
+[`prelude/v0/any.bhcp`](prelude/v0/any.bhcp), and
+[`prelude/v0/none.bhcp`](prelude/v0/none.bhcp) are parsed and checked as canonical
+BHCP source. Their compile-time lowerers construct ID-free network shapes through
+the restricted metamodel, disappear, and leave monomorphized runtime reducers in
 semantic IR. The generic Rust kernel implements only typed sealed-observation
 queries, result construction, tag-to-child resolution, and derivation sealing; the
 prelude source determines behavior precedence and selects aggregation operations.
 Each convenience form and its explicit `§compose` equivalent produce byte-identical
-semantic IR and semantic IDs. Runtime tests cover pending requests, product and
-stable tagged-winner satisfaction, both empty identities, decisive verdicts,
-fault/unresolved precedence, and generic re-evaluation rejection of tampering:
+semantic IR and semantic IDs. Runtime tests cover pending requests, product,
+stable tagged-winner, and `Unit` satisfaction, all three empty identities, decisive
+verdicts, fault/unresolved precedence, and generic re-evaluation rejection of
+tampering:
 
 ```sh
 cargo test --test self_hosted_all
 cargo test --test self_hosted_any
+cargo test --test self_hosted_none
 ```
 
 The reducer evaluator now statically checks every branch before execution, supports

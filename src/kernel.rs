@@ -1059,6 +1059,9 @@ fn evaluate_primitive(
                         partial_evidence,
                         ..
                     })) => partial_evidence.clone(),
+                    Some(ExecutionResult::Completed(Verdict::Refuted { counter_evidence })) => {
+                        counter_evidence.clone()
+                    }
                     _ => vec![],
                 },
             )))

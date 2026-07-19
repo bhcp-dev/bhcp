@@ -163,6 +163,10 @@ pub enum SurfaceComposition {
         branches: Vec<SurfaceBranch>,
         at: Point,
     },
+    DerivedNone {
+        branches: Vec<SurfaceBranch>,
+        at: Point,
+    },
     Compose {
         reducer: String,
         branches: Vec<SurfaceBranch>,
@@ -175,6 +179,7 @@ impl SurfaceComposition {
         match self {
             Self::DerivedAll { branches, .. }
             | Self::DerivedAny { branches, .. }
+            | Self::DerivedNone { branches, .. }
             | Self::Compose { branches, .. } => branches,
         }
     }
@@ -183,6 +188,7 @@ impl SurfaceComposition {
         match self {
             Self::DerivedAll { at, .. }
             | Self::DerivedAny { at, .. }
+            | Self::DerivedNone { at, .. }
             | Self::Compose { at, .. } => at,
         }
     }
@@ -1010,7 +1016,11 @@ impl Parser<'_> {
                     &keyword.start,
                 ));
             }
-            if self.matches("§all") || self.matches("§any") || self.matches("§compose") {
+            if self.matches("§all")
+                || self.matches("§any")
+                || self.matches("§none")
+                || self.matches("§compose")
+            {
                 if body.is_some() {
                     return self.fail(
                         "BHCP1004",
@@ -1107,6 +1117,8 @@ impl Parser<'_> {
                 "compose"
             } else if derived == "§any" {
                 "any"
+            } else if derived == "§none" {
+                "none"
             } else {
                 "all"
             },
@@ -1127,6 +1139,11 @@ impl Parser<'_> {
             }
         } else if derived == "§any" {
             SurfaceComposition::DerivedAny {
+                branches,
+                at: keyword.start,
+            }
+        } else if derived == "§none" {
+            SurfaceComposition::DerivedNone {
                 branches,
                 at: keyword.start,
             }

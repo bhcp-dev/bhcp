@@ -1,0 +1,43 @@
+§function bhcp/prelude.lower-none@0<I, O>(
+    form: Meta<DerivedForm, I, O>
+): Meta<NetworkShape, I, O> =
+    bhcp/meta.network-shape@0(
+        bhcp/meta.unit-type@0(),
+        form,
+        "bhcp/prelude.none-reducer@0"
+    );
+
+§function bhcp/prelude.none-reducer@0<I, O, Observations>(
+    parent: I,
+    observations: Observations
+): Reduction<O> =
+    if bhcp/kernel.has-satisfied@0(observations) then
+        bhcp/kernel.conclude@0(
+            bhcp/kernel.refuted@0(
+                bhcp/kernel.first-satisfied-evidence@0(observations)
+            )
+        )
+    else if bhcp/kernel.has-missing@0(observations) then
+        bhcp/kernel.pending@0(
+            bhcp/kernel.missing-tags@0(observations)
+        )
+    else if bhcp/kernel.all-refuted@0(observations) then
+        bhcp/kernel.conclude@0(
+            bhcp/kernel.satisfied@0(
+                bhcp/kernel.unit@0(),
+                bhcp/kernel.all-counter-evidence@0(observations)
+            )
+        )
+    else if bhcp/kernel.has-faulted@0(observations) then
+        bhcp/kernel.conclude@0(
+            bhcp/kernel.faulted@0(
+                bhcp/kernel.first-fault@0(observations)
+            )
+        )
+    else
+        bhcp/kernel.conclude@0(
+            bhcp/kernel.unresolved@0(
+                bhcp/kernel.first-unresolved-reason@0(observations),
+                bhcp/kernel.partial-evidence@0(observations)
+            )
+        );
