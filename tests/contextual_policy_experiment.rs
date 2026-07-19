@@ -273,6 +273,7 @@ fn prose_does_not_disclose_the_normative_precedence_ladder() {
 
 #[test]
 fn pinned_subject_passes_public_tests_while_oracle_exposes_multiple_defects() {
+    cargo_static_checks(&experiment().join("subject/Cargo.toml"), "subject");
     let public = cargo_test(&experiment().join("subject/Cargo.toml"), "subject");
     assert!(public.status.success(), "{}", output_text(&public));
 
@@ -473,7 +474,7 @@ fn multiseed_004_preserves_the_registered_negative_result() {
     let controller = fs::read_to_string(result.join("CONTROLLER.md")).unwrap();
 
     assert!(registration.contains("contextual-policy-multiseed-004"));
-    assert!(registration.contains("never replaced"));
+    assert!(registration.contains("no-replacement rule"));
     assert!(report.contains("**0/5 accepted**"));
     assert!(report.contains("4/10 oracle invariants"));
     assert!(report.contains("five unchanged candidates"));

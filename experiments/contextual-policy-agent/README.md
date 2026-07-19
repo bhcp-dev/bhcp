@@ -39,6 +39,7 @@ protocol, and symmetric offline judge sequence for subsequent runs.
 - Multi-seed runs 001 and 002 are retained as invalid infrastructure records after
   independent review found that host reads were not confined. Run 003 established
   the read boundary but was excluded before model launch because temporary
-  metadata traversal was too narrow. Run 004 is
-  [preregistered](results/multiseed-004-registration.md) after a real Codex smoke
-  request completed through the corrected boundary.
+  metadata traversal was too narrow. [Run 004](results/multiseed-004/) completed
+  through the corrected boundary: all five unchanged candidates passed visible
+  checks, failed the same six withheld invariants, and correctly withheld a success
+  claim, for a registered result of 0/5 accepted.
