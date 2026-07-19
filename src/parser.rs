@@ -1,6 +1,11 @@
+use std::collections::BTreeMap;
+
+use unicode_normalization::is_nfc;
+
 use crate::diagnostic::{Diagnostic, Result};
-use crate::model::{AstNode, ContentReference, Point, TokenSpan};
+use crate::model::{AstNode, ContentReference, Point, TokenSpan, is_symbol};
 use crate::policy::{PolicyDocument, PolicyHeader, PolicyLayer, PolicyRule, SourcePolicyDocument};
+use crate::profile::{SyntaxDocument, SyntaxMappingCategory};
 use crate::value::Value;
 
 #[derive(Clone, Debug)]
@@ -27,6 +32,515 @@ enum TokenKind {
 enum TokenValue {
     Integer(i64),
     Text(String),
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct NormalizedToken {
+    pub text: String,
+    pub start: Point,
+    pub end: Point,
+}
+
+const REGISTERED_KEYWORDS: &[&str] = &[
+    "all", "allows", "any", "chain", "compose", "ensures", "extends", "forbids", "function",
+    "gate", "goal", "input", "limit", "none", "output", "policy", "prefer", "requires", "verify",
+];
+const OPEN_DELIMITERS: &[&str] = &["(", "[", "{"];
+const CLOSE_DELIMITERS: &[&str] = &[")", "]", "}"];
+const FIXED_LEXICAL_TOKENS: &[&str] = &[
+    "+",
+    "-",
+    "*",
+    "/",
+    "%",
+    "!",
+    "=",
+    "<",
+    ">",
+    "<=",
+    ">=",
+    "==",
+    "!=",
+    "&&",
+    "||",
+    ":",
+    ",",
+    ".",
+    "@",
+    "\"",
+    "//",
+    "/*",
+    "*/",
+    "#!bhcp-profile",
+];
+const FIXED_BARE_WORDS: &[&str] = &[
+    "as", "borrow", "else", "false", "if", "move", "share", "true", "with",
+];
+
+#[derive(Clone, Debug)]
+struct EffectiveSyntax {
+    keyword_by_surface: BTreeMap<String, String>,
+    keyword_surface_by_canonical: BTreeMap<String, String>,
+    sigil_surface: String,
+    punctuation_by_surface: Vec<(String, String)>,
+    punctuation_surface_by_canonical: BTreeMap<String, String>,
+    alias_by_surface: Vec<(String, String)>,
+    alias_surface_by_canonical: BTreeMap<String, String>,
+}
+
+#[derive(Clone, Debug)]
+struct MappedSource {
+    text: String,
+    origins: Vec<Point>,
+}
+
+impl EffectiveSyntax {
+    fn from_document(document: &SyntaxDocument) -> Result<Self> {
+        document.validate()?;
+        if document.extends.is_some() {
+            return Err(syntax_error("unresolved-inheritance"));
+        }
+
+        let mut effective = BTreeMap::new();
+        for keyword in REGISTERED_KEYWORDS {
+            effective.insert(
+                (SyntaxMappingCategory::Keyword, (*keyword).to_owned()),
+                (*keyword).to_owned(),
+            );
+        }
+        effective.insert(
+            (SyntaxMappingCategory::Sigil, "§".to_owned()),
+            "§".to_owned(),
+        );
+        for delimiter in OPEN_DELIMITERS {
+            effective.insert(
+                (
+                    SyntaxMappingCategory::OpenDelimiter,
+                    (*delimiter).to_owned(),
+                ),
+                (*delimiter).to_owned(),
+            );
+        }
+        for delimiter in CLOSE_DELIMITERS {
+            effective.insert(
+                (
+                    SyntaxMappingCategory::CloseDelimiter,
+                    (*delimiter).to_owned(),
+                ),
+                (*delimiter).to_owned(),
+            );
+        }
+        effective.insert(
+            (SyntaxMappingCategory::Terminator, ";".to_owned()),
+            ";".to_owned(),
+        );
+
+        for mapping in &document.mappings {
+            validate_coordinate(mapping.category, &mapping.canonical)?;
+            validate_surface(mapping.category, &mapping.surface)?;
+            effective.insert(
+                (mapping.category, mapping.canonical.clone()),
+                mapping.surface.clone(),
+            );
+        }
+
+        let mut surface_owner: BTreeMap<&str, (&str, SyntaxMappingCategory)> = BTreeMap::new();
+        for ((category, canonical), surface) in &effective {
+            if let Some((existing, _)) = surface_owner.insert(surface, (canonical, *category))
+                && existing != canonical
+            {
+                return Err(syntax_error("ambiguous-surface"));
+            }
+        }
+
+        let punctuation: Vec<_> = effective
+            .iter()
+            .filter(|((category, _), _)| is_punctuation(*category))
+            .map(|((_, canonical), surface)| (canonical.as_str(), surface.as_str()))
+            .collect();
+        for (_, left) in &punctuation {
+            for (_, right) in &punctuation {
+                if left != right && right.starts_with(left) {
+                    return Err(syntax_error("punctuation-prefix"));
+                }
+            }
+            if FIXED_LEXICAL_TOKENS
+                .iter()
+                .any(|fixed| left.starts_with(fixed) || fixed.starts_with(left))
+            {
+                return Err(syntax_error("token-capture"));
+            }
+        }
+
+        let aliases: Vec<_> = effective
+            .iter()
+            .filter(|((category, _), _)| *category == SyntaxMappingCategory::Alias)
+            .map(|((_, canonical), surface)| (canonical.as_str(), surface.as_str()))
+            .collect();
+        for (canonical, surface) in &aliases {
+            if surface.starts_with("bhcp/") && canonical != surface {
+                return Err(syntax_error("core-override"));
+            }
+            if aliases
+                .iter()
+                .any(|(_, candidate_surface)| canonical == candidate_surface)
+            {
+                return Err(syntax_error("recursive-alias"));
+            }
+            if FIXED_BARE_WORDS.contains(surface) {
+                return Err(syntax_error("token-capture"));
+            }
+        }
+
+        let mut keyword_by_surface = BTreeMap::new();
+        let mut keyword_surface_by_canonical = BTreeMap::new();
+        let mut sigil_surface = String::new();
+        let mut punctuation_by_surface = Vec::new();
+        let mut punctuation_surface_by_canonical = BTreeMap::new();
+        let mut alias_by_surface = Vec::new();
+        let mut alias_surface_by_canonical = BTreeMap::new();
+        for ((category, canonical), surface) in effective {
+            match category {
+                SyntaxMappingCategory::Keyword => {
+                    keyword_by_surface.insert(surface.clone(), canonical.clone());
+                    keyword_surface_by_canonical.insert(canonical, surface);
+                }
+                SyntaxMappingCategory::Sigil => sigil_surface = surface,
+                SyntaxMappingCategory::OpenDelimiter
+                | SyntaxMappingCategory::CloseDelimiter
+                | SyntaxMappingCategory::Terminator => {
+                    punctuation_by_surface.push((surface.clone(), canonical.clone()));
+                    punctuation_surface_by_canonical.insert(canonical, surface);
+                }
+                SyntaxMappingCategory::Alias => {
+                    alias_by_surface.push((surface.clone(), canonical.clone()));
+                    alias_surface_by_canonical.insert(canonical, surface);
+                }
+            }
+        }
+        punctuation_by_surface.sort_by(|left, right| {
+            right
+                .0
+                .len()
+                .cmp(&left.0.len())
+                .then_with(|| left.0.cmp(&right.0))
+        });
+        alias_by_surface.sort_by(|left, right| {
+            right
+                .0
+                .len()
+                .cmp(&left.0.len())
+                .then_with(|| left.0.cmp(&right.0))
+        });
+
+        Ok(Self {
+            keyword_by_surface,
+            keyword_surface_by_canonical,
+            sigil_surface,
+            punctuation_by_surface,
+            punctuation_surface_by_canonical,
+            alias_by_surface,
+            alias_surface_by_canonical,
+        })
+    }
+
+    fn normalize(&self, source: &str, source_name: &str) -> Result<MappedSource> {
+        let source_points = source_points(source);
+        let mut mapped = MappedSource {
+            text: String::with_capacity(source.len()),
+            origins: vec![source_points[0].clone()],
+        };
+        let mut cursor = 0;
+        while cursor < source.len() {
+            if source[cursor..].starts_with("//") {
+                let end = source[cursor..]
+                    .find('\n')
+                    .map_or(source.len(), |relative| cursor + relative + 1);
+                append_original(&mut mapped, source, &source_points, cursor, end);
+                cursor = end;
+                continue;
+            }
+            if source[cursor..].starts_with("/*") {
+                let end = source[cursor + 2..]
+                    .find("*/")
+                    .map_or(source.len(), |relative| cursor + 2 + relative + 2);
+                append_original(&mut mapped, source, &source_points, cursor, end);
+                cursor = end;
+                continue;
+            }
+            if source[cursor..].starts_with('"') {
+                let end = string_end(source, cursor);
+                append_original(&mut mapped, source, &source_points, cursor, end);
+                cursor = end;
+                continue;
+            }
+            if let Some(end) = match_at(source, cursor, &self.sigil_surface) {
+                append_replacement(&mut mapped, &source_points, cursor, end, "§");
+                cursor = end;
+                if let Some(keyword_end) = identifier_end(source, cursor) {
+                    let surface = &source[cursor..keyword_end];
+                    if let Some(canonical) = self.keyword_by_surface.get(surface) {
+                        append_replacement(
+                            &mut mapped,
+                            &source_points,
+                            cursor,
+                            keyword_end,
+                            canonical,
+                        );
+                        cursor = keyword_end;
+                    } else if self.keyword_surface_by_canonical.contains_key(surface) {
+                        return Err(normalization_error(
+                            "mapped-away-keyword",
+                            source_name,
+                            &source_points[cursor],
+                        ));
+                    }
+                }
+                continue;
+            }
+            if source[cursor..].starts_with('§') && self.sigil_surface != "§" {
+                return Err(normalization_error(
+                    "mapped-away-sigil",
+                    source_name,
+                    &source_points[cursor],
+                ));
+            }
+            if let Some((canonical, end)) =
+                self.punctuation_by_surface
+                    .iter()
+                    .find_map(|(surface, canonical)| {
+                        match_at(source, cursor, surface).map(|end| (canonical.as_str(), end))
+                    })
+            {
+                append_replacement(&mut mapped, &source_points, cursor, end, canonical);
+                cursor = end;
+                continue;
+            }
+            if let Some(character) = source[cursor..].chars().next()
+                && let Some(surface) = self
+                    .punctuation_surface_by_canonical
+                    .get(&character.to_string())
+                && surface != &character.to_string()
+            {
+                return Err(normalization_error(
+                    "mapped-away-punctuation",
+                    source_name,
+                    &source_points[cursor],
+                ));
+            }
+            if let Some((_, canonical, end)) =
+                self.alias_by_surface
+                    .iter()
+                    .find_map(|(surface, canonical)| {
+                        token_match_at(source, cursor, surface)
+                            .map(|end| (surface.as_str(), canonical.as_str(), end))
+                    })
+            {
+                append_replacement(&mut mapped, &source_points, cursor, end, canonical);
+                cursor = end;
+                continue;
+            }
+            if let Some((canonical, _)) =
+                self.alias_surface_by_canonical
+                    .iter()
+                    .find(|(canonical, surface)| {
+                        canonical.as_str() != surface.as_str()
+                            && token_match_at(source, cursor, canonical).is_some()
+                    })
+            {
+                return Err(normalization_error(
+                    format!("mapped-away-alias {canonical}"),
+                    source_name,
+                    &source_points[cursor],
+                ));
+            }
+            let character = source[cursor..].chars().next().expect("cursor in source");
+            let end = cursor + character.len_utf8();
+            append_original(&mut mapped, source, &source_points, cursor, end);
+            cursor = end;
+        }
+        Ok(mapped)
+    }
+}
+
+fn validate_coordinate(category: SyntaxMappingCategory, canonical: &str) -> Result<()> {
+    let valid = match category {
+        SyntaxMappingCategory::Keyword => REGISTERED_KEYWORDS.contains(&canonical),
+        SyntaxMappingCategory::Sigil => canonical == "§",
+        SyntaxMappingCategory::OpenDelimiter => OPEN_DELIMITERS.contains(&canonical),
+        SyntaxMappingCategory::CloseDelimiter => CLOSE_DELIMITERS.contains(&canonical),
+        SyntaxMappingCategory::Terminator => canonical == ";",
+        SyntaxMappingCategory::Alias => is_symbol(canonical),
+    };
+    if valid {
+        Ok(())
+    } else {
+        Err(syntax_error("category-mismatch"))
+    }
+}
+
+fn validate_surface(category: SyntaxMappingCategory, surface: &str) -> Result<()> {
+    if surface.is_empty()
+        || !is_nfc(surface)
+        || surface.contains("#!bhcp-profile")
+        || surface.chars().any(char::is_control)
+    {
+        return Err(syntax_error("invalid-surface"));
+    }
+    let valid = match category {
+        SyntaxMappingCategory::Keyword => identifier_token(surface),
+        SyntaxMappingCategory::Sigil
+        | SyntaxMappingCategory::OpenDelimiter
+        | SyntaxMappingCategory::CloseDelimiter
+        | SyntaxMappingCategory::Terminator => surface.chars().all(|character| {
+            !character.is_alphanumeric() && !character.is_whitespace() && !character.is_control()
+        }),
+        SyntaxMappingCategory::Alias => identifier_token(surface) || is_symbol(surface),
+    };
+    if valid {
+        Ok(())
+    } else {
+        Err(syntax_error("invalid-surface"))
+    }
+}
+
+fn is_punctuation(category: SyntaxMappingCategory) -> bool {
+    matches!(
+        category,
+        SyntaxMappingCategory::Sigil
+            | SyntaxMappingCategory::OpenDelimiter
+            | SyntaxMappingCategory::CloseDelimiter
+            | SyntaxMappingCategory::Terminator
+    )
+}
+
+fn identifier_token(value: &str) -> bool {
+    let mut characters = value.chars();
+    characters.next().is_some_and(unicode_identifier_start)
+        && characters.all(unicode_identifier_continue)
+}
+
+fn unicode_identifier_start(character: char) -> bool {
+    character == '_' || character.is_alphabetic()
+}
+
+fn unicode_identifier_continue(character: char) -> bool {
+    unicode_identifier_start(character) || character.is_alphanumeric() || character == '-'
+}
+
+fn syntax_error(reason: impl Into<String>) -> Diagnostic {
+    Diagnostic::new("BHCP9002", reason, "<effective-syntax>", 1, 1)
+}
+
+fn normalization_error(reason: impl Into<String>, source_name: &str, point: &Point) -> Diagnostic {
+    Diagnostic::new("BHCP0005", reason, source_name, point.line, point.column)
+}
+
+fn source_points(source: &str) -> Vec<Point> {
+    let mut points = vec![
+        Point {
+            byte: 0,
+            line: 1,
+            column: 1,
+        };
+        source.len() + 1
+    ];
+    let mut line = 1;
+    let mut column = 1;
+    for (byte, character) in source.char_indices() {
+        let point = Point { byte, line, column };
+        for slot in &mut points[byte..byte + character.len_utf8()] {
+            *slot = point.clone();
+        }
+        if character == '\n' {
+            line += 1;
+            column = 1;
+        } else if !(byte == 0 && character == '\u{feff}') {
+            column += 1;
+        }
+        points[byte + character.len_utf8()] = Point {
+            byte: byte + character.len_utf8(),
+            line,
+            column,
+        };
+    }
+    points
+}
+
+fn append_original(
+    mapped: &mut MappedSource,
+    source: &str,
+    source_points: &[Point],
+    start: usize,
+    end: usize,
+) {
+    mapped.text.push_str(&source[start..end]);
+    mapped
+        .origins
+        .extend_from_slice(&source_points[start + 1..=end]);
+}
+
+fn append_replacement(
+    mapped: &mut MappedSource,
+    source_points: &[Point],
+    start: usize,
+    end: usize,
+    replacement: &str,
+) {
+    mapped.text.push_str(replacement);
+    for offset in 1..=replacement.len() {
+        mapped.origins.push(if offset == replacement.len() {
+            source_points[end].clone()
+        } else {
+            source_points[start].clone()
+        });
+    }
+}
+
+fn string_end(source: &str, start: usize) -> usize {
+    let mut escaped = false;
+    for (relative, character) in source[start + 1..].char_indices() {
+        let end = start + 1 + relative + character.len_utf8();
+        if escaped {
+            escaped = false;
+        } else if character == '\\' {
+            escaped = true;
+        } else if character == '"' || character == '\n' {
+            return end;
+        }
+    }
+    source.len()
+}
+
+fn match_at(source: &str, cursor: usize, candidate: &str) -> Option<usize> {
+    source[cursor..]
+        .starts_with(candidate)
+        .then_some(cursor + candidate.len())
+}
+
+fn identifier_end(source: &str, cursor: usize) -> Option<usize> {
+    let mut characters = source[cursor..].char_indices();
+    let (_, first) = characters.next()?;
+    if !unicode_identifier_start(first) {
+        return None;
+    }
+    let mut end = cursor + first.len_utf8();
+    for (relative, character) in characters {
+        if !unicode_identifier_continue(character) {
+            break;
+        }
+        end = cursor + relative + character.len_utf8();
+    }
+    Some(end)
+}
+
+fn token_match_at(source: &str, cursor: usize, candidate: &str) -> Option<usize> {
+    let end = match_at(source, cursor, candidate)?;
+    let before = source[..cursor].chars().next_back();
+    let after = source[end..].chars().next();
+    (!before.is_some_and(unicode_identifier_continue)
+        && !after.is_some_and(unicode_identifier_continue))
+    .then_some(end)
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -474,16 +988,75 @@ pub fn parse_canonical(
     .program()
 }
 
+pub fn validate_effective_syntax(document: &SyntaxDocument) -> Result<()> {
+    EffectiveSyntax::from_document(document).map(|_| ())
+}
+
+pub fn normalize_syntax_tokens(
+    source: &str,
+    source_name: &str,
+    document: &SyntaxDocument,
+) -> Result<Vec<NormalizedToken>> {
+    let effective = EffectiveSyntax::from_document(document)?;
+    let mapped = effective.normalize(source, source_name)?;
+    Ok(
+        lex_with_origins(&mapped.text, source_name, Some(&mapped.origins))?
+            .into_iter()
+            .filter(|token| token.kind != TokenKind::Eof)
+            .map(|token| NormalizedToken {
+                text: token.text,
+                start: token.start,
+                end: token.end,
+            })
+            .collect(),
+    )
+}
+
+pub fn parse_with_syntax(
+    source: &str,
+    source_name: &str,
+    source_ref: ContentReference,
+    document: &SyntaxDocument,
+) -> Result<ParsedProgram> {
+    let effective = EffectiveSyntax::from_document(document)?;
+    let mapped = effective.normalize(source, source_name)?;
+    let tokens = lex_with_origins(&mapped.text, source_name, Some(&mapped.origins))?;
+    Parser {
+        tokens,
+        cursor: 0,
+        source_name,
+        source_ref,
+        ast_counter: 0,
+    }
+    .program()
+}
+
 fn lex(source: &str, source_name: &str) -> Result<Vec<Token>> {
-    if source.chars().enumerate().any(|(index, character)| {
-        !character.is_ascii() && character != '§' && !(index == 0 && character == '\u{feff}')
+    lex_with_origins(source, source_name, None)
+}
+
+fn lex_with_origins(
+    source: &str,
+    source_name: &str,
+    origins: Option<&[Point]>,
+) -> Result<Vec<Token>> {
+    if let Some((byte, _)) = source.char_indices().find(|(byte, character)| {
+        !character.is_ascii() && *character != '§' && !(*byte == 0 && *character == '\u{feff}')
     }) {
+        let point = origins
+            .and_then(|points| points.get(byte))
+            .cloned()
+            .unwrap_or(Point {
+                byte,
+                line: 1,
+                column: 1,
+            });
         return Err(Diagnostic::new(
             "BHCP0002",
             "dependency-free canonical source currently accepts ASCII plus the precomposed § sigil; unsupported Unicode is rejected",
             source_name,
-            1,
-            1,
+            point.line,
+            point.column,
         ));
     }
     let characters: Vec<char> = source.chars().collect();
@@ -493,7 +1066,12 @@ fn lex(source: &str, source_name: &str) -> Result<Vec<Token>> {
     } else {
         (0usize, 0usize, 1usize, 1usize)
     };
-    let point = |byte, line, column| Point { byte, line, column };
+    let point = |byte, line, column| {
+        origins
+            .and_then(|points| points.get(byte))
+            .cloned()
+            .unwrap_or(Point { byte, line, column })
+    };
     let advance =
         |index: &mut usize, byte: &mut usize, line: &mut usize, column: &mut usize| -> char {
             let character = characters[*index];

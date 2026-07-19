@@ -838,6 +838,17 @@ or redefine the meaning of a canonical token. Omitted coordinates use canonical
 spellings. The complete effective map is validated before any program token is
 accepted, so conflicts never depend on which spelling appears first in the input.
 
+The current Rust lowerer accepts only an explicitly registered effective syntax map;
+profile/syntax inheritance is resolved by the following stage. Registration validates
+the complete canonical coordinate vocabulary, NFC and lexical surface shapes,
+surface ambiguity, punctuation prefixes, recursive aliases, reserved-core rebinding,
+and capture of fixed operators, comments, literal markers, or name-resolution words.
+Invalid effective maps fail as `BHCP9002` before source scanning. An unregistered
+selected profile remains `BHCP0004`; use of a canonical spelling that an effective
+map replaced fails as `BHCP0005`. Successful lowering retains each original byte,
+line, and column boundary for canonical-parser diagnostics and never rewrites comment
+or string contents.
+
 Formatting is not a token mapping. It is the closed presentation record
 `{ indent_width, line_width, final_newline }`, where indentation is 0 through 16
 ASCII spaces, line width is 1 through 512 columns, and the final-newline choice is

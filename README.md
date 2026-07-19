@@ -99,7 +99,7 @@ rather than erased.
 | --- | --- | --- |
 | `§goal` / `§function` | Goals and the checked prelude-function boundary described above | General project functions and the remaining S7 goal grammar |
 | `§policy` | Layer, `§extends`, six closed typed rules, scopes/parameters, waivability, issuers, composition, inspection, policy-aware elaboration, and no-waiver conformance fixtures | Expression-valued policy clauses, waiver/profile shorthand, and enforcement beyond the compile-time/evidence boundary |
-| `§syntax` / `§profile` | Fixed byte-level profile preamble scanning, typed deterministic syntax/profile artifacts, and the normative closed mapping, inheritance, formatting, overlay, and identity contract | Syntax/profile source definitions, inheritance resolution, custom-profile normalization, and formatting |
+| `§syntax` / `§profile` | Fixed byte-level profile selection, typed deterministic artifacts, validated effective mapping, span-aware custom-source normalization, and the normative inheritance/overlay/identity contract | Syntax/profile source definitions, inheritance and attached-overlay resolution, and formatting |
 | Other S7 definitions | None | `§type`, `§predicate`, `§waiver`, `§extension`, and `§refines` |
 
 The Phase 4 decision boundary admits only one-token keyword, punctuation, and symbol
@@ -109,8 +109,9 @@ formatting can change only insignificant whitespace. Profile children may select
 the same or a descendant syntax, may strengthen but not relax type mode, and append
 unique policy overlays in an auditable root-to-leaf order before ordinary monotonic
 policy composition. These rules are specified and executable as finite decision
-vectors; accepting noncanonical source remains deferred to inheritance resolution
-and lowering issues that follow.
+vectors. An explicitly registered effective syntax now accepts noncanonical source
+through the same canonical parser; inheritance and profile attachment remain a
+separate registry-resolution boundary.
 
 Before lexing, every source entry point scans the original bytes for the fixed
 `#!bhcp-profile namespace/name@version` ASCII preamble. An optional UTF-8 BOM may
@@ -121,8 +122,15 @@ scanner preserves original byte, line, and column offsets and source hashing whi
 masking only the accepted preamble for canonical lexing. The executable
 [`canonical-profile-preamble.bhcp`](conformance/v0/fixtures/canonical-profile-preamble.bhcp)
 example demonstrates explicit canonical selection. Exact custom profile symbols
-are selected profile-independently but fail closed as `BHCP0004` until their
-normalizers are registered.
+are selected profile-independently. Unregistered symbols fail closed as `BHCP0004`;
+registered effective syntaxes validate completely as `BHCP9002` before scanning,
+then lower NFC keyword, sigil, delimiter, terminator, and alias surfaces without
+touching comments or literals. Mapped-away canonical spellings fail as `BHCP0005`.
+The paired
+[`profile-lowering-canonical.bhcp`](conformance/v0/fixtures/profile-lowering-canonical.bhcp)
+and [`profile-lowering-words.bhcp`](conformance/v0/fixtures/profile-lowering-words.bhcp)
+fixtures compile to the same semantic identity while retaining different profile and
+source-span artifact data.
 
 The Rust `profile` model decodes and emits both S9.1 root artifacts through the
 repository deterministic-CBOR codec. It covers every closed mapping category,
@@ -132,9 +140,11 @@ have one deterministic category/canonical order; feature IDs remain an open
 negotiation set rather than a hard-coded allowlist. Unknown or duplicate fields,
 invalid symbols or self-parents, duplicate or out-of-order mappings, duplicate
 local overlays, bad formatting bounds, and illegal modes fail as `BHCP9001`.
-Generic root-fixture validation maps those failures to `BHCP5002`. Cross-document
-parent lookup, inherited safety conflicts, token normalization, and formatting
-execution remain assigned to their later roadmap issues.
+Generic root-fixture validation maps those failures to `BHCP5002`. The parser-side
+effective-map validator adds coordinate vocabulary, NFC lexical safety, ambiguity,
+prefix, alias, core-override, and token-capture checks before emitting canonical
+tokens. Cross-document parent lookup, inherited safety conflicts, attached overlays,
+and formatting execution remain assigned to their later roadmap issues.
 
 `bhcp.hash/sha3-512@0` is the default and only currently registered identity
 algorithm, implemented through the pinned pure-Rust `sha3` crate. It provides a roughly 256-bit
@@ -151,8 +161,9 @@ the artifact ID field itself is excluded. The Rust policy API exposes both
 recomputations and validates materialized IDs against the same projections.
 
 The crate uses the `cddl` 0.10.6 parser from cddl-rs to reject malformed RFC 8610
-schemas and the pure-Rust RustCrypto `sha3` 0.12.0 crate for SHA3-512. The BHCP
-compiler, deterministic CBOR codec, and fixture validator remain repository-owned
+schemas, the pure-Rust RustCrypto `sha3` 0.12.0 crate for SHA3-512, and
+`unicode-normalization` 0.1.25 for normative NFC surface checks. The BHCP compiler,
+deterministic CBOR codec, and fixture validator remain repository-owned
 safe Rust; the repository contains no project-owned C, Ruby, or Node.js tooling. Run
 every local acceptance check with:
 
