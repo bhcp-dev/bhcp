@@ -435,6 +435,17 @@ fn multiseed_001_is_registered_against_the_exact_evaluated_skill() {
 
 #[test]
 fn multiseed_002_patches_replay_through_static_public_and_oracle_checks() {
+    let root = experiment();
+    let report = fs::read_to_string(root.join("results/multiseed-002/README.md")).unwrap();
+    assert!(report.contains("Retrospective validity correction"));
+    assert!(report.contains("does not support an oracle-withheld semantic result"));
+    let registration =
+        fs::read_to_string(root.join("results/multiseed-003-registration.md")).unwrap();
+    assert!(registration.contains("contextual-policy-multiseed-003"));
+    assert!(registration.contains("workspace-write/no-network/read-confined"));
+    assert!(registration.contains("Run 002"));
+    assert!(registration.contains("without replacement"));
+
     for (patch, blob) in [
         ("seed-01.patch", "9ee5b644f8e1c4f5bbf6c351990f44142063ce67"),
         ("seed-02.patch", "5813959adef78ffebc0ab9ce01affae5733a5530"),
