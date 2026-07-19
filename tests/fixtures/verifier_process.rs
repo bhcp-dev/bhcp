@@ -85,6 +85,15 @@ fn main() -> ExitCode {
             Command::new("/usr/bin/true").status(),
             Err(error) if error.kind() == io::ErrorKind::PermissionDenied
         )),
+        #[cfg(unix)]
+        "fd-denied" => {
+            let descriptor = env::args().nth(2).unwrap().parse::<i32>().unwrap();
+            #[cfg(target_os = "linux")]
+            let descriptor_path = format!("/proc/self/fd/{descriptor}");
+            #[cfg(target_os = "macos")]
+            let descriptor_path = format!("/dev/fd/{descriptor}");
+            isolation_result(fs::read_link(descriptor_path).is_err())
+        }
         "read-denied" | "read-allowed" => {
             let path = env::args().nth(2).unwrap_or_default();
             let succeeded = fs::read(path).is_ok();

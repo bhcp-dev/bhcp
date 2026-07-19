@@ -230,13 +230,22 @@ size, wall-clock time, and cancellation are bounded and have stable, distinguish
 outcomes. Every execution record retains the exact declaration, obligation targets,
 request, response when present, executable artifact, and exit code.
 
-Native adapters run only behind a fail-closed OS sandbox. Linux requires the packaged
-`bhcp-adapter-sandbox`, Landlock ABI v4 with full enforcement, and seccomp; filesystem
+The runner compares the executable's device, inode, mode, size, and nanosecond
+modification identity before and after artifact capture and again immediately before
+launch, so same-length replacement is detected. The portable native launch still
+reopens that canonical path after the final comparison; deployments must prevent
+concurrent mutation of registered executables. Descriptor-based execution is a future
+hardening option, not a property claimed by this slice.
+
+Native adapters run only behind the packaged `bhcp-adapter-sandbox`, which closes every
+inherited descriptor above standard error before installing the fail-closed OS sandbox.
+Linux requires Landlock ABI v4 with full enforcement and seccomp; filesystem
 access is restricted to the exact executable, read-only platform runtime paths, and
 the project root only when its read/write effects were declared. Socket and network
-operations are denied. macOS requires `/usr/bin/sandbox-exec`; it denies network and
-all non-project writes, and withholds common user/data roots unless project read was
-declared while retaining the read-only OS runtime surface needed to load the binary.
+operations are denied. macOS additionally requires `/usr/bin/sandbox-exec`; it denies
+network and all non-project writes, and withholds common user/data roots unless project
+read was declared while retaining the read-only OS runtime surface needed to load the
+binary.
 An unsupported or unavailable sandbox is an execution failure, never a silent direct
 launch. The local declaration is not a new CDDL artifact and does not change semantic
 ID.

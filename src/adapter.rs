@@ -15,6 +15,8 @@ use nix::sys::signal::{Signal, killpg};
 #[cfg(unix)]
 use nix::unistd::Pid;
 #[cfg(unix)]
+use std::os::unix::fs::MetadataExt;
+#[cfg(unix)]
 use std::os::unix::process::CommandExt;
 
 use crate::cbor::{decode_deterministic, encode_deterministic};
@@ -162,6 +164,7 @@ impl VerifierProcessRunner {
                 ));
             }
         };
+        let executable_identity = ExecutableIdentity::from_metadata(&executable_metadata);
         let executable_bytes = match fs::read(&executable) {
             Ok(bytes) => bytes,
             Err(error) => {
@@ -172,7 +175,19 @@ impl VerifierProcessRunner {
                 ));
             }
         };
-        if executable_bytes.len() as u64 != executable_metadata.len() {
+        let captured_identity = match fs::metadata(&executable) {
+            Ok(metadata) => ExecutableIdentity::from_metadata(&metadata),
+            Err(error) => {
+                return Ok(faulted(
+                    record,
+                    "bhcp.fault/adapter-executable-changed@0",
+                    format!("registered adapter executable changed during capture: {error}"),
+                ));
+            }
+        };
+        if captured_identity != executable_identity
+            || executable_bytes.len() as u64 != executable_metadata.len()
+        {
             return Ok(faulted(
                 record,
                 "bhcp.fault/adapter-executable-changed@0",
@@ -186,6 +201,24 @@ impl VerifierProcessRunner {
                 record,
                 "bhcp.reason/adapter-cancelled@0",
                 "adapter execution was cancelled before process start",
+            ));
+        }
+
+        let launch_identity = match fs::metadata(&executable) {
+            Ok(metadata) => ExecutableIdentity::from_metadata(&metadata),
+            Err(error) => {
+                return Ok(faulted(
+                    record,
+                    "bhcp.fault/adapter-executable-changed@0",
+                    format!("registered adapter executable changed before launch: {error}"),
+                ));
+            }
+        };
+        if launch_identity != executable_identity {
+            return Ok(faulted(
+                record,
+                "bhcp.fault/adapter-executable-changed@0",
+                "registered adapter executable changed before launch",
             ));
         }
 
@@ -351,10 +384,45 @@ impl VerifierProcessRunner {
     }
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct ExecutableIdentity {
+    length: u64,
+    modified: Option<std::time::SystemTime>,
+    #[cfg(unix)]
+    device: u64,
+    #[cfg(unix)]
+    inode: u64,
+    #[cfg(unix)]
+    mode: u32,
+    #[cfg(unix)]
+    modified_seconds: i64,
+    #[cfg(unix)]
+    modified_nanoseconds: i64,
+}
+
+impl ExecutableIdentity {
+    fn from_metadata(metadata: &fs::Metadata) -> Self {
+        Self {
+            length: metadata.len(),
+            modified: metadata.modified().ok(),
+            #[cfg(unix)]
+            device: metadata.dev(),
+            #[cfg(unix)]
+            inode: metadata.ino(),
+            #[cfg(unix)]
+            mode: metadata.mode(),
+            #[cfg(unix)]
+            modified_seconds: metadata.mtime(),
+            #[cfg(unix)]
+            modified_nanoseconds: metadata.mtime_nsec(),
+        }
+    }
+}
+
 #[derive(Clone, Debug)]
 enum SandboxBackend {
     #[cfg(target_os = "macos")]
-    MacOs,
+    MacOs(PathBuf),
     #[cfg(target_os = "linux")]
     LinuxHelper(PathBuf),
 }
@@ -367,31 +435,11 @@ impl SandboxBackend {
             if !sandbox.is_file() {
                 return Err(invalid("the required macOS adapter sandbox is unavailable"));
             }
-            return Ok(Self::MacOs);
+            return Ok(Self::MacOs(packaged_sandbox_helper()?));
         }
         #[cfg(target_os = "linux")]
         {
-            let current = std::env::current_exe().map_err(|error| {
-                invalid(format!("cannot locate adapter sandbox helper: {error}"))
-            })?;
-            let directory = current
-                .parent()
-                .ok_or_else(|| invalid("cannot locate adapter sandbox helper directory"))?;
-            let mut candidates = vec![directory.join("bhcp-adapter-sandbox")];
-            if directory.file_name().is_some_and(|name| name == "deps")
-                && let Some(parent) = directory.parent()
-            {
-                candidates.push(parent.join("bhcp-adapter-sandbox"));
-            }
-            let helper = candidates
-                .into_iter()
-                .find(|candidate| candidate.is_file())
-                .ok_or_else(|| {
-                    invalid("the required Linux adapter sandbox helper is unavailable")
-                })?;
-            return Ok(Self::LinuxHelper(fs::canonicalize(helper).map_err(
-                |error| invalid(format!("cannot resolve adapter sandbox helper: {error}")),
-            )?));
+            return Ok(Self::LinuxHelper(packaged_sandbox_helper()?));
         }
         #[allow(unreachable_code)]
         Err(invalid("this platform has no supported adapter sandbox"))
@@ -404,7 +452,8 @@ impl SandboxBackend {
         project_root: &Path,
     ) -> Command {
         #[cfg(target_os = "macos")]
-        if matches!(self, Self::MacOs) {
+        {
+            let Self::MacOs(helper) = self;
             let readable = declaration
                 .allowed_effects
                 .iter()
@@ -428,14 +477,13 @@ impl SandboxBackend {
             if writable {
                 profile.push_str("(allow file-write* (subpath (param \"BHCP_PROJECT_ROOT\")))\n");
             }
-            let mut command = Command::new("/usr/bin/sandbox-exec");
+            let mut command = Command::new(helper);
             command
-                .arg("-D")
-                .arg(format!("BHCP_PROJECT_ROOT={}", project_root.display()))
-                .arg("-D")
-                .arg(format!("BHCP_EXECUTABLE={}", executable.display()))
-                .arg("-p")
+                .arg("--project-root")
+                .arg(project_root)
+                .arg("--profile")
                 .arg(profile)
+                .arg("--")
                 .arg(executable)
                 .args(&declaration.argv);
             return command;
@@ -457,6 +505,26 @@ impl SandboxBackend {
         #[allow(unreachable_code)]
         Command::new(executable)
     }
+}
+
+fn packaged_sandbox_helper() -> Result<PathBuf> {
+    let current = std::env::current_exe()
+        .map_err(|error| invalid(format!("cannot locate adapter sandbox helper: {error}")))?;
+    let directory = current
+        .parent()
+        .ok_or_else(|| invalid("cannot locate adapter sandbox helper directory"))?;
+    let mut candidates = vec![directory.join("bhcp-adapter-sandbox")];
+    if directory.file_name().is_some_and(|name| name == "deps")
+        && let Some(parent) = directory.parent()
+    {
+        candidates.push(parent.join("bhcp-adapter-sandbox"));
+    }
+    let helper = candidates
+        .into_iter()
+        .find(|candidate| candidate.is_file())
+        .ok_or_else(|| invalid("the required adapter sandbox helper is unavailable"))?;
+    fs::canonicalize(helper)
+        .map_err(|error| invalid(format!("cannot resolve adapter sandbox helper: {error}")))
 }
 
 enum ResolveError {
@@ -856,4 +924,33 @@ fn is_evidence_kind(value: &str) -> bool {
 
 fn invalid(message: impl Into<String>) -> Diagnostic {
     Diagnostic::plain(INVALID_ADAPTER, message)
+}
+
+#[cfg(test)]
+mod tests {
+    use std::fs;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    use super::ExecutableIdentity;
+
+    static NEXT_IDENTITY_TEST: AtomicUsize = AtomicUsize::new(1);
+
+    #[test]
+    fn executable_identity_detects_same_length_replacement() {
+        let directory = std::env::temp_dir().join(format!(
+            "bhcp-executable-identity-{}-{}",
+            std::process::id(),
+            NEXT_IDENTITY_TEST.fetch_add(1, Ordering::Relaxed)
+        ));
+        fs::create_dir_all(&directory).unwrap();
+        let executable = directory.join("adapter");
+        let replacement = directory.join("replacement");
+        fs::write(&executable, b"first").unwrap();
+        fs::write(&replacement, b"other").unwrap();
+        let before = ExecutableIdentity::from_metadata(&fs::metadata(&executable).unwrap());
+        fs::rename(&replacement, &executable).unwrap();
+        let after = ExecutableIdentity::from_metadata(&fs::metadata(&executable).unwrap());
+        assert_ne!(before, after);
+        fs::remove_dir_all(directory).unwrap();
+    }
 }

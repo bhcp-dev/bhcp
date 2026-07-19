@@ -1,3 +1,30 @@
+#[cfg(unix)]
+fn close_inherited_fds() -> Result<(), String> {
+    #[cfg(target_os = "linux")]
+    let directory = "/proc/self/fd";
+    #[cfg(target_os = "macos")]
+    let directory = "/dev/fd";
+    let descriptors = std::fs::read_dir(directory)
+        .map_err(|error| format!("cannot enumerate inherited descriptors: {error}"))?
+        .filter_map(|entry| {
+            entry
+                .ok()?
+                .file_name()
+                .to_str()?
+                .parse::<i32>()
+                .ok()
+                .filter(|descriptor| *descriptor > 2)
+        })
+        .collect::<Vec<_>>();
+    for descriptor in descriptors {
+        match nix::unistd::close(descriptor) {
+            Ok(()) | Err(nix::errno::Errno::EBADF) => {}
+            Err(error) => return Err(format!("cannot close inherited descriptor: {error}")),
+        }
+    }
+    Ok(())
+}
+
 #[cfg(target_os = "linux")]
 mod linux {
 
@@ -10,6 +37,8 @@ mod linux {
         ABI, Access, AccessFs, BitFlags, CompatLevel, Compatible, Ruleset, RulesetAttr,
         RulesetCreatedAttr, RulesetStatus, path_beneath_rules,
     };
+
+    use super::close_inherited_fds;
 
     const NETWORK_FILTER: &str = r#"{
   "adapter": {
@@ -74,6 +103,7 @@ mod linux {
             .map(PathBuf::from)
             .ok_or_else(|| "missing executable".to_owned())?;
 
+        close_inherited_fds()?;
         restrict_filesystem(&project_root, &executable, &effects)?;
         restrict_network()?;
 
@@ -160,12 +190,76 @@ mod linux {
     }
 }
 
+#[cfg(target_os = "macos")]
+mod macos {
+    use std::env;
+    use std::ffi::OsString;
+    use std::os::unix::process::CommandExt;
+    use std::process::{Command, ExitCode};
+
+    use super::close_inherited_fds;
+
+    pub fn main() -> ExitCode {
+        match run() {
+            Ok(never) => never,
+            Err(message) => {
+                eprintln!("BHCP adapter sandbox: {message}");
+                ExitCode::from(125)
+            }
+        }
+    }
+
+    fn run() -> Result<ExitCode, String> {
+        let mut arguments = env::args_os().skip(1);
+        if arguments.next().as_deref() != Some("--project-root".as_ref()) {
+            return Err("missing --project-root".to_owned());
+        }
+        let project_root = arguments
+            .next()
+            .ok_or_else(|| "missing project root".to_owned())?;
+        if arguments.next().as_deref() != Some("--profile".as_ref()) {
+            return Err("missing --profile".to_owned());
+        }
+        let profile = arguments
+            .next()
+            .ok_or_else(|| "missing sandbox profile".to_owned())?;
+        if arguments.next().as_deref() != Some("--".as_ref()) {
+            return Err("missing command separator".to_owned());
+        }
+        let executable = arguments
+            .next()
+            .ok_or_else(|| "missing executable".to_owned())?;
+
+        close_inherited_fds()?;
+        let mut root_definition = OsString::from("BHCP_PROJECT_ROOT=");
+        root_definition.push(project_root);
+        let mut executable_definition = OsString::from("BHCP_EXECUTABLE=");
+        executable_definition.push(&executable);
+        let error = Command::new("/usr/bin/sandbox-exec")
+            .arg("-D")
+            .arg(root_definition)
+            .arg("-D")
+            .arg(executable_definition)
+            .arg("-p")
+            .arg(profile)
+            .arg(executable)
+            .args(arguments)
+            .exec();
+        Err(format!("cannot execute macOS sandbox: {error}"))
+    }
+}
+
 #[cfg(target_os = "linux")]
 fn main() -> std::process::ExitCode {
     linux::main()
 }
 
-#[cfg(not(target_os = "linux"))]
+#[cfg(target_os = "macos")]
+fn main() -> std::process::ExitCode {
+    macos::main()
+}
+
+#[cfg(not(any(target_os = "linux", target_os = "macos")))]
 fn main() {
-    eprintln!("BHCP adapter sandbox: this helper is only supported on Linux");
+    eprintln!("BHCP adapter sandbox: this helper requires Linux or macOS");
 }

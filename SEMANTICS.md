@@ -262,12 +262,16 @@ inventory therefore does not gain a project-manifest document.
 The host runner MUST resolve the project root and executable canonically, verify that
 the resolved regular file remains below the project root, and invoke that exact path
 without a shell or `PATH` search. It MUST clear ambient environment variables and MUST
-execute only behind an operating-system sandbox that fails closed when its restrictions
-cannot be fully installed. The sandbox MUST deny network operations, MUST deny writes
-outside the project, and MUST grant project reads or writes only when present in both
-the declaration and the effective canonical/policy ceiling. Read-only operating-system
-runtime files required to load the executable are part of the host implementation
-surface, not adapter project authority.
+close inherited descriptors other than standard input, output, and error before adapter
+execution. It MUST compare stable executable identity across artifact capture and again
+immediately before launch; a host using path-based native execution MUST prevent
+concurrent mutation of registered executables. The runner MUST execute only behind an
+operating-system sandbox that fails closed when its restrictions cannot be fully
+installed. The sandbox MUST deny network operations, MUST deny writes outside the
+project, and MUST grant project reads or writes only when present in both the declaration
+and the effective canonical/policy ceiling. Read-only operating-system runtime files
+required to load the executable are part of the host implementation surface, not
+adapter project authority.
 
 The v0 process request is deterministic CBOR with version, verifier symbol, normalized
 structural obligation targets, and opaque payload bytes. The deterministic CBOR response

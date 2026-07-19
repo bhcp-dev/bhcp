@@ -1,4 +1,8 @@
 use std::fs;
+#[cfg(unix)]
+use std::net::{TcpListener, TcpStream};
+#[cfg(unix)]
+use std::os::fd::AsRawFd;
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -11,6 +15,8 @@ use bhcp::adapter::{
 use bhcp::cbor::decode_deterministic;
 use bhcp::manifest::{VerifierAdapterDeclaration, WorkingScope};
 use bhcp::verification::{VerifierConclusion, VerifierExecution};
+#[cfg(unix)]
+use nix::fcntl::{FcntlArg, FdFlag, fcntl};
 
 static NEXT_PROJECT: AtomicUsize = AtomicUsize::new(1);
 
@@ -66,10 +72,7 @@ fn request(payload: &[u8]) -> AdapterRequest<'_> {
 }
 
 fn runner(project_root: &Path) -> VerifierProcessRunner {
-    #[cfg(target_os = "linux")]
-    {
-        assert!(Path::new(env!("CARGO_BIN_EXE_bhcp-adapter-sandbox")).is_file());
-    }
+    assert!(Path::new(env!("CARGO_BIN_EXE_bhcp-adapter-sandbox")).is_file());
     VerifierProcessRunner::new(project_root).unwrap()
 }
 
@@ -330,6 +333,28 @@ fn os_sandbox_denies_network_and_undeclared_filesystem_access() {
             .unwrap()
             .execution,
     );
+
+    #[cfg(unix)]
+    {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let client = TcpStream::connect(listener.local_addr().unwrap()).unwrap();
+        let (inherited, _) = listener.accept().unwrap();
+        fcntl(&inherited, FcntlArg::F_SETFD(FdFlag::empty())).unwrap();
+        let mut descriptor = declaration("fd-denied");
+        descriptor.argv.push(inherited.as_raw_fd().to_string());
+        assert_accepted(
+            runner
+                .run(
+                    &descriptor,
+                    request(b"candidate"),
+                    &CancellationToken::new(),
+                )
+                .unwrap()
+                .execution,
+        );
+        drop(client);
+        drop(inherited);
+    }
     assert_accepted(
         runner
             .run(
@@ -384,6 +409,50 @@ fn os_sandbox_denies_network_and_undeclared_filesystem_access() {
             .unwrap()
             .execution,
     );
+
+    let denied_write_path = project.root.join("denied-write.txt");
+    let mut denied_write = declaration("write-denied");
+    denied_write
+        .argv
+        .push(denied_write_path.display().to_string());
+    assert_accepted(
+        runner
+            .run(
+                &denied_write,
+                request(b"candidate"),
+                &CancellationToken::new(),
+            )
+            .unwrap()
+            .execution,
+    );
+    assert!(!denied_write_path.exists());
+
+    let allowed_write_path = project.root.join("allowed-write.txt");
+    let mut allowed_write = declaration("write-allowed");
+    allowed_write
+        .argv
+        .push(allowed_write_path.display().to_string());
+    allowed_write.allowed_effects = vec![
+        "bhcp-effect/fs.write@0".to_owned(),
+        "bhcp-effect/process@0".to_owned(),
+    ];
+    let effects = allowed_write.allowed_effects.clone();
+    assert_accepted(
+        runner
+            .run(
+                &allowed_write,
+                AdapterRequest {
+                    verifier: &allowed_write.symbol,
+                    obligations: &["clause-2".to_owned()],
+                    payload: b"candidate",
+                    effect_ceiling: &effects,
+                },
+                &CancellationToken::new(),
+            )
+            .unwrap()
+            .execution,
+    );
+    assert_eq!(fs::read(allowed_write_path).unwrap(), b"adapter write");
 }
 
 fn assert_fault(execution: VerifierExecution, code: &str) {
