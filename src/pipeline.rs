@@ -34,6 +34,7 @@ pub struct Compilation {
     pub ast_hash: HashId,
     pub semantic_hash: HashId,
     pub ir_hash: HashId,
+    pub effective_policy: Option<EffectivePolicyDocument>,
 }
 
 #[derive(Clone, Debug)]
@@ -146,6 +147,7 @@ fn compile_source_internal(
         ir_bytes,
         semantic_hash,
         ir_hash,
+        effective_policy: policy.cloned(),
     })
 }
 

@@ -1,6 +1,7 @@
 use std::sync::{Arc, Mutex};
 
 use bhcp::hash::HashAlgorithm;
+use bhcp::inspection::render_artifact;
 use bhcp::kernel::Reason;
 use bhcp::model::ContentReference;
 use bhcp::pipeline::{Compilation, compile_source_with_policy, parse_policy_source};
@@ -62,14 +63,21 @@ impl Verifier for PolicyVerifier {
     }
 
     fn verify(&self, context: &VerifierContext<'_>) -> VerifierExecution {
-        self.targets.lock().unwrap().push(context.obligations.to_vec());
+        self.targets
+            .lock()
+            .unwrap()
+            .push(context.obligations.to_vec());
         self.execution.clone()
     }
 }
 
 fn evidence(predicate: &'static str) -> VerifierExecution {
+    evidence_with_class(predicate, "static")
+}
+
+fn evidence_with_class(predicate: &'static str, class: &'static str) -> VerifierExecution {
     VerifierExecution::Completed(VerifierConclusion::Accepted(VerifierEvidence::new(
-        "static",
+        class,
         predicate,
         "text/plain",
         b"accepted".to_vec(),
@@ -78,7 +86,11 @@ fn evidence(predicate: &'static str) -> VerifierExecution {
 }
 
 fn policy() -> EffectivePolicyDocument {
-    let parsed = parse_policy_source(POLICY, "policy.bhcp").unwrap();
+    effective(POLICY)
+}
+
+fn effective(source: &str) -> EffectivePolicyDocument {
+    let parsed = parse_policy_source(source, "policy.bhcp").unwrap();
     compose_policies(&parsed.documents, Default::default()).unwrap()
 }
 
@@ -125,9 +137,7 @@ fn register(
             targets: targets.clone(),
         })
         .unwrap();
-    registry
-        .bind_policy_evidence(predicate, symbol)
-        .unwrap();
+    registry.bind_policy_evidence(predicate, symbol).unwrap();
     targets
 }
 
@@ -169,11 +179,19 @@ fn composed_policy_evidence_resolves_to_structural_targets_with_source_provenanc
     assert_eq!(audit.classes, ["static"]);
     assert_eq!(review.classes, ["static"]);
     assert_eq!(*audit_targets.lock().unwrap(), vec![vec![audit.id.clone()]]);
-    assert_eq!(*review_targets.lock().unwrap(), vec![vec![review.id.clone()]]);
+    assert_eq!(
+        *review_targets.lock().unwrap(),
+        vec![vec![review.id.clone()]]
+    );
     assert_eq!(report.bundle.obligation_status[&audit.id], "discharged");
     assert_eq!(report.bundle.obligation_status[&review.id], "discharged");
     report.bundle.validate().unwrap();
     validate_root(&report.bundle.to_value(true), "evidence-bundle").unwrap();
+    let inspected = render_artifact(&report.bundle.to_value(true), None);
+    assert!(inspected.contains(
+        "policy-obligation policy-evidence-1 example/obligation.audit@0 minimum 1 classes [static]"
+    ));
+    assert!(inspected.contains("policy-source team example/policy.team@0:a-audit"));
 }
 
 #[test]
@@ -296,4 +314,170 @@ fn producer_registration_and_binding_order_do_not_change_bundle_bytes() {
     assert_eq!(first.bundle_bytes, second.bundle_bytes);
     assert_eq!(first.bundle_hash, second.bundle_hash);
     assert_eq!(first.payloads, second.payloads);
+}
+
+#[test]
+fn duplicate_layer_rules_collapse_to_one_obligation_with_both_sources() {
+    let policy = effective(
+        r#"
+§policy example/policy.organization@0 {
+  layer organization;
+  rule a-review: evidence add {
+    obligation: example/obligation.review@0,
+    classes: [static],
+    minimum: 1,
+    scope: { goals: [example/Review@0] }
+  } nonwaivable;
+}
+§policy example/policy.team@0 {
+  layer team;
+  rule b-review: evidence add {
+    obligation: example/obligation.review@0,
+    classes: [static],
+    minimum: 1,
+    scope: { goals: [example/Review@0] }
+  } nonwaivable;
+}
+"#,
+    );
+    let compilation = compile_source_with_policy(GOAL, "review.bhcp", &policy).unwrap();
+    let mut registry = VerifierRegistry::new();
+    register(
+        &mut registry,
+        "example/verifier.review@0",
+        "example/obligation.review@0",
+        evidence("example/obligation.review@0"),
+    );
+
+    let report = verify(&compilation, &registry).unwrap();
+    assert_eq!(report.bundle.policy_obligations.len(), 1);
+    let sources = &report.bundle.policy_obligations[0].sources;
+    assert_eq!(sources.len(), 2);
+    assert_eq!(sources[0].layer, "organization");
+    assert_eq!(sources[1].layer, "team");
+}
+
+#[test]
+fn policy_minimum_counts_distinct_bound_producers() {
+    let policy = effective(
+        r#"
+§policy example/policy.organization@0 {
+  layer organization;
+  rule a-review: evidence add {
+    obligation: example/obligation.review@0,
+    classes: [static],
+    minimum: 2,
+    scope: { goals: [example/Review@0] }
+  } nonwaivable;
+}
+"#,
+    );
+    let compilation = compile_source_with_policy(GOAL, "review.bhcp", &policy).unwrap();
+    let mut one = VerifierRegistry::new();
+    register(
+        &mut one,
+        "example/verifier.review-one@0",
+        "example/obligation.review@0",
+        evidence("example/obligation.review@0"),
+    );
+    let one = verify(&compilation, &one).unwrap();
+    assert_eq!(
+        one.state,
+        VerificationState::Completed(VerificationDecision::Unresolved)
+    );
+    assert!(
+        one.bundle
+            .gaps
+            .iter()
+            .any(|gap| gap.reason.code == "bhcp.reason/policy-evidence-minimum@0")
+    );
+
+    let mut two = VerifierRegistry::new();
+    register(
+        &mut two,
+        "example/verifier.review-two@0",
+        "example/obligation.review@0",
+        evidence("example/obligation.review@0"),
+    );
+    register(
+        &mut two,
+        "example/verifier.review-one@0",
+        "example/obligation.review@0",
+        evidence("example/obligation.review@0"),
+    );
+    assert_eq!(
+        verify(&compilation, &two).unwrap().state,
+        VerificationState::Completed(VerificationDecision::Accepted)
+    );
+}
+
+#[test]
+fn later_distinct_rule_for_same_symbol_remains_an_independent_demand() {
+    let policy = effective(
+        r#"
+§policy example/policy.organization@0 {
+  layer organization;
+  rule a-review: evidence add {
+    obligation: example/obligation.review@0,
+    classes: [static],
+    minimum: 1,
+    scope: { goals: [example/Review@0] }
+  } nonwaivable;
+}
+§policy example/policy.team@0 {
+  layer team;
+  rule b-review: evidence add {
+    obligation: example/obligation.review@0,
+    classes: [empirical],
+    minimum: 1,
+    scope: { goals: [example/Review@0] }
+  } nonwaivable;
+}
+"#,
+    );
+    let compilation = compile_source_with_policy(GOAL, "review.bhcp", &policy).unwrap();
+    let mut registry = VerifierRegistry::new();
+    register(
+        &mut registry,
+        "example/verifier.review-static@0",
+        "example/obligation.review@0",
+        evidence_with_class("example/obligation.review@0", "static"),
+    );
+    register(
+        &mut registry,
+        "example/verifier.review-empirical@0",
+        "example/obligation.review@0",
+        evidence_with_class("example/obligation.review@0", "empirical"),
+    );
+
+    let report = verify(&compilation, &registry).unwrap();
+    assert_eq!(
+        report.state,
+        VerificationState::Completed(VerificationDecision::Accepted)
+    );
+    assert_eq!(report.bundle.policy_obligations.len(), 2);
+    assert_ne!(
+        report.bundle.policy_obligations[0].id,
+        report.bundle.policy_obligations[1].id
+    );
+    assert_eq!(
+        report.bundle.policy_obligations[0].symbol,
+        report.bundle.policy_obligations[1].symbol
+    );
+}
+
+#[test]
+fn verification_revalidates_the_retained_effective_policy() {
+    let mut compilation = compilation();
+    compilation
+        .effective_policy
+        .as_mut()
+        .unwrap()
+        .effective
+        .evidence[0]
+        .value
+        .minimum = 2;
+    let diagnostic = verify(&compilation, &VerifierRegistry::new()).unwrap_err();
+    assert_eq!(diagnostic.code, "BHCP7001");
+    assert!(diagnostic.message.contains("invalid effective policy"));
 }

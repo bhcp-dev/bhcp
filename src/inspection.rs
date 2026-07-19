@@ -35,6 +35,37 @@ pub fn render_artifact(artifact: &Value, source: Option<&str>) -> String {
 }
 
 fn render_evidence_bundle(artifact: &Value, output: &mut String) {
+    if let Some(Value::Array(obligations)) = artifact.get("policy_obligations") {
+        for obligation in obligations {
+            let id = text_field(obligation, "id").unwrap_or("?");
+            let symbol = text_field(obligation, "symbol").unwrap_or("?");
+            let minimum = obligation
+                .get("minimum")
+                .map(render_value)
+                .unwrap_or_else(|| "?".to_owned());
+            let classes = match obligation.get("classes") {
+                Some(Value::Array(classes)) => classes
+                    .iter()
+                    .filter_map(text_value)
+                    .collect::<Vec<_>>()
+                    .join(", "),
+                _ => "?".to_owned(),
+            };
+            writeln!(
+                output,
+                "policy-obligation {id} {symbol} minimum {minimum} classes [{classes}]"
+            )
+            .unwrap();
+            if let Some(Value::Array(sources)) = obligation.get("sources") {
+                for source in sources {
+                    let layer = text_field(source, "layer").unwrap_or("?");
+                    let policy = text_field(source, "policy").unwrap_or("?");
+                    let rule = text_field(source, "rule").unwrap_or("?");
+                    writeln!(output, "  policy-source {layer} {policy}:{rule}").unwrap();
+                }
+            }
+        }
+    }
     if let Some(Value::Map(statuses)) = artifact.get("obligation_status") {
         for (obligation, status) in statuses {
             let Value::Text(status) = status else {

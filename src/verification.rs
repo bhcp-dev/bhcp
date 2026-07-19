@@ -16,12 +16,14 @@ use crate::model::{
     VerifierBinding, is_symbol,
 };
 use crate::pipeline::Compilation;
+use crate::policy::{PolicyCategory, PolicyDocument, PolicyLayer};
 use crate::schema::validate_root;
 use crate::value::Value;
 
 const INVALID_VERIFICATION: &str = "BHCP7001";
 const VERIFICATION_FEATURE: &str = "bhcp/feature.verifier-dispatch@0";
 const ADAPTER_EVIDENCE_FEATURE: &str = "bhcp/feature.process-adapter-evidence@0";
+const POLICY_EVIDENCE_FEATURE: &str = "bhcp/feature.policy-evidence@0";
 const EXPRESSION_VERIFIER: &str = "bhcp.verifier/expression@0";
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -100,6 +102,7 @@ pub trait Verifier {
 #[derive(Default)]
 pub struct VerifierRegistry {
     verifiers: BTreeMap<String, RegisteredVerifier>,
+    policy_producers: BTreeMap<String, Vec<String>>,
 }
 
 enum RegisteredVerifier {
@@ -178,6 +181,32 @@ impl VerifierRegistry {
             },
         );
         Ok(())
+    }
+
+    /// Binds a policy evidence-obligation symbol to a registered producer symbol.
+    ///
+    /// The producer may be registered before or after this mapping is installed;
+    /// absence at verification time remains an unresolved evidence gap.
+    pub fn bind_policy_evidence(&mut self, obligation: &str, verifier: &str) -> Result<()> {
+        if !is_symbol(obligation) {
+            return Err(invalid("policy evidence obligation is not a symbol-id"));
+        }
+        if !is_symbol(verifier) {
+            return Err(invalid("policy evidence producer is not a symbol-id"));
+        }
+        let producers = self
+            .policy_producers
+            .entry(obligation.to_owned())
+            .or_default();
+        match producers.binary_search_by(|candidate| candidate.as_str().cmp(verifier)) {
+            Ok(_) => Err(invalid(format!(
+                "policy evidence producer {verifier:?} is already bound to {obligation:?}"
+            ))),
+            Err(index) => {
+                producers.insert(index, verifier.to_owned());
+                Ok(())
+            }
+        }
     }
 
     pub fn verify(&self, request: VerificationRequest<'_>) -> Result<VerificationReport> {
@@ -324,6 +353,57 @@ impl EvidenceEdge {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PolicyEvidenceSource {
+    pub layer: String,
+    pub policy: String,
+    pub rule: String,
+}
+
+impl PolicyEvidenceSource {
+    fn to_value(&self) -> Value {
+        Value::map([
+            ("layer", Value::Text(self.layer.clone())),
+            ("policy", Value::Text(self.policy.clone())),
+            ("rule", Value::Text(self.rule.clone())),
+        ])
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PolicyEvidenceObligation {
+    pub id: String,
+    pub symbol: String,
+    pub classes: Vec<String>,
+    pub minimum: u64,
+    pub effective_rule: usize,
+    pub sources: Vec<PolicyEvidenceSource>,
+}
+
+impl PolicyEvidenceObligation {
+    fn to_value(&self) -> Value {
+        Value::map([
+            ("id", Value::Text(self.id.clone())),
+            ("symbol", Value::Text(self.symbol.clone())),
+            (
+                "classes",
+                Value::Array(self.classes.iter().cloned().map(Value::Text).collect()),
+            ),
+            ("minimum", Value::Integer(self.minimum as i64)),
+            ("effective_rule", Value::Integer(self.effective_rule as i64)),
+            (
+                "sources",
+                Value::Array(
+                    self.sources
+                        .iter()
+                        .map(PolicyEvidenceSource::to_value)
+                        .collect(),
+                ),
+            ),
+        ])
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct EvidenceBundle {
     pub features: Vec<String>,
     pub semantic_ir: ContentReference,
@@ -332,6 +412,7 @@ pub struct EvidenceBundle {
     pub items: Vec<EvidenceItem>,
     pub gaps: Vec<EvidenceGap>,
     pub edges: Vec<EvidenceEdge>,
+    pub policy_obligations: Vec<PolicyEvidenceObligation>,
     pub obligation_status: BTreeMap<String, String>,
     pub artifact_id: Option<HashId>,
 }
@@ -376,6 +457,17 @@ impl EvidenceBundle {
                 ),
             ),
         ];
+        if !self.policy_obligations.is_empty() {
+            entries.push((
+                "policy_obligations".to_owned(),
+                Value::Array(
+                    self.policy_obligations
+                        .iter()
+                        .map(PolicyEvidenceObligation::to_value)
+                        .collect(),
+                ),
+            ));
+        }
         if include_artifact_id && let Some(artifact_id) = &self.artifact_id {
             entries.push(("artifact_id".to_owned(), artifact_id.to_value()));
         }
@@ -404,6 +496,51 @@ impl EvidenceBundle {
             .any(|status| !matches!(status.as_str(), "discharged" | "refuted" | "unresolved"))
         {
             return Err(invalid("evidence obligation status is invalid"));
+        }
+        let has_policy_feature = self
+            .features
+            .iter()
+            .any(|feature| feature == POLICY_EVIDENCE_FEATURE);
+        if has_policy_feature != !self.policy_obligations.is_empty()
+            || !self.policy_obligations.windows(2).all(|pair| {
+                (&pair[0].symbol, pair[0].effective_rule)
+                    < (&pair[1].symbol, pair[1].effective_rule)
+            })
+        {
+            return Err(invalid("policy evidence obligations are not normalized"));
+        }
+        let mut policy_ids = HashSet::new();
+        for obligation in &self.policy_obligations {
+            if !obligations.contains(&obligation.id)
+                || !policy_ids.insert(obligation.id.as_str())
+                || !is_symbol(&obligation.symbol)
+                || obligation.minimum == 0
+                || obligation.minimum > i64::MAX as u64
+                || obligation.effective_rule > i64::MAX as usize
+                || obligation.classes.is_empty()
+                || obligation
+                    .classes
+                    .iter()
+                    .any(|class| !is_evidence_class(class))
+                || !normalized(&obligation.classes)
+                || obligation.sources.is_empty()
+                || !obligation
+                    .sources
+                    .windows(2)
+                    .all(|pair| (&pair[0].policy, &pair[0].rule) < (&pair[1].policy, &pair[1].rule))
+            {
+                return Err(invalid("policy evidence obligation is invalid"));
+            }
+            for source in &obligation.sources {
+                if !matches!(
+                    source.layer.as_str(),
+                    "organization" | "team" | "repository" | "user"
+                ) || !is_symbol(&source.policy)
+                    || !is_ref(&source.rule)
+                {
+                    return Err(invalid("policy evidence source is invalid"));
+                }
+            }
         }
 
         let mut ids = HashSet::new();
@@ -485,11 +622,35 @@ impl EvidenceBundle {
                     .gaps
                     .iter()
                     .any(|gap| gap.required && gap.obligations.iter().any(|id| id == obligation));
-            let valid = match status.as_str() {
-                "discharged" => supports && !refutes && !unresolved,
-                "refuted" => refutes,
-                "unresolved" => unresolved,
-                _ => false,
+            let policy = self
+                .policy_obligations
+                .iter()
+                .find(|candidate| candidate.id == *obligation);
+            let valid = if let Some(policy) = policy {
+                let accepted = matching
+                    .iter()
+                    .filter(|claim| {
+                        claim.status == "accepted"
+                            && claim.polarity == "supports"
+                            && self.items.iter().any(|item| {
+                                item.claims.contains(&claim.id)
+                                    && policy.classes.contains(&item.evidence_class)
+                            })
+                    })
+                    .count();
+                match status.as_str() {
+                    "discharged" => accepted >= policy.minimum as usize && !refutes,
+                    "refuted" => refutes,
+                    "unresolved" => accepted < policy.minimum as usize && unresolved && !refutes,
+                    _ => false,
+                }
+            } else {
+                match status.as_str() {
+                    "discharged" => supports && !refutes && !unresolved,
+                    "refuted" => refutes,
+                    "unresolved" => unresolved,
+                    _ => false,
+                }
             };
             if !valid {
                 return Err(invalid("evidence status is not justified by its claims"));
@@ -651,6 +812,203 @@ impl Builder {
     }
 }
 
+fn policy_evidence_obligations(
+    compilation: &Compilation,
+    goal: &GoalDefinition,
+) -> Result<Vec<PolicyEvidenceObligation>> {
+    let Some(policy) = &compilation.effective_policy else {
+        return Ok(vec![]);
+    };
+    PolicyDocument::Effective(policy.clone())
+        .validate()
+        .map_err(|diagnostic| {
+            invalid(format!(
+                "verification received invalid effective policy: {}",
+                diagnostic.message
+            ))
+        })?;
+    let reference = compilation
+        .ir
+        .effective_policy
+        .as_ref()
+        .ok_or_else(|| invalid("policy evidence document is not referenced by semantic IR"))?;
+    if policy.header.semantic_id.as_ref() != Some(&reference.semantic_id)
+        || policy.header.artifact_id.as_ref() != Some(&reference.artifact_id)
+    {
+        return Err(invalid(
+            "policy evidence document does not match semantic IR identities",
+        ));
+    }
+    let decision = goal
+        .policy_decision
+        .as_ref()
+        .ok_or_else(|| invalid("policy evidence goal has no effective-policy decision"))?;
+    let mut obligations = Vec::new();
+    for index in &decision.evidence {
+        let rule = policy
+            .effective
+            .evidence
+            .get(*index)
+            .ok_or_else(|| invalid("goal policy evidence index is out of range"))?;
+        let provenance = policy
+            .rule_provenance
+            .iter()
+            .find(|entry| {
+                entry.category == PolicyCategory::Evidence && entry.effective_rule == *index
+            })
+            .ok_or_else(|| invalid("effective policy evidence has no source provenance"))?;
+        let mut sources = Vec::new();
+        for source in &provenance.sources {
+            let layer = policy
+                .source_layers
+                .iter()
+                .find(|layer| {
+                    layer
+                        .policies
+                        .iter()
+                        .any(|candidate| candidate.symbol == source.policy)
+                })
+                .ok_or_else(|| invalid("policy evidence source is absent from source layers"))?;
+            sources.push(PolicyEvidenceSource {
+                layer: policy_layer_name(layer.layer).to_owned(),
+                policy: source.policy.clone(),
+                rule: source.rule.clone(),
+            });
+        }
+        obligations.push(PolicyEvidenceObligation {
+            id: format!("policy-evidence-{}", index + 1),
+            symbol: rule.value.obligation.clone(),
+            classes: rule.value.classes.clone(),
+            minimum: rule.value.minimum,
+            effective_rule: *index,
+            sources,
+        });
+    }
+    obligations.sort_by(|left, right| {
+        left.symbol
+            .cmp(&right.symbol)
+            .then_with(|| left.effective_rule.cmp(&right.effective_rule))
+    });
+    Ok(obligations)
+}
+
+fn policy_layer_name(layer: PolicyLayer) -> &'static str {
+    match layer {
+        PolicyLayer::Organization => "organization",
+        PolicyLayer::Team => "team",
+        PolicyLayer::Repository => "repository",
+        PolicyLayer::User => "user",
+    }
+}
+
+struct DispatchResult {
+    execution: VerifierExecution,
+    verifier_artifact: Option<ContentReference>,
+    provenance_source: Option<ContentReference>,
+    adapter_record: Option<AdapterExecutionRecord>,
+    used_adapter: bool,
+}
+
+fn dispatch_registered(
+    registry: &VerifierRegistry,
+    symbol: &str,
+    goal: &GoalDefinition,
+    input: &Value,
+    output: &Value,
+    subject: &ContentReference,
+    obligations: &[String],
+) -> Result<Option<DispatchResult>> {
+    let Some(verifier) = registry.verifiers.get(symbol) else {
+        return Ok(None);
+    };
+    let context = VerifierContext {
+        goal,
+        input,
+        output,
+        subject,
+        obligations,
+    };
+    Ok(Some(match verifier {
+        RegisteredVerifier::InProcess {
+            implementation,
+            artifact,
+        } => DispatchResult {
+            execution: catch_unwind(AssertUnwindSafe(|| implementation.verify(&context)))
+                .unwrap_or_else(|_| {
+                    VerifierExecution::Faulted(Reason {
+                        code: "bhcp.fault/verifier-panic@0".to_owned(),
+                        message: "registered verifier panicked".to_owned(),
+                        details: None,
+                    })
+                }),
+            verifier_artifact: Some(artifact.clone()),
+            provenance_source: None,
+            adapter_record: None,
+            used_adapter: false,
+        },
+        RegisteredVerifier::Adapter {
+            runner,
+            declaration,
+            effect_ceiling,
+            cancellation,
+        } => {
+            let candidate = encode_deterministic(&Value::map([
+                ("input", input.clone()),
+                ("output", output.clone()),
+            ]))?;
+            match catch_unwind(AssertUnwindSafe(|| {
+                runner.run(
+                    declaration,
+                    AdapterRequest {
+                        verifier: symbol,
+                        obligations,
+                        payload: &candidate,
+                        effect_ceiling,
+                    },
+                    cancellation,
+                )
+            })) {
+                Ok(Ok(run)) => {
+                    let artifact = run
+                        .record
+                        .executable_artifact
+                        .clone()
+                        .unwrap_or_else(|| run.record.registration_artifact.clone());
+                    DispatchResult {
+                        execution: run.execution,
+                        verifier_artifact: Some(artifact),
+                        provenance_source: Some(run.record.registration_artifact.clone()),
+                        adapter_record: Some(run.record),
+                        used_adapter: true,
+                    }
+                }
+                Ok(Err(diagnostic)) => DispatchResult {
+                    execution: VerifierExecution::Faulted(Reason {
+                        code: "bhcp.fault/adapter-boundary@0".to_owned(),
+                        message: diagnostic.to_string(),
+                        details: None,
+                    }),
+                    verifier_artifact: None,
+                    provenance_source: None,
+                    adapter_record: None,
+                    used_adapter: true,
+                },
+                Err(_) => DispatchResult {
+                    execution: VerifierExecution::Faulted(Reason {
+                        code: "bhcp.fault/adapter-runner-panic@0".to_owned(),
+                        message: "registered adapter runner panicked".to_owned(),
+                        details: None,
+                    }),
+                    verifier_artifact: None,
+                    provenance_source: None,
+                    adapter_record: None,
+                    used_adapter: true,
+                },
+            }
+        }
+    }))
+}
+
 fn verify(
     registry: &VerifierRegistry,
     request: VerificationRequest<'_>,
@@ -693,20 +1051,28 @@ fn verify(
         ));
     }
 
-    let mut obligations: Vec<_> = goal
+    let mut contract_obligations: Vec<_> = goal
         .clauses
         .iter()
         .filter_map(|clause| {
             matches!(clause.kind, ClauseKind::Contract { .. }).then_some(clause.id.clone())
         })
         .collect();
-    obligations.sort();
-    if obligations.is_empty() {
+    contract_obligations.sort();
+    let policy_obligations = policy_evidence_obligations(request.compilation, goal)?;
+    if contract_obligations.is_empty() && policy_obligations.is_empty() {
         return Err(invalid(
-            "verification requires at least one implemented contract obligation",
+            "verification requires at least one contract or policy evidence obligation",
         ));
     }
-    let obligation_set: HashSet<_> = obligations.iter().cloned().collect();
+    let obligation_set: HashSet<_> = contract_obligations.iter().cloned().collect();
+    let mut obligations = contract_obligations.clone();
+    obligations.extend(
+        policy_obligations
+            .iter()
+            .map(|obligation| obligation.id.clone()),
+    );
+    obligations.sort();
     let bindings = fact_bindings(goal, request.input, request.output)?;
     let mut builder = Builder::new(
         request.produced_at,
@@ -763,7 +1129,7 @@ fn verify(
             continue;
         };
         let targeted = if targeted.is_empty() {
-            obligations.clone()
+            contract_obligations.clone()
         } else {
             if targeted
                 .iter()
@@ -773,7 +1139,16 @@ fn verify(
             }
             targeted.clone()
         };
-        let Some(verifier) = registry.verifiers.get(&binding.verifier) else {
+        let Some(dispatch) = dispatch_registered(
+            registry,
+            &binding.verifier,
+            goal,
+            request.input,
+            request.output,
+            &request.subject,
+            &targeted,
+        )?
+        else {
             builder.gap(
                 "unsupported",
                 &targeted,
@@ -785,85 +1160,13 @@ fn verify(
             );
             continue;
         };
-        let context = VerifierContext {
-            goal,
-            input: request.input,
-            output: request.output,
-            subject: &request.subject,
-            obligations: &targeted,
-        };
-        let (execution, verifier_artifact, provenance_source) = match verifier {
-            RegisteredVerifier::InProcess {
-                implementation,
-                artifact,
-            } => (
-                catch_unwind(AssertUnwindSafe(|| implementation.verify(&context))).unwrap_or_else(
-                    |_| {
-                        VerifierExecution::Faulted(Reason {
-                            code: "bhcp.fault/verifier-panic@0".to_owned(),
-                            message: "registered verifier panicked".to_owned(),
-                            details: None,
-                        })
-                    },
-                ),
-                Some(artifact.clone()),
-                None,
-            ),
-            RegisteredVerifier::Adapter {
-                runner,
-                declaration,
-                effect_ceiling,
-                cancellation,
-            } => {
-                used_adapter = true;
-                let candidate = encode_deterministic(&Value::map([
-                    ("input", request.input.clone()),
-                    ("output", request.output.clone()),
-                ]))?;
-                match catch_unwind(AssertUnwindSafe(|| {
-                    runner.run(
-                        declaration,
-                        AdapterRequest {
-                            verifier: &binding.verifier,
-                            obligations: &targeted,
-                            payload: &candidate,
-                            effect_ceiling,
-                        },
-                        cancellation,
-                    )
-                })) {
-                    Ok(Ok(run)) => {
-                        let artifact = run
-                            .record
-                            .executable_artifact
-                            .clone()
-                            .unwrap_or_else(|| run.record.registration_artifact.clone());
-                        let provenance = Some(run.record.registration_artifact.clone());
-                        let execution = run.execution;
-                        adapter_records.push(run.record);
-                        (execution, Some(artifact), provenance)
-                    }
-                    Ok(Err(diagnostic)) => (
-                        VerifierExecution::Faulted(Reason {
-                            code: "bhcp.fault/adapter-boundary@0".to_owned(),
-                            message: diagnostic.to_string(),
-                            details: None,
-                        }),
-                        None,
-                        None,
-                    ),
-                    Err(_) => (
-                        VerifierExecution::Faulted(Reason {
-                            code: "bhcp.fault/adapter-runner-panic@0".to_owned(),
-                            message: "registered adapter runner panicked".to_owned(),
-                            details: None,
-                        }),
-                        None,
-                        None,
-                    ),
-                }
-            }
-        };
+        used_adapter |= dispatch.used_adapter;
+        if let Some(record) = dispatch.adapter_record {
+            adapter_records.push(record);
+        }
+        let execution = dispatch.execution;
+        let verifier_artifact = dispatch.verifier_artifact;
+        let provenance_source = dispatch.provenance_source;
         match execution {
             VerifierExecution::Completed(VerifierConclusion::Accepted(evidence)) => {
                 validate_declared_evidence(binding, &evidence)?;
@@ -920,25 +1223,175 @@ fn verify(
         }
     }
 
+    for requirement in &policy_obligations {
+        let targeted = vec![requirement.id.clone()];
+        let producers = registry
+            .policy_producers
+            .get(&requirement.symbol)
+            .cloned()
+            .unwrap_or_default();
+        let mut accepted = 0usize;
+        let mut refuted = false;
+        let mut had_gap = false;
+        if producers.is_empty() {
+            builder.gap(
+                "unsupported",
+                &targeted,
+                Reason {
+                    code: "bhcp.reason/policy-verifier-unregistered@0".to_owned(),
+                    message: format!(
+                        "policy evidence obligation {} has no registered producer mapping",
+                        requirement.symbol
+                    ),
+                    details: None,
+                },
+            );
+            had_gap = true;
+        }
+        for producer in producers {
+            let Some(dispatch) = dispatch_registered(
+                registry,
+                &producer,
+                goal,
+                request.input,
+                request.output,
+                &request.subject,
+                &targeted,
+            )?
+            else {
+                builder.gap(
+                    "unsupported",
+                    &targeted,
+                    Reason {
+                        code: "bhcp.reason/policy-verifier-unregistered@0".to_owned(),
+                        message: format!(
+                            "policy evidence producer {producer} is not registered for {}",
+                            requirement.symbol
+                        ),
+                        details: None,
+                    },
+                );
+                had_gap = true;
+                continue;
+            };
+            used_adapter |= dispatch.used_adapter;
+            if let Some(record) = dispatch.adapter_record {
+                adapter_records.push(record);
+            }
+            match dispatch.execution {
+                VerifierExecution::Completed(VerifierConclusion::Accepted(evidence)) => {
+                    validate_policy_evidence(requirement, &evidence)?;
+                    if !requirement.classes.contains(&evidence.evidence_class) {
+                        continue;
+                    }
+                    accepted += 1;
+                    builder.evidence(
+                        &producer,
+                        dispatch
+                            .verifier_artifact
+                            .clone()
+                            .expect("accepted verifier execution retains an artifact"),
+                        evidence,
+                        &targeted,
+                        ClaimDisposition::Supports,
+                        dispatch.provenance_source.clone(),
+                    )?;
+                }
+                VerifierExecution::Completed(VerifierConclusion::Rejected(evidence)) => {
+                    validate_policy_evidence(requirement, &evidence)?;
+                    if !requirement.classes.contains(&evidence.evidence_class) {
+                        continue;
+                    }
+                    refuted = true;
+                    builder.evidence(
+                        &producer,
+                        dispatch
+                            .verifier_artifact
+                            .clone()
+                            .expect("rejected verifier execution retains an artifact"),
+                        evidence,
+                        &targeted,
+                        ClaimDisposition::Refutes,
+                        dispatch.provenance_source.clone(),
+                    )?;
+                }
+                VerifierExecution::Completed(VerifierConclusion::Unresolved {
+                    reason,
+                    evidence,
+                }) => {
+                    validate_reason(&reason)?;
+                    if let Some(evidence) = evidence {
+                        validate_policy_evidence(requirement, &evidence)?;
+                        if requirement.classes.contains(&evidence.evidence_class) {
+                            builder.evidence(
+                                &producer,
+                                dispatch
+                                    .verifier_artifact
+                                    .clone()
+                                    .expect("unresolved verifier evidence retains an artifact"),
+                                evidence,
+                                &targeted,
+                                ClaimDisposition::Unresolved,
+                                dispatch.provenance_source.clone(),
+                            )?;
+                        }
+                    }
+                    builder.gap("missing", &targeted, reason);
+                    had_gap = true;
+                }
+                VerifierExecution::Faulted(reason) => {
+                    validate_reason(&reason)?;
+                    builder.gap(
+                        "bhcp.evidence-gap/verifier-fault@0",
+                        &targeted,
+                        reason.clone(),
+                    );
+                    faults.push(reason);
+                    had_gap = true;
+                }
+            }
+        }
+        if accepted < requirement.minimum as usize && !refuted && !had_gap {
+            builder.gap(
+                "missing",
+                &targeted,
+                Reason {
+                    code: "bhcp.reason/policy-evidence-minimum@0".to_owned(),
+                    message: format!(
+                        "policy evidence obligation {} requires {} accepted item(s), found {accepted}",
+                        requirement.symbol, requirement.minimum
+                    ),
+                    details: None,
+                },
+            );
+        }
+    }
+
     let mut obligation_status = BTreeMap::new();
     for (obligation, markers) in &builder.markers {
-        let status = if markers
+        let refuted = markers
             .iter()
-            .any(|marker| matches!(marker, Marker::Refutes))
-        {
+            .any(|marker| matches!(marker, Marker::Refutes));
+        let unresolved = markers
+            .iter()
+            .any(|marker| matches!(marker, Marker::Unresolved));
+        let supports = markers
+            .iter()
+            .filter(|marker| matches!(marker, Marker::Supports))
+            .count();
+        let policy = policy_obligations
+            .iter()
+            .find(|candidate| candidate.id == *obligation);
+        let status = if refuted {
             "refuted"
-        } else if markers
-            .iter()
-            .any(|marker| matches!(marker, Marker::Unresolved))
-        {
+        } else if policy.is_some_and(|policy| supports >= policy.minimum as usize) {
+            "discharged"
+        } else if unresolved {
             "unresolved"
-        } else if markers
-            .iter()
-            .any(|marker| matches!(marker, Marker::Supports))
-        {
+        } else if supports > 0 {
             "discharged"
         } else {
-            return Err(invalid("contract obligation has no verification path"));
+            return Err(invalid("obligation has no verification path"));
         };
         obligation_status.insert(obligation.clone(), status.to_owned());
     }
@@ -966,8 +1419,11 @@ fn verify(
     let mut features = vec![VERIFICATION_FEATURE.to_owned()];
     if used_adapter {
         features.push(ADAPTER_EVIDENCE_FEATURE.to_owned());
-        features.sort();
     }
+    if !policy_obligations.is_empty() {
+        features.push(POLICY_EVIDENCE_FEATURE.to_owned());
+    }
+    features.sort();
     let mut bundle = EvidenceBundle {
         features,
         semantic_ir,
@@ -976,6 +1432,7 @@ fn verify(
         items: builder.items,
         gaps: builder.gaps,
         edges: builder.edges,
+        policy_obligations,
         obligation_status,
         artifact_id: None,
     };
@@ -1214,6 +1671,18 @@ fn validate_declared_evidence(
     if !binding.trust.is_empty() && !binding.trust.contains(&evidence.evidence_class) {
         return Err(invalid(
             "verifier returned evidence outside its declared trust classes",
+        ));
+    }
+    Ok(())
+}
+
+fn validate_policy_evidence(
+    requirement: &PolicyEvidenceObligation,
+    evidence: &VerifierEvidence,
+) -> Result<()> {
+    if evidence.predicate != requirement.symbol {
+        return Err(invalid(
+            "policy verifier evidence predicate does not match its obligation",
         ));
     }
     Ok(())
