@@ -1,0 +1,8 @@
+#!bhcp-profile example/words@0
+$outcome example/Greet@0 ^
+    // $accepts inside a comment is not syntax?
+    $accepts name: Text?
+    $yields greeting: Text?
+    $needs "keep $outcome ^ ~ ?": name != ""?
+    $verify "proof": with proof?
+~

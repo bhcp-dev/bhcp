@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 
 use crate::cbor::encode_deterministic;
 use crate::diagnostic::{Diagnostic, Result};
@@ -8,12 +8,12 @@ use crate::model::{
     BhcpType, Binding, CanonicalAstDocument, Clause, ClauseKind, ContentReference, Effect,
     EffectivePolicyReference, Expression, ExpressionForm, FieldType, FunctionDefinition,
     GoalDefinition, HashId, PolicyDecision, SemanticIrDocument, VariantCaseType, VerifierBinding,
-    features_for,
+    features_for, is_symbol,
 };
 use crate::parser::{
     CANONICAL_PROFILE, ParsedProgram, SurfaceArgumentMode, SurfaceClauseKind, SurfaceComposition,
     SurfaceEffect, SurfaceExpression, SurfaceFunction, SurfaceGoal, SurfaceLiteral, SurfaceType,
-    parse_canonical, scan_profile_preamble,
+    parse_canonical, parse_with_syntax, scan_profile_preamble, validate_effective_syntax,
 };
 use crate::policy::{
     EffectivePolicyDocument, ExactNumber, PolicyDocument, PolicyScope, SourcePolicyDocument,
@@ -24,6 +24,7 @@ use crate::prelude::{
     CHAIN_LOWERER, CHAIN_REDUCER, DerivedChild, DerivedForm, GATE_FEATURE, GATE_LOWERER,
     NONE_FEATURE, NONE_LOWERER, NONE_REDUCER, NetworkShape, Prelude,
 };
+use crate::profile::SyntaxDocument;
 use crate::value::Value;
 
 #[derive(Clone, Debug)]
@@ -42,6 +43,45 @@ pub struct Compilation {
 pub struct ParsedPolicySource {
     pub ast: CanonicalAstDocument,
     pub documents: Vec<SourcePolicyDocument>,
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct ProfileSyntaxRegistry {
+    profiles: BTreeMap<String, SyntaxDocument>,
+}
+
+impl ProfileSyntaxRegistry {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn register(&mut self, profile: &str, syntax: SyntaxDocument) -> Result<()> {
+        if !is_symbol(profile) || profile == CANONICAL_PROFILE {
+            return Err(Diagnostic::new(
+                "BHCP9002",
+                "invalid-profile-registration",
+                "<profile-registry>",
+                1,
+                1,
+            ));
+        }
+        validate_effective_syntax(&syntax)?;
+        if self.profiles.contains_key(profile) {
+            return Err(Diagnostic::new(
+                "BHCP9002",
+                "duplicate-profile-registration",
+                "<profile-registry>",
+                1,
+                1,
+            ));
+        }
+        self.profiles.insert(profile.to_owned(), syntax);
+        Ok(())
+    }
+
+    fn get(&self, profile: &str) -> Option<&SyntaxDocument> {
+        self.profiles.get(profile)
+    }
 }
 
 pub fn parse_source(source: &str, source_name: &str) -> Result<CanonicalAstDocument> {
@@ -65,7 +105,37 @@ pub fn parse_source_bytes_with_algorithm(
     source_name: &str,
     algorithm: HashAlgorithm,
 ) -> Result<CanonicalAstDocument> {
-    Ok(parse_internal(source, source_name, algorithm)?.0)
+    Ok(parse_internal(source, source_name, algorithm, None)?.0)
+}
+
+pub fn parse_source_bytes_with_profiles(
+    source: &[u8],
+    source_name: &str,
+    profiles: &ProfileSyntaxRegistry,
+) -> Result<CanonicalAstDocument> {
+    parse_source_bytes_with_profiles_and_algorithm(
+        source,
+        source_name,
+        profiles,
+        HashAlgorithm::default(),
+    )
+}
+
+pub fn parse_source_with_profiles(
+    source: &str,
+    source_name: &str,
+    profiles: &ProfileSyntaxRegistry,
+) -> Result<CanonicalAstDocument> {
+    parse_source_bytes_with_profiles(source.as_bytes(), source_name, profiles)
+}
+
+pub fn parse_source_bytes_with_profiles_and_algorithm(
+    source: &[u8],
+    source_name: &str,
+    profiles: &ProfileSyntaxRegistry,
+    algorithm: HashAlgorithm,
+) -> Result<CanonicalAstDocument> {
+    Ok(parse_internal(source, source_name, algorithm, Some(profiles))?.0)
 }
 
 pub fn parse_policy_source(source: &str, source_name: &str) -> Result<ParsedPolicySource> {
@@ -89,7 +159,7 @@ pub fn parse_policy_source_bytes_with_algorithm(
     source_name: &str,
     algorithm: HashAlgorithm,
 ) -> Result<ParsedPolicySource> {
-    let (ast, program) = parse_internal(source, source_name, algorithm)?;
+    let (ast, program) = parse_internal(source, source_name, algorithm, None)?;
     if program.policies.is_empty() {
         return Err(Diagnostic::new(
             "BHCP1001",
@@ -134,7 +204,13 @@ pub fn compile_source_with_policy_and_algorithm(
     policy: &EffectivePolicyDocument,
     algorithm: HashAlgorithm,
 ) -> Result<Compilation> {
-    compile_source_internal(source.as_bytes(), source_name, algorithm, Some(policy))
+    compile_source_internal(
+        source.as_bytes(),
+        source_name,
+        algorithm,
+        Some(policy),
+        None,
+    )
 }
 
 pub fn compile_source_with_algorithm(
@@ -154,7 +230,37 @@ pub fn compile_source_bytes_with_algorithm(
     source_name: &str,
     algorithm: HashAlgorithm,
 ) -> Result<Compilation> {
-    compile_source_internal(source, source_name, algorithm, None)
+    compile_source_internal(source, source_name, algorithm, None, None)
+}
+
+pub fn compile_source_bytes_with_profiles(
+    source: &[u8],
+    source_name: &str,
+    profiles: &ProfileSyntaxRegistry,
+) -> Result<Compilation> {
+    compile_source_bytes_with_profiles_and_algorithm(
+        source,
+        source_name,
+        profiles,
+        HashAlgorithm::default(),
+    )
+}
+
+pub fn compile_source_with_profiles(
+    source: &str,
+    source_name: &str,
+    profiles: &ProfileSyntaxRegistry,
+) -> Result<Compilation> {
+    compile_source_bytes_with_profiles(source.as_bytes(), source_name, profiles)
+}
+
+pub fn compile_source_bytes_with_profiles_and_algorithm(
+    source: &[u8],
+    source_name: &str,
+    profiles: &ProfileSyntaxRegistry,
+    algorithm: HashAlgorithm,
+) -> Result<Compilation> {
+    compile_source_internal(source, source_name, algorithm, None, Some(profiles))
 }
 
 fn compile_source_internal(
@@ -162,8 +268,9 @@ fn compile_source_internal(
     source_name: &str,
     algorithm: HashAlgorithm,
     policy: Option<&EffectivePolicyDocument>,
+    profiles: Option<&ProfileSyntaxRegistry>,
 ) -> Result<Compilation> {
-    let (ast, program) = parse_internal(source, source_name, algorithm)?;
+    let (ast, program) = parse_internal(source, source_name, algorithm, profiles)?;
     let mut ir = elaborate(&program, source_name, algorithm)?;
     if let Some(policy) = policy {
         apply_effective_policy(&mut ir, policy, source_name, algorithm)?;
@@ -436,9 +543,28 @@ fn parse_internal(
     source: &[u8],
     source_name: &str,
     algorithm: HashAlgorithm,
+    profiles: Option<&ProfileSyntaxRegistry>,
 ) -> Result<(CanonicalAstDocument, ParsedProgram)> {
     let selected = scan_profile_preamble(source, source_name)?;
-    if selected.profile != CANONICAL_PROFILE {
+    let bytes = source;
+    let source_ref = ContentReference {
+        media_type: format!(
+            "text/bhcp;profile={}",
+            percent_encode_profile(&selected.profile)
+        ),
+        size: bytes.len(),
+        digests: vec![algorithm.hash(bytes)],
+    };
+    let program = if selected.profile == CANONICAL_PROFILE {
+        parse_canonical(&selected.canonical_source, source_name, source_ref.clone())?
+    } else if let Some(syntax) = profiles.and_then(|registry| registry.get(&selected.profile)) {
+        parse_with_syntax(
+            &selected.canonical_source,
+            source_name,
+            source_ref.clone(),
+            syntax,
+        )?
+    } else {
         return Err(Diagnostic::new(
             "BHCP0004",
             format!(
@@ -449,17 +575,7 @@ fn parse_internal(
             1,
             1,
         ));
-    }
-    let bytes = source;
-    let source_ref = ContentReference {
-        media_type: format!(
-            "text/bhcp;profile={}",
-            percent_encode_profile(&selected.profile)
-        ),
-        size: bytes.len(),
-        digests: vec![algorithm.hash(bytes)],
     };
-    let program = parse_canonical(&selected.canonical_source, source_name, source_ref.clone())?;
     let mut features = features_for(algorithm);
     if uses_self_hosted_all(&program) {
         features.push(ALL_FEATURE.to_owned());

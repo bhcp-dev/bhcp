@@ -116,11 +116,13 @@ limits before semantic IR exists. Accepted IR retains its governing policy and
 normalized decisions. Execution-time enforcement, waivers, and the later graph
 stages remain separate roadmap work.
 
-The presentation front end now has fixed raw-byte profile selection and typed,
-deterministic syntax/profile artifacts. Cross-document inheritance resolution,
-canonical-token normalization, and profile-aware formatting remain the next
-pipeline stages; the current parser still fails closed for an unregistered custom
-normalizer.
+The presentation front end now has fixed raw-byte profile selection, typed
+deterministic syntax/profile artifacts, and a closed registry that validates an
+effective syntax map before lowering custom source to canonical tokens. Lowering is
+NFC-aware, ignores comments and literals, retains original source spans, and reaches
+the ordinary canonical parser without a profile callback. Cross-document inheritance,
+attached overlay resolution, and profile-aware formatting remain the next pipeline
+stages; an unregistered custom profile still fails closed.
 
 ## Effects, policy, and evidence
 
