@@ -5,6 +5,7 @@ use std::process::ExitCode;
 
 use bhcp::cbor::{decode_deterministic, encode_deterministic};
 use bhcp::hash::{HashAlgorithm, format_hash};
+use bhcp::model::ContentReference;
 use bhcp::value::Value;
 
 const FINAL_SOURCE: &str = "pub fn public_ready() -> bool {\n    true\n}\n\npub fn oracle_ready() -> bool {\n    true\n}\n\npub fn policy_ready() -> bool {\n    true\n}\n";
@@ -42,7 +43,18 @@ fn run() -> Result<(), ()> {
     {
         return Err(());
     }
-    let source = read_source()?;
+    let Value::Bytes(subject_bytes) = request.get("subject_content").ok_or(())? else {
+        return Err(());
+    };
+    let subject = ContentReference::from_bytes(
+        "application/vnd.bhcp.subject-source",
+        subject_bytes,
+        HashAlgorithm::default(),
+    );
+    if request.get("subject") != Some(&subject.to_value()) {
+        return Err(());
+    }
+    let source = String::from_utf8(subject_bytes.clone()).map_err(|_| ())?;
     let compact: String = source
         .chars()
         .filter(|character| !character.is_whitespace())

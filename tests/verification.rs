@@ -117,6 +117,7 @@ fn verify(
         input: &input(),
         output: candidate,
         subject: reference("subject"),
+        subject_bytes: b"subject",
         execution_graph: reference("execution-graph"),
         produced_at: "2026-07-18T10:00:00Z",
     })
@@ -358,6 +359,7 @@ fn registry_and_external_value_boundaries_reject_invalid_inputs() {
             input: &input,
             output: &output,
             subject: reference("subject"),
+            subject_bytes: b"subject",
             execution_graph: reference("execution-graph"),
             produced_at: "2026-02-30T10:00:00Z",
         })

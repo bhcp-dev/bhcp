@@ -3,7 +3,8 @@ use std::path::PathBuf;
 use std::process::Command;
 
 use bhcp::cbor::{decode_deterministic, encode_deterministic};
-use bhcp::model::ClauseKind;
+use bhcp::hash::HashAlgorithm;
+use bhcp::model::{ClauseKind, ContentReference};
 use bhcp::pipeline::compile_source;
 use bhcp::value::Value;
 
@@ -18,6 +19,12 @@ fn adapter(mode: &str, root: &std::path::Path) -> std::process::Output {
         "change-policy" => "experiment/verifier/change-policy@0",
         _ => unreachable!(),
     };
+    let subject_bytes = fs::read(root.join("subject/src/lib.rs")).unwrap();
+    let subject = ContentReference::from_bytes(
+        "application/vnd.bhcp.subject-source",
+        &subject_bytes,
+        HashAlgorithm::default(),
+    );
     Command::new(env!("CARGO_BIN_EXE_bhcp-in-session-evidence-adapter"))
         .arg(mode)
         .current_dir(root)
@@ -32,6 +39,8 @@ fn adapter(mode: &str, root: &std::path::Path) -> std::process::Output {
                     ("verifier", Value::Text(verifier.to_owned())),
                     ("obligations", Value::Array(vec![])),
                     ("payload", Value::Bytes(vec![0])),
+                    ("subject", subject.to_value()),
+                    ("subject_content", Value::Bytes(subject_bytes)),
                 ]))
                 .unwrap(),
             )?;
@@ -179,12 +188,12 @@ fn registry_evidence_is_bound_to_the_exact_supplied_subject() {
         String::from_utf8_lossy(&output.stderr)
     );
     let bundle = decode_deterministic(&output.stdout).unwrap();
-    assert_eq!(
-        bundle
-            .get("subject")
-            .and_then(|subject| subject.get("size")),
-        Some(&Value::Integer(0))
-    );
+    let Value::Array(claims) = bundle.get("claims").unwrap() else {
+        panic!("evidence bundle claims must be an array")
+    };
+    assert!(claims.iter().all(|claim| {
+        claim.get("subject").and_then(|subject| subject.get("size")) == Some(&Value::Integer(0))
+    }));
     fs::remove_dir_all(root).unwrap();
 }
 

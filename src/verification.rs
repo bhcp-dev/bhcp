@@ -220,6 +220,7 @@ pub struct VerificationRequest<'a> {
     pub input: &'a Value,
     pub output: &'a Value,
     pub subject: ContentReference,
+    pub subject_bytes: &'a [u8],
     pub execution_graph: ContentReference,
     pub produced_at: &'a str,
 }
@@ -925,6 +926,7 @@ fn dispatch_registered(
     input: &Value,
     output: &Value,
     subject: &ContentReference,
+    subject_bytes: &[u8],
     obligations: &[String],
 ) -> Result<Option<DispatchResult>> {
     let Some(verifier) = registry.verifiers.get(symbol) else {
@@ -972,6 +974,8 @@ fn dispatch_registered(
                         verifier: symbol,
                         obligations,
                         payload: &candidate,
+                        subject,
+                        subject_bytes,
                         effect_ceiling,
                     },
                     cancellation,
@@ -1036,6 +1040,17 @@ fn verify(
     }
     validate_timestamp(request.produced_at)?;
     request.subject.validate()?;
+    if request.subject.size != request.subject_bytes.len()
+        || request.subject.digests.iter().any(|digest| {
+            HashAlgorithm::from_id(&digest.algorithm)
+                .map(|algorithm| algorithm.hash(request.subject_bytes) != *digest)
+                .unwrap_or(true)
+        })
+    {
+        return Err(invalid(
+            "verification subject bytes do not match the supplied content reference",
+        ));
+    }
     request.execution_graph.validate()?;
     let goal = request
         .compilation
@@ -1155,6 +1170,7 @@ fn verify(
             request.input,
             request.output,
             &request.subject,
+            request.subject_bytes,
             &targeted,
         )?
         else {
@@ -1265,6 +1281,7 @@ fn verify(
                 request.input,
                 request.output,
                 &request.subject,
+                request.subject_bytes,
                 &targeted,
             )?
             else {

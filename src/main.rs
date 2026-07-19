@@ -194,6 +194,7 @@ fn verify_candidate(arguments: &[String]) -> Result<(), (u8, String)> {
             input,
             output,
             subject,
+            subject_bytes: &subject_bytes,
             execution_graph,
             produced_at,
         })

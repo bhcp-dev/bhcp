@@ -63,7 +63,9 @@ registers public, withheld-oracle, and exact change-policy producers, while the
 contract remains the authority for their maximum effects. A model may retain and
 inspect the canonical bundle before claiming success; the controller subsequently
 runs its own frozen judges, so model-visible evidence and independent acceptance are
-recorded separately.
+recorded separately. The registry request binds the exact controller-supplied subject
+bytes to the claim's content reference, and the fixture producers judge that supplied
+content rather than reopening an ambient subject path.
 
 Only after a complete session does the controller create an isolated candidate
 view for each ordered judge. Non-oracle judges receive no oracle path; only a

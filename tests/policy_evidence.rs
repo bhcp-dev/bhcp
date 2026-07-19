@@ -118,6 +118,7 @@ fn verify(
         input: &input,
         output: &output,
         subject: reference("subject"),
+        subject_bytes: b"subject",
         execution_graph: reference("execution-graph"),
         produced_at: "2026-07-19T08:00:00Z",
     })

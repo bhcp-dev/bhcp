@@ -136,6 +136,7 @@ fn verify(
             input: &input,
             output: &output,
             subject: reference("subject"),
+            subject_bytes: b"subject",
             execution_graph: reference("execution-graph"),
             produced_at,
         })
@@ -302,6 +303,7 @@ fn process_registration_order_does_not_change_bundle_order_or_bytes() {
                 input: &input,
                 output: &output,
                 subject: reference("subject"),
+                subject_bytes: b"subject",
                 execution_graph: reference("execution-graph"),
                 produced_at: "2026-07-19T06:00:00Z",
             })

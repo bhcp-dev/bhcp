@@ -353,6 +353,12 @@ size, wall-clock time, and cancellation are bounded and have stable, distinguish
 outcomes. Every execution record retains the exact declaration, obligation targets,
 request, response when present, executable artifact, and exit code.
 
+Each request carries both the verification subject's content reference and its exact
+bytes. The runner validates their size and every digest before launch, and a producer
+must judge those bytes rather than substitute an ambient project file. Evidence claims
+therefore cannot name one caller-supplied subject while a registered adapter examines
+another.
+
 The runner compares the executable's device, inode, mode, size, and nanosecond
 modification identity before and after artifact capture and again immediately before
 launch, so same-length replacement is detected. The portable native launch still
