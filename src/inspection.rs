@@ -120,11 +120,16 @@ fn render_policy(artifact: &Value, output: &mut String) {
             if let Some(Value::Array(layers)) = artifact.get("source_layers") {
                 for layer in layers {
                     let name = text_field(layer, "layer").unwrap_or("?");
-                    let count = match layer.get("policies") {
-                        Some(Value::Array(policies)) => policies.len(),
-                        _ => 0,
+                    let policies = match layer.get("policies") {
+                        Some(Value::Array(policies)) => policies.as_slice(),
+                        _ => &[],
                     };
+                    let count = policies.len();
                     writeln!(output, "source-layer {name} {count}").unwrap();
+                    for policy in policies {
+                        let symbol = text_field(policy, "symbol").unwrap_or("?");
+                        writeln!(output, "  source {symbol}").unwrap();
+                    }
                 }
             }
             if let Some(effective) = artifact.get("effective") {
@@ -135,23 +140,53 @@ fn render_policy(artifact: &Value, output: &mut String) {
                     "capabilities",
                     "limits",
                 ] {
-                    let count = match effective.get(category) {
-                        Some(Value::Array(rules)) => rules.len(),
-                        _ => 0,
+                    let rules = match effective.get(category) {
+                        Some(Value::Array(rules)) => rules.as_slice(),
+                        _ => &[],
                     };
-                    writeln!(output, "{category} {count}").unwrap();
+                    writeln!(output, "{category} {}", rules.len()).unwrap();
+                    for (index, rule) in rules.iter().enumerate() {
+                        let value = rule.get("value").unwrap_or(rule);
+                        writeln!(
+                            output,
+                            "effective {category}[{index}] {}",
+                            render_value(value)
+                        )
+                        .unwrap();
+                    }
                 }
                 let mode = effective
                     .get("type_mode")
                     .and_then(|rule| text_field(rule, "value"))
                     .unwrap_or("?");
                 writeln!(output, "type-mode {mode}").unwrap();
+                writeln!(output, "effective type-mode {mode}").unwrap();
             }
             let provenance = match artifact.get("rule_provenance") {
-                Some(Value::Array(entries)) => entries.len(),
-                _ => 0,
+                Some(Value::Array(entries)) => entries.as_slice(),
+                _ => &[],
             };
-            writeln!(output, "rule-provenance {provenance}").unwrap();
+            writeln!(output, "rule-provenance {}", provenance.len()).unwrap();
+            for entry in provenance {
+                let category = text_field(entry, "category").unwrap_or("?");
+                let index = integer_field(entry, "effective_rule").unwrap_or(-1);
+                let sources = match entry.get("sources") {
+                    Some(Value::Array(sources)) => sources
+                        .iter()
+                        .filter_map(|source| match source {
+                            Value::Array(parts) if parts.len() == 2 => Some(format!(
+                                "{}#{}",
+                                text_value(&parts[0])?,
+                                text_value(&parts[1])?
+                            )),
+                            _ => None,
+                        })
+                        .collect::<Vec<_>>()
+                        .join(", "),
+                    _ => "?".to_owned(),
+                };
+                writeln!(output, "provenance {category}[{index}] <- {sources}").unwrap();
+            }
         }
         _ => writeln!(output, "policy form unknown").unwrap(),
     }
