@@ -150,6 +150,35 @@ verifier commands from a project manifest, or run the coding-agent experiment's 
 and policy adapters. Those adapters remain the next vertical slice; they will consume
 the generic registry instead of becoming kernel primitives.
 
+### Project-local verifier adapters
+
+Canonical BHCP source declares a verifier's symbol, typed input/output evidence,
+trust restrictions, and obligation targets. A project's `bhcp-project.toml` may bind
+that symbol to a narrower local process envelope without turning a contract string
+into a command:
+
+```toml
+[[verifier_adapter]]
+symbol = "example/verifier.check@0"
+executable = "target/verifiers/example"
+argv = ["verify", "--input", "-"]
+working_scope = "project"
+input_media_type = "application/vnd.bhcp.verification-request+cbor"
+output_media_type = "application/vnd.bhcp.verifier-result+cbor"
+timeout_ms = 30000
+allowed_effects = ["bhcp-effect/fs.read@0", "bhcp-effect/process@0"]
+evidence_kind = "static"
+```
+
+Declarations are sorted by verifier symbol and effect sets are normalized. Every
+field is required. Executables are lexical project-relative paths; shells, command
+strings, absolute/parent paths, ambient network, unknown effects or keys, duplicate
+fields or symbols, invalid media types, and unbounded timeouts fail closed with a
+project-manifest diagnostic. The process runner remains follow-up work: it must
+canonicalize the executable to defeat symlink escape, pass argv without a shell,
+intersect effects with canonical policy, and retain adapter provenance in evidence.
+The local declaration is not a new CDDL artifact and does not change semantic ID.
+
 ## Coding-agent experiments
 
 [`experiments/minimal-coding-agent/`](experiments/minimal-coding-agent/) contains a
