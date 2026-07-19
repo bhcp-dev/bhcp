@@ -60,6 +60,14 @@ fn gate_lowers_to_a_unary_typed_variant_with_an_explicit_parent_edge() {
     let repeated = compile_gate();
     assert_eq!(compiled.ast_bytes, repeated.ast_bytes);
     assert_eq!(compiled.ir_bytes, repeated.ir_bytes);
+    assert_eq!(
+        compiled.ast_bytes,
+        fs::read(fixture("canonical-gate.ast.cbor")).unwrap()
+    );
+    assert_eq!(
+        compiled.ir_bytes,
+        fs::read(fixture("canonical-gate.ir.cbor")).unwrap()
+    );
 
     let gate = &compiled.ir.goals[1];
     assert_eq!(
@@ -94,10 +102,12 @@ fn gate_lowers_to_a_unary_typed_variant_with_an_explicit_parent_edge() {
         parameters.as_slice(),
         [parameter] if parameter.form == ExpressionForm::Literal(Value::Text("request".to_owned()))
     ));
-    assert!(compiled
-        .ir
-        .features
-        .contains(&"bhcp/feature.self-hosted-gate@0".to_owned()));
+    assert!(
+        compiled
+            .ir
+            .features
+            .contains(&"bhcp/feature.self-hosted-gate@0".to_owned())
+    );
 }
 
 #[test]
@@ -120,7 +130,7 @@ fn false_gate_concludes_excluded_without_observing_the_child() {
         )
     );
     assert!(derivation.premises.is_empty());
-    assert_eq!(evidence, &[derivation.id.clone()]);
+    assert_eq!(evidence, std::slice::from_ref(&derivation.id));
     runtime
         .verify("network-1", parent(false), &[], &reduction)
         .unwrap();
@@ -246,6 +256,13 @@ fn gate_rejects_non_bool_non_unary_and_mistyped_child_input() {
     let missing = source.replace("request = borrow request", "request = borrow enabled");
     let diagnostic = compile_source(&missing, "mistyped-gate-edge.bhcp").unwrap_err();
     assert_eq!(diagnostic.code, "BHCP2003");
+
+    let explicit_output = source.replace(
+        "    §input request: Text;",
+        "    §input request: Text;\n    §output result: Text;",
+    );
+    let diagnostic = compile_source(&explicit_output, "explicit-gate-output.bhcp").unwrap_err();
+    assert_eq!(diagnostic.code, "BHCP2003");
 }
 
 #[test]
@@ -291,4 +308,36 @@ fn gate_condition_changes_semantics_but_presentation_does_not() {
     )
     .unwrap();
     assert_ne!(normal.ir.semantic_id, negated.ir.semantic_id);
+}
+
+#[test]
+fn same_signature_gates_retain_distinct_condition_specializations() {
+    let source = "§goal example/Approve@0 { §output approval: Text; }\n\
+                  §goal example/Open@0 { §input enabled: Bool; §gate when enabled {\n\
+                    approval = example/Approve@0();\n\
+                  }; }\n\
+                  §goal example/Inverse@0 { §input enabled: Bool; §gate when !enabled {\n\
+                    approval = example/Approve@0();\n\
+                  }; }";
+    let compiled = compile_source(source, "two-gates.bhcp").unwrap();
+    let open = compiled.ir.goals[1].body.as_ref().unwrap();
+    let inverse = compiled.ir.goals[2].body.as_ref().unwrap();
+    assert_ne!(open.reducer, inverse.reducer);
+    assert_eq!(compiled.ir.functions.len(), 2);
+
+    let runtime = KernelRuntime::new(&compiled.ir);
+    let disabled = Value::map([("enabled", Value::Bool(false))]);
+    assert!(matches!(
+        runtime.reduce(&open.id, disabled.clone(), &[]).unwrap(),
+        Reduction::Concluded {
+            result: ExecutionResult::Completed(Verdict::Satisfied { ref output, .. }),
+            ..
+        } if output == &variant("Excluded", Value::Array(vec![Value::Text("unit".to_owned())]))
+    ));
+    assert_eq!(
+        runtime.reduce(&inverse.id, disabled, &[]).unwrap(),
+        Reduction::Pending {
+            required: vec!["approval".to_owned()]
+        }
+    );
 }

@@ -530,6 +530,14 @@ input bound to the immediate predecessor's whole sealed output through an explic
 is semantic. The first child is input-free, source order is preserved, and the edge
 does not add a scheduler dependency field or ordering hint to `kernel-network`.
 
+In the executable `gate` slice, each selected-child input is bound to an exact typed
+parent input field through an explicit `bhcp/kernel.parent-field@0` data-edge
+expression. The total pure condition is specialized into the retained reducer
+definition, so neither the condition nor a behavior discriminator is added to
+`kernel-network`. A closed gate rejects any supplied child observation; absence of
+an execution claim for the unselected child is therefore checked rather than
+inferred from scheduling convention.
+
 | Reduction | Meaning |
 | --- | --- |
 | `Pending(requiredTags)` | The listed unique, known, unobserved child tags are exactly those whose results may next affect a conclusion. |
