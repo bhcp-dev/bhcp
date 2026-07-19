@@ -2,13 +2,34 @@
 
 Date: 2026-07-19
 
-## Verdict
+## Retrospective validity correction
 
-The exact compact skill's Pilot 006 ordered-obligation failure did not recur in any of five new sessions: every frozen candidate passed all ten withheld semantic invariants both in the controller's oracle judge and in independent patch replay. All agents also made the evidence-calibrated `claimed_success=false` claim while the bound oracle remained unavailable.
+Independent review found that Codex's `workspace-write` sandbox prevented writes
+outside the staged subject but did not prevent host filesystem reads. The original
+repository, its oracle, prior patches, and other host files therefore remained
+readable in principle while these sessions ran. The controller proved only that an
+`oracle/` directory did not appear inside the staged workspace; it did not prove
+that the original oracle was unreadable.
+
+Run 002 consequently **does not support an oracle-withheld semantic result**, a
+claim-calibration result, or an inference about recurrence. Its patches, metrics,
+judge records, and replay checks remain useful infrastructure observations, but
+the 5/5 oracle/replay observation cannot be upgraded post hoc. Run 003 is separately
+registered with an operating-system read boundary and no replacement of these
+sessions.
+
+## Recorded observations (invalid for oracle-withheld inference)
+
+Every stored candidate passed all ten oracle invariants in the controller judge and
+in independent patch replay, and every recorded final claim was false. Because
+oracle withholding was not established, those facts are not evidence that the
+ordered-obligation failure did or did not recur under information asymmetry.
 
 The preregistered all-judge outcome is nevertheless **0/5 accepted**. All five sessions are included verification failures because the registered Clippy command selected Rust 1.96.0 through a Rustup proxy inside its cleared environment, while the fixture requires 1.97.1. Formatting, public tests, and the oracle judge accepted every candidate. After all sessions stopped, an independently audited command pinned `rustup run 1.97.1 cargo`; formatting, Clippy with warnings denied, five public tests, and ten oracle invariants then accepted every stored patch. That post-run evidence establishes patch integrity and the semantic secondary result, but does not rewrite the registered primary outcome.
 
-The sample therefore weakens the hypothesis that the earlier 8/10 failure is persistent for this exact setup, while strongly confirming run-to-run efficiency variance. It does not establish a population success rate, a model-wide effect, a causal skill benefit, or a BHCP advantage over prose.
+The sample is invalid for the registered research question. It does not weaken or
+strengthen the earlier failure hypothesis and does not establish a population
+success rate, model-wide effect, causal skill benefit, or BHCP advantage over prose.
 
 ## Frozen controls
 
@@ -41,11 +62,18 @@ Across the five included sessions:
 
 Against the single Pilot 006 evaluated-skill point, the new medians used 52.1% more input, 53.4% more cached input, 66.2% more output, 96.7% more reasoning output, 26.7% fewer commands, and 64.0% more wall time. These descriptive differences are not causal estimates.
 
-Claim calibration was 5/5 under the registered evidence rule: every agent said no because the bound oracle had not run, and none overclaimed. Independent semantic acceptance was 5/5 after the oracle became available. Thus a negative in-session claim did not imply a defective patch; it correctly represented unresolved evidence.
+The raw claim record was 5/5 false and the post-session replay record was 5/5
+accepted. No calibration conclusion follows because the evidence available to the
+agents was not actually confined to the staged inputs.
 
 ## Audit and limits
 
-The controller independently recorded identical visible-input digests for every session, distinct subject/output identities, complete metric records, no contamination, and isolated oracle access. The checked-in replay test applies every patch to the pinned starter and reruns formatting, pinned Clippy, public tests, and the frozen oracle. Aggregate values above were independently recalculated from the per-session controller records.
+The controller recorded identical staged-input digests for every session, distinct
+subject/output identities, complete metric records, and no staged-workspace
+contamination. It did **not** establish isolated oracle access. The checked-in
+replay test applies every patch to the pinned starter and reruns formatting, Clippy,
+public tests, and the frozen oracle with Rust 1.97.1. Aggregate values above were
+independently recalculated from the per-session controller records.
 
 Run 001 remains separately recorded as five excluded, unreplaced infrastructure attempts. Run 002's direct-Cargo Clippy delegation defect is also preserved rather than hidden; the reusable runner now invokes Cargo through the exact Rustup toolchain for future judging.
 

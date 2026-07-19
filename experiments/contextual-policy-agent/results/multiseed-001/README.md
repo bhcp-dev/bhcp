@@ -6,6 +6,11 @@ All five preregistered sessions completed and produced distinct one-file candida
 
 This is an experiment-infrastructure result, not evidence that the candidates or skill failed. The defect was reproduced by an exact fake-Codex regression test before the one-line forwarding fix. A separately preregistered run 002 uses the fixed driver.
 
+A later independent review also established that this driver's sandbox did not
+confine host filesystem reads. The post hoc oracle replays below remain artifact
+integrity checks only; they do not show that the rejected agents lacked access to
+the original oracle. Run 001 remains excluded and unreplaced.
+
 For artifact integrity only, all five stored patches were independently replayed from the pinned starter after the controller stopped. Every patch passed all five public tests and all ten unchanged oracle invariants. Those post hoc replays do not convert the controller-rejected attempts into included run-001 observations.
 
 | Attempt | Controller | Registered semantic status | Independent post hoc replay | Candidate blob |

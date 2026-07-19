@@ -36,3 +36,7 @@ protocol, and symmetric offline judge sequence for subsequent runs.
   invariants; the primary optimized-skill run used the fewest tokens but failed two
   ordered-specificity invariants, while a latest-main follow-up passed 10/10 with
   substantially higher token intake.
+- Multi-seed runs 001 and 002 are retained as invalid infrastructure records after
+  independent review found that host reads were not confined. Run 003 is
+  [preregistered](results/multiseed-003-registration.md) with operating-system read
+  confinement and exact nested executable identities.
