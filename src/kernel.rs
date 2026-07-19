@@ -461,6 +461,7 @@ impl<'a> KernelRuntime<'a> {
                 "reducer parent input does not match the goal input type",
             ));
         }
+        validate_reducer_expression(&reducer.definition, reducer)?;
         let slots = self.observation_slots(network, observations)?;
         let derivation_id = derive_derivation_id(network, &parent, &slots)?;
         let value = evaluate_expression(
@@ -478,6 +479,16 @@ impl<'a> KernelRuntime<'a> {
             .filter_map(|slot| slot.result.as_ref().map(|_| slot.tag.clone()))
             .collect();
         reduction.validate(network, &observed_tags)?;
+        if let Reduction::Concluded {
+            result: ExecutionResult::Completed(Verdict::Satisfied { output, .. }),
+            ..
+        } = &reduction
+            && !network.output.accepts(output)
+        {
+            return Err(invalid(
+                "reducer conclusion output does not match the network output type",
+            ));
+        }
         Ok(reduction)
     }
 
@@ -588,6 +599,25 @@ fn evaluate_expression(
     observations: Vec<ObservationSlot>,
 ) -> Result<RuntimeValue> {
     match &expression.form {
+        ExpressionForm::Literal(value) => match (&expression.value_type, value) {
+            (BhcpType::Primitive("Bool"), Value::Bool(value)) => Ok(RuntimeValue::Bool(*value)),
+            (BhcpType::List(element), Value::Array(values))
+                if element.as_ref() == &BhcpType::Primitive("Text") =>
+            {
+                Ok(RuntimeValue::Texts(
+                    values
+                        .iter()
+                        .map(|value| {
+                            let Value::Text(value) = value else {
+                                unreachable!("literal type was statically validated")
+                            };
+                            value.clone()
+                        })
+                        .collect(),
+                ))
+            }
+            _ => Ok(RuntimeValue::Data(value.clone())),
+        },
         ExpressionForm::Reference(reference) if reference == &function.parameters[0].id => {
             Ok(RuntimeValue::Data(parent))
         }
@@ -612,6 +642,47 @@ fn evaluate_expression(
                 _ => Err(invalid("reducer condition did not evaluate to Bool")),
             }
         }
+        ExpressionForm::Unary(operator, operand) => {
+            let operand =
+                evaluate_expression(operand, function, derivation_id, parent, observations)?;
+            match (operator.as_str(), operand) {
+                ("!", RuntimeValue::Bool(value)) => Ok(RuntimeValue::Bool(!value)),
+                _ => Err(invalid("reducer unary operation violated its checked type")),
+            }
+        }
+        ExpressionForm::Binary(operator, left, right) => {
+            let left = evaluate_expression(
+                left,
+                function,
+                derivation_id,
+                parent.clone(),
+                observations.clone(),
+            )?;
+            let right = evaluate_expression(right, function, derivation_id, parent, observations)?;
+            match operator.as_str() {
+                "==" => runtime_equal(&left, &right).map(RuntimeValue::Bool),
+                "!=" => runtime_equal(&left, &right).map(|equal| RuntimeValue::Bool(!equal)),
+                "&&" => match (left, right) {
+                    (RuntimeValue::Bool(left), RuntimeValue::Bool(right)) => {
+                        Ok(RuntimeValue::Bool(left && right))
+                    }
+                    _ => Err(invalid(
+                        "reducer boolean operation violated its checked type",
+                    )),
+                },
+                "||" => match (left, right) {
+                    (RuntimeValue::Bool(left), RuntimeValue::Bool(right)) => {
+                        Ok(RuntimeValue::Bool(left || right))
+                    }
+                    _ => Err(invalid(
+                        "reducer boolean operation violated its checked type",
+                    )),
+                },
+                _ => Err(invalid(format!(
+                    "unsupported total pure reducer binary operation {operator:?}"
+                ))),
+            }
+        }
         ExpressionForm::Call(symbol, arguments) => {
             let mut values = Vec::with_capacity(arguments.len());
             for argument in arguments {
@@ -623,11 +694,206 @@ fn evaluate_expression(
                     observations.clone(),
                 )?);
             }
-            evaluate_primitive(symbol, derivation_id, values)
+            let value = evaluate_primitive(symbol, derivation_id, values)?;
+            if !runtime_value_matches_type(&value, &expression.value_type) {
+                return Err(invalid(
+                    "reducer primitive result does not match its declared expression type",
+                ));
+            }
+            Ok(value)
         }
         _ => Err(invalid(
             "reducer used an expression outside the executable total-pure slice",
         )),
+    }
+}
+
+fn runtime_value_matches_type(value: &RuntimeValue, value_type: &BhcpType) -> bool {
+    match value {
+        RuntimeValue::Data(value) => value_type.accepts(value),
+        RuntimeValue::Observations(_) => matches!(value_type, BhcpType::Record(_)),
+        RuntimeValue::Bool(_) => value_type == &BhcpType::Primitive("Bool"),
+        RuntimeValue::Texts(_) => {
+            value_type == &BhcpType::List(Box::new(BhcpType::Primitive("Text")))
+        }
+        RuntimeValue::Reason(_) => {
+            value_type == &BhcpType::Nominal("bhcp/kernel.reason@0".to_owned(), vec![])
+        }
+        RuntimeValue::Fault(_) => {
+            value_type == &BhcpType::Nominal("bhcp/kernel.fault@0".to_owned(), vec![])
+        }
+        RuntimeValue::Result(_) => matches!(value_type, BhcpType::ExecutionResult(_)),
+        RuntimeValue::Reduction(_) => matches!(value_type, BhcpType::Reduction(_)),
+    }
+}
+
+fn validate_reducer_expression(
+    expression: &Expression,
+    function: &FunctionDefinition,
+) -> Result<()> {
+    match &expression.form {
+        ExpressionForm::Literal(value) => {
+            if !expression.value_type.accepts(value) {
+                return Err(invalid(
+                    "reducer literal does not match its declared value type",
+                ));
+            }
+        }
+        ExpressionForm::Reference(reference) => {
+            let Some(binding) = function
+                .parameters
+                .iter()
+                .find(|binding| binding.id == *reference)
+            else {
+                return Err(invalid("reducer reference is not a parameter binding"));
+            };
+            if expression.value_type != binding.value_type {
+                return Err(invalid(
+                    "reducer reference does not preserve its parameter type",
+                ));
+            }
+        }
+        ExpressionForm::Unary(operator, operand) => {
+            validate_reducer_expression(operand, function)?;
+            if operator != "!"
+                || operand.value_type != BhcpType::Primitive("Bool")
+                || expression.value_type != BhcpType::Primitive("Bool")
+            {
+                return Err(invalid(format!(
+                    "unsupported or ill-typed total pure reducer unary operation {operator:?}"
+                )));
+            }
+        }
+        ExpressionForm::Binary(operator, left, right) => {
+            validate_reducer_expression(left, function)?;
+            validate_reducer_expression(right, function)?;
+            let valid = match operator.as_str() {
+                "==" | "!=" => {
+                    left.value_type == right.value_type
+                        && expression.value_type == BhcpType::Primitive("Bool")
+                        && left.value_type != function.parameters[1].value_type
+                        && !matches!(
+                            left.value_type,
+                            BhcpType::ExecutionResult(_) | BhcpType::Reduction(_)
+                        )
+                }
+                "&&" | "||" => {
+                    left.value_type == BhcpType::Primitive("Bool")
+                        && right.value_type == BhcpType::Primitive("Bool")
+                        && expression.value_type == BhcpType::Primitive("Bool")
+                }
+                _ => false,
+            };
+            if !valid {
+                return Err(invalid(format!(
+                    "unsupported or ill-typed total pure reducer binary operation {operator:?}"
+                )));
+            }
+        }
+        ExpressionForm::If(condition, consequent, alternative) => {
+            validate_reducer_expression(condition, function)?;
+            validate_reducer_expression(consequent, function)?;
+            validate_reducer_expression(alternative, function)?;
+            if condition.value_type != BhcpType::Primitive("Bool")
+                || consequent.value_type != alternative.value_type
+                || expression.value_type != consequent.value_type
+            {
+                return Err(invalid(
+                    "reducer conditional is not total and consistently typed",
+                ));
+            }
+        }
+        ExpressionForm::Call(symbol, arguments) => {
+            for argument in arguments {
+                validate_reducer_expression(argument, function)?;
+            }
+            validate_primitive_signature(expression, symbol, arguments, function)?;
+        }
+    }
+    Ok(())
+}
+
+fn validate_primitive_signature(
+    expression: &Expression,
+    symbol: &str,
+    arguments: &[Expression],
+    function: &FunctionDefinition,
+) -> Result<()> {
+    let observations = &function.parameters[1].value_type;
+    let BhcpType::Reduction(output) = &function.result else {
+        return Err(invalid("reducer function does not return Reduction"));
+    };
+    let refs = BhcpType::List(Box::new(BhcpType::Primitive("Text")));
+    let fault = BhcpType::Nominal("bhcp/kernel.fault@0".to_owned(), vec![]);
+    let reason = BhcpType::Nominal("bhcp/kernel.reason@0".to_owned(), vec![]);
+    let execution = BhcpType::ExecutionResult(output.clone());
+    let argument_types = arguments
+        .iter()
+        .map(|argument| argument.value_type.clone())
+        .collect::<Vec<_>>();
+    let expected = match symbol {
+        "bhcp/kernel.has-refuted@0"
+        | "bhcp/kernel.has-missing@0"
+        | "bhcp/kernel.has-faulted@0"
+        | "bhcp/kernel.has-unresolved@0"
+        | "bhcp/kernel.has-satisfied@0"
+        | "bhcp/kernel.all-refuted@0"
+            if argument_types == [observations.clone()] =>
+        {
+            BhcpType::Primitive("Bool")
+        }
+        "bhcp/kernel.missing-tags@0"
+        | "bhcp/kernel.first-missing-tag@0"
+        | "bhcp/kernel.first-counter-evidence@0"
+        | "bhcp/kernel.all-counter-evidence@0"
+        | "bhcp/kernel.first-satisfied-evidence@0"
+        | "bhcp/kernel.partial-evidence@0"
+        | "bhcp/kernel.satisfied-evidence@0"
+            if argument_types == [observations.clone()] =>
+        {
+            refs.clone()
+        }
+        "bhcp/kernel.first-fault@0" if argument_types == [observations.clone()] => fault,
+        "bhcp/kernel.first-unresolved-reason@0" if argument_types == [observations.clone()] => {
+            reason
+        }
+        "bhcp/kernel.satisfied-record@0"
+        | "bhcp/kernel.first-satisfied-output@0"
+        | "bhcp/kernel.last-satisfied-output@0"
+        | "bhcp/kernel.first-satisfied-winner@0"
+            if argument_types == [observations.clone()] =>
+        {
+            output.as_ref().clone()
+        }
+        "bhcp/kernel.unit@0" if argument_types.is_empty() => BhcpType::Primitive("Unit"),
+        "bhcp/kernel.pending@0" if argument_types == [refs.clone()] => function.result.clone(),
+        "bhcp/kernel.refuted@0" if argument_types == [refs.clone()] => execution.clone(),
+        "bhcp/kernel.faulted@0" if argument_types == [fault] => execution.clone(),
+        "bhcp/kernel.unresolved@0" if argument_types == [reason, refs.clone()] => execution.clone(),
+        "bhcp/kernel.satisfied@0" if argument_types == [output.as_ref().clone(), refs] => {
+            execution.clone()
+        }
+        "bhcp/kernel.conclude@0" if argument_types == [execution] => function.result.clone(),
+        _ => {
+            return Err(invalid(format!(
+                "reducer call is not a registered total pure kernel primitive: {symbol}"
+            )));
+        }
+    };
+    if expression.value_type != expected {
+        return Err(invalid(format!(
+            "reducer primitive {symbol} does not preserve its declared result type"
+        )));
+    }
+    Ok(())
+}
+
+fn runtime_equal(left: &RuntimeValue, right: &RuntimeValue) -> Result<bool> {
+    match (left, right) {
+        (RuntimeValue::Data(left), RuntimeValue::Data(right)) => Ok(left == right),
+        (RuntimeValue::Bool(left), RuntimeValue::Bool(right)) => Ok(left == right),
+        (RuntimeValue::Texts(left), RuntimeValue::Texts(right)) => Ok(left == right),
+        _ => Err(invalid("reducer equality compared sealed or unlike values")),
     }
 }
 
@@ -663,6 +929,22 @@ fn evaluate_primitive(
                 )
             }))
         }),
+        "bhcp/kernel.has-satisfied@0" => with_observations(arguments, |observations| {
+            RuntimeValue::Bool(observations.iter().any(|slot| {
+                matches!(
+                    &slot.result,
+                    Some(ExecutionResult::Completed(Verdict::Satisfied { .. }))
+                )
+            }))
+        }),
+        "bhcp/kernel.all-refuted@0" => with_observations(arguments, |observations| {
+            RuntimeValue::Bool(observations.iter().all(|slot| {
+                matches!(
+                    &slot.result,
+                    Some(ExecutionResult::Completed(Verdict::Refuted { .. }))
+                )
+            }))
+        }),
         "bhcp/kernel.missing-tags@0" => with_observations(arguments, |observations| {
             RuntimeValue::Texts(
                 observations
@@ -670,6 +952,15 @@ fn evaluate_primitive(
                     .filter(|slot| slot.result.is_none())
                     .map(|slot| slot.tag.clone())
                     .collect(),
+            )
+        }),
+        "bhcp/kernel.first-missing-tag@0" => with_observations(arguments, |observations| {
+            RuntimeValue::Texts(
+                observations
+                    .iter()
+                    .find(|slot| slot.result.is_none())
+                    .map(|slot| vec![slot.tag.clone()])
+                    .unwrap_or_default(),
             )
         }),
         "bhcp/kernel.first-counter-evidence@0" => {
@@ -685,6 +976,16 @@ fn evaluate_primitive(
                 .ok_or_else(|| invalid("no refuted observation supplies counter-evidence"))?;
             Ok(RuntimeValue::Texts(evidence))
         }
+        "bhcp/kernel.all-counter-evidence@0" => with_observations(arguments, |observations| {
+            RuntimeValue::Texts(unique_refs(observations.iter().flat_map(
+                |slot| match &slot.result {
+                    Some(ExecutionResult::Completed(Verdict::Refuted { counter_evidence })) => {
+                        counter_evidence.clone()
+                    }
+                    _ => vec![],
+                },
+            )))
+        }),
         "bhcp/kernel.first-fault@0" => {
             let observations = take_observations(arguments)?;
             let fault = observations
@@ -738,6 +1039,62 @@ fn evaluate_primitive(
             }
             Ok(RuntimeValue::Data(Value::owned_map(outputs)))
         }
+        "bhcp/kernel.first-satisfied-output@0" => {
+            let observations = take_observations(arguments)?;
+            let output = observations
+                .iter()
+                .find_map(|slot| match &slot.result {
+                    Some(ExecutionResult::Completed(Verdict::Satisfied { output, .. })) => {
+                        Some(output.clone())
+                    }
+                    _ => None,
+                })
+                .ok_or_else(|| invalid("no satisfied observation supplies an output"))?;
+            Ok(RuntimeValue::Data(output))
+        }
+        "bhcp/kernel.last-satisfied-output@0" => {
+            let observations = take_observations(arguments)?;
+            let output = observations
+                .iter()
+                .rev()
+                .find_map(|slot| match &slot.result {
+                    Some(ExecutionResult::Completed(Verdict::Satisfied { output, .. })) => {
+                        Some(output.clone())
+                    }
+                    _ => None,
+                })
+                .ok_or_else(|| invalid("no satisfied observation supplies an output"))?;
+            Ok(RuntimeValue::Data(output))
+        }
+        "bhcp/kernel.first-satisfied-winner@0" => {
+            let observations = take_observations(arguments)?;
+            let (tag, output) = observations
+                .iter()
+                .find_map(|slot| match &slot.result {
+                    Some(ExecutionResult::Completed(Verdict::Satisfied { output, .. })) => {
+                        Some((slot.tag.clone(), output.clone()))
+                    }
+                    _ => None,
+                })
+                .ok_or_else(|| invalid("no satisfied observation supplies a winner"))?;
+            Ok(RuntimeValue::Data(Value::map([
+                ("output", output),
+                ("tag", Value::Text(tag)),
+            ])))
+        }
+        "bhcp/kernel.first-satisfied-evidence@0" => {
+            let observations = take_observations(arguments)?;
+            let evidence = observations
+                .iter()
+                .find_map(|slot| match &slot.result {
+                    Some(ExecutionResult::Completed(Verdict::Satisfied { evidence, .. })) => {
+                        Some(evidence.clone())
+                    }
+                    _ => None,
+                })
+                .ok_or_else(|| invalid("no satisfied observation supplies evidence"))?;
+            Ok(RuntimeValue::Texts(evidence))
+        }
         "bhcp/kernel.satisfied-evidence@0" => with_observations(arguments, |observations| {
             RuntimeValue::Texts(unique_refs(observations.iter().flat_map(
                 |slot| match &slot.result {
@@ -748,6 +1105,11 @@ fn evaluate_primitive(
                 },
             )))
         }),
+        "bhcp/kernel.unit@0" if arguments.is_empty() => {
+            Ok(RuntimeValue::Data(Value::Array(vec![Value::Text(
+                "unit".to_owned(),
+            )])))
+        }
         "bhcp/kernel.pending@0" => match arguments.as_slice() {
             [RuntimeValue::Texts(tags)] if !tags.is_empty() => {
                 Ok(RuntimeValue::Reduction(Reduction::Pending {

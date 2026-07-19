@@ -677,6 +677,23 @@ fn lower_reducer_expression(
     ids: &mut Ids,
 ) -> Result<Expression> {
     let (value_type, form) = match surface {
+        SurfaceExpression::Literal { value, .. } => match value {
+            SurfaceLiteral::Bool(value) => (
+                BhcpType::Primitive("Bool"),
+                ExpressionForm::Literal(Value::Bool(*value)),
+            ),
+            SurfaceLiteral::Text(value) => (
+                BhcpType::Primitive("Text"),
+                ExpressionForm::Literal(Value::Text(value.clone())),
+            ),
+            SurfaceLiteral::Integer(value) => (
+                BhcpType::ExactNumber("Integer"),
+                ExpressionForm::Literal(Value::Array(vec![
+                    Value::Text("integer".to_owned()),
+                    Value::Integer(*value),
+                ])),
+            ),
+        },
         SurfaceExpression::Reference { name, at } => {
             let binding = environment.get(name).ok_or_else(|| {
                 error(
@@ -689,6 +706,61 @@ fn lower_reducer_expression(
             (
                 binding.value_type.clone(),
                 ExpressionForm::Reference(binding.id.clone()),
+            )
+        }
+        SurfaceExpression::Unary {
+            operator,
+            operand,
+            at,
+        } => {
+            let operand =
+                lower_reducer_expression(operand, environment, result_type, source_name, ids)?;
+            if operator != "!" || operand.value_type != BhcpType::Primitive("Bool") {
+                return Err(error(
+                    "BHCP3001",
+                    format!("unsupported or ill-typed pure reducer unary operation {operator}"),
+                    source_name,
+                    at,
+                ));
+            }
+            (
+                BhcpType::Primitive("Bool"),
+                ExpressionForm::Unary(operator.clone(), Box::new(operand)),
+            )
+        }
+        SurfaceExpression::Binary {
+            operator,
+            left,
+            right,
+            at,
+        } => {
+            let left = lower_reducer_expression(left, environment, result_type, source_name, ids)?;
+            let right =
+                lower_reducer_expression(right, environment, result_type, source_name, ids)?;
+            let valid = match operator.as_str() {
+                "==" | "!=" => {
+                    left.value_type == right.value_type
+                        && environment
+                            .get("observations")
+                            .is_none_or(|binding| binding.value_type != left.value_type)
+                }
+                "&&" | "||" => {
+                    left.value_type == BhcpType::Primitive("Bool")
+                        && right.value_type == BhcpType::Primitive("Bool")
+                }
+                _ => false,
+            };
+            if !valid {
+                return Err(error(
+                    "BHCP3001",
+                    format!("unsupported or ill-typed pure reducer binary operation {operator}"),
+                    source_name,
+                    at,
+                ));
+            }
+            (
+                BhcpType::Primitive("Bool"),
+                ExpressionForm::Binary(operator.clone(), Box::new(left), Box::new(right)),
             )
         }
         SurfaceExpression::Call {
@@ -725,12 +797,17 @@ fn lower_reducer_expression(
                 | "bhcp/kernel.has-missing@0"
                 | "bhcp/kernel.has-faulted@0"
                 | "bhcp/kernel.has-unresolved@0"
+                | "bhcp/kernel.has-satisfied@0"
+                | "bhcp/kernel.all-refuted@0"
                     if argument_types == [observations_type.clone()] =>
                 {
                     BhcpType::Primitive("Bool")
                 }
                 "bhcp/kernel.missing-tags@0"
+                | "bhcp/kernel.first-missing-tag@0"
                 | "bhcp/kernel.first-counter-evidence@0"
+                | "bhcp/kernel.all-counter-evidence@0"
+                | "bhcp/kernel.first-satisfied-evidence@0"
                 | "bhcp/kernel.partial-evidence@0"
                 | "bhcp/kernel.satisfied-evidence@0"
                     if argument_types == [observations_type.clone()] =>
@@ -746,10 +823,14 @@ fn lower_reducer_expression(
                     reason_type.clone()
                 }
                 "bhcp/kernel.satisfied-record@0"
+                | "bhcp/kernel.first-satisfied-output@0"
+                | "bhcp/kernel.last-satisfied-output@0"
+                | "bhcp/kernel.first-satisfied-winner@0"
                     if argument_types == [observations_type.clone()] =>
                 {
                     output_type.as_ref().clone()
                 }
+                "bhcp/kernel.unit@0" if argument_types.is_empty() => BhcpType::Primitive("Unit"),
                 "bhcp/kernel.pending@0" if argument_types == [refs_type.clone()] => {
                     result_type.clone()
                 }
@@ -815,14 +896,6 @@ fn lower_reducer_expression(
                     Box::new(alternative),
                 ),
             )
-        }
-        _ => {
-            return Err(error(
-                "BHCP3001",
-                "expression is outside the total pure reducer slice",
-                source_name,
-                surface.at(),
-            ));
         }
     };
     Ok(Expression {
