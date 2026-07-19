@@ -238,6 +238,13 @@ rule provenance plus semantic/artifact identities. Human inspection names the
 effective category counts, type mode, layers, and provenance. Waiver validation,
 runtime enforcement, and richer policy inspection remain later Phase 3 work.
 
+Policy composition fails atomically with an auditable diagnostic: `BHCP8101`
+capability widening, `BHCP8102` limit loosening, `BHCP8103` type-mode weakening,
+`BHCP8104` requirement removal, `BHCP8105` evidence removal, `BHCP8106` allow over
+deny, `BHCP8107` incompatible limit units, or `BHCP8110` invalid source topology.
+Weakening and unit-conflict messages identify the attempted rule, earlier authority,
+and need for a waiver; no effective policy is returned from an invalid layer.
+
 ```bhcp
 §policy example/repository@0 §extends example/base@0 {
   layer repository;

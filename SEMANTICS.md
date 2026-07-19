@@ -826,8 +826,13 @@ performs weakening and incompatible-unit checks before joining, canonicalizes em
 scope universes, intersects capability scopes, selects exact limit minima and the
 strongest type mode, merges effective waivability and issuers restrictively, retains
 deny-wins prohibitions, emits complete rule provenance, and materializes both
-identities. Waiver application and runtime enforcement remain separate later
-boundaries.
+identities. It rejects a complete invalid layer before mutation and reports stable,
+distinct diagnostics for capability widening (`BHCP8101`), limit loosening
+(`BHCP8102`), type-mode weakening (`BHCP8103`), explicit requirement/evidence
+removal (`BHCP8104`/`BHCP8105`), allow-over-deny (`BHCP8106`), incompatible units
+(`BHCP8107`), and invalid composition topology (`BHCP8110`). Every weakening names
+the later source rule, earlier authority, attempted change, and waiver requirement.
+Waiver application and runtime enforcement remain separate later boundaries.
 
 A waiver is valid only when it:
 
