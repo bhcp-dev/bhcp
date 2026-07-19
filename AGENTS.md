@@ -43,10 +43,21 @@ native blockers are all closed and whose concurrency tokens are available.
 
 The pull request must link the issue and record red-to-green evidence, focused and
 full validation, documentation impact, residual risk, and the exact head SHA under
-review. Do not self-review or self-merge. A different agent or task must resolve all
-actionable comments and verify the unchanged reviewed head. Merge by head-matched
-squash with branch deletion and auto-merge when available; never weaken repository
-protection to make a merge pass.
+review. Its body uses `Closes #<number>` so the reviewed merge closes exactly its
+issue. Do not self-review or self-merge. GitHub rejects an author approval; an author
+comment or green checks are not substitute approval. A different agent or task must
+record its identity when a GitHub account is shared, resolve all actionable comments,
+and verify the unchanged reviewed head.
+
+The repository permits squash merge only and uses automatic branch deletion. Queue
+the exact reviewed head when required checks are still running:
+
+```sh
+gh pr merge <number> --repo bhcp-dev/bhcp --squash --auto --delete-branch --match-head-commit <reviewed-head-sha>
+```
+
+If every required check already passes, the reviewer may omit `--auto`; never omit
+the head match or weaken repository protection to make a merge pass.
 
 ## Atomic claims and concurrency
 
