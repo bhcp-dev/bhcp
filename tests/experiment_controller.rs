@@ -30,7 +30,7 @@ fn fresh_scratch(name: &str) -> PathBuf {
 }
 
 fn fake_judge() -> JudgeCommand {
-    JudgeCommand::new("fake", fake_agent().to_string_lossy(), ["complete"])
+    JudgeCommand::new("fake", fake_agent(), ["judge-success"])
 }
 
 #[test]
@@ -105,7 +105,7 @@ fn controller_rejects_a_workspace_that_could_expose_the_oracle() {
         .push(ExperimentArm::new("prose", "TASK.md", fake_agent()));
     plan.judges.push(JudgeCommand::new(
         "public",
-        "cargo",
+        PathBuf::from(env!("CARGO")),
         ["test", "--offline", "--manifest-path", "subject/Cargo.toml"],
     ));
     plan.oracle_source = Some(root.join("experiments/minimal-coding-agent/oracle"));
@@ -127,6 +127,10 @@ fn controller_observes_every_fail_closed_session_transition() {
         ("incomplete", RejectionReason::Incomplete),
         ("adaptive", RejectionReason::AdaptiveOracle),
         ("contaminated", RejectionReason::Contaminated),
+        ("empty-contamination", RejectionReason::Contaminated),
+        ("pin-mismatch", RejectionReason::Contaminated),
+        ("overflow", RejectionReason::Incomplete),
+        ("timeout", RejectionReason::Interrupted),
     ] {
         let scratch = fresh_scratch(mode);
         let mut plan = ExperimentPlan::new(
@@ -139,12 +143,69 @@ fn controller_observes_every_fail_closed_session_transition() {
         arm.arguments.push(mode.to_owned());
         plan.arms.push(arm);
         plan.judges.push(fake_judge());
+        if mode == "overflow" {
+            plan.limits.max_agent_output_bytes = 128;
+        }
+        if mode == "timeout" {
+            plan.limits.timeout_millis = 20;
+        }
 
         let report = ExperimentController::new().run(&plan).unwrap();
         assert_eq!(report.arms[0].status, SessionStatus::Rejected);
         assert_eq!(report.arms[0].rejection, Some(expected));
         fs::remove_dir_all(scratch).unwrap();
     }
+}
+
+#[test]
+fn judge_cannot_mutate_the_frozen_candidate() {
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let scratch = fresh_scratch("judge-mutation");
+    let mut plan = ExperimentPlan::new(
+        "judge-mutation",
+        root.join("experiments/minimal-coding-agent"),
+        &scratch,
+        pins(),
+    );
+    let mut arm = ExperimentArm::new("prose", "TASK.md", fake_agent());
+    arm.arguments.push("complete".to_owned());
+    plan.arms.push(arm);
+    plan.judges.push(JudgeCommand::new(
+        "mutating-judge",
+        fake_agent(),
+        ["judge-mutate"],
+    ));
+
+    let report = ExperimentController::new().run(&plan).unwrap();
+    assert_eq!(
+        report.arms[0].rejection,
+        Some(RejectionReason::Contaminated)
+    );
+    assert_eq!(report.arms[0].judges.len(), 1);
+    fs::remove_dir_all(scratch).unwrap();
+}
+
+#[cfg(unix)]
+#[test]
+fn controller_reaps_background_processes_that_keep_capture_pipes_open() {
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let scratch = fresh_scratch("background-process");
+    let mut plan = ExperimentPlan::new(
+        "background-process",
+        root.join("experiments/minimal-coding-agent"),
+        &scratch,
+        pins(),
+    );
+    let mut arm = ExperimentArm::new("prose", "TASK.md", fake_agent());
+    arm.arguments.push("background".to_owned());
+    plan.arms.push(arm);
+    plan.judges.push(fake_judge());
+
+    let report = ExperimentController::new().run(&plan).unwrap();
+    assert_eq!(report.arms[0].status, SessionStatus::Rejected);
+    assert_eq!(report.arms[0].rejection, Some(RejectionReason::Incomplete));
+    assert!(report.arms[0].elapsed_millis < 1_000);
+    fs::remove_dir_all(scratch).unwrap();
 }
 
 fn fixture_plan(name: &str, fixture: &Path) -> (ExperimentPlan, PathBuf) {
@@ -156,14 +217,17 @@ fn fixture_plan(name: &str, fixture: &Path) -> (ExperimentPlan, PathBuf) {
     plan.oracle_source = Some(fixture.join("oracle"));
     plan.judges.push(JudgeCommand::new(
         "public",
-        env!("CARGO"),
+        PathBuf::from(env!("CARGO")),
         ["test", "--offline", "--manifest-path", "subject/Cargo.toml"],
     ));
-    plan.judges.push(JudgeCommand::new(
-        "oracle",
-        env!("CARGO"),
-        ["test", "--offline", "--manifest-path", "oracle/Cargo.toml"],
-    ));
+    plan.judges.push(
+        JudgeCommand::new(
+            "oracle",
+            PathBuf::from(env!("CARGO")),
+            ["test", "--offline", "--manifest-path", "oracle/Cargo.toml"],
+        )
+        .with_oracle(),
+    );
     (plan, scratch)
 }
 
@@ -185,8 +249,78 @@ fn fake_agent_is_judged_symmetrically_on_both_checked_in_rust_fixtures() {
         assert!(outcome.judges[0].accepted);
         assert!(!outcome.judges[1].accepted);
         assert!(outcome.metrics.is_some());
+        assert!(!outcome.input_digests.is_empty());
+        assert!(
+            outcome
+                .agent_executable_digest
+                .starts_with("bhcp.hash/sha3-512@0:")
+        );
+        assert!(report.plan_digest.starts_with("bhcp.hash/sha3-512@0:"));
+        assert!(report.fixture_digest.starts_with("bhcp.hash/sha3-512@0:"));
+        assert_eq!(outcome.agent_command[1], "complete");
+        assert!(outcome.agent_elapsed_millis <= outcome.elapsed_millis);
+        assert_eq!(outcome.judges[0].command[1], "test");
+        assert!(
+            outcome.judges[0]
+                .stdout_digest
+                .starts_with("bhcp.hash/sha3-512@0:")
+        );
         assert!(scratch.join(name).join("prose/oracle").is_dir());
-        assert!(!report.to_markdown().contains("{"));
+        let markdown = report.to_markdown();
+        assert!(markdown.contains("Agent command:"));
+        assert!(markdown.contains("- Input `TASK.md`:"));
+        assert!(!markdown.contains("{"));
         fs::remove_dir_all(scratch).unwrap();
     }
+}
+
+#[test]
+fn plan_fingerprint_is_stable_and_commits_to_pins() {
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let fixture = root.join("experiments/minimal-coding-agent");
+    let first_scratch = fresh_scratch("stable-plan");
+    let mut first = ExperimentPlan::new("stable-plan", fixture, &first_scratch, pins());
+    let mut arm = ExperimentArm::new("prose", "TASK.md", fake_agent());
+    arm.arguments.push("complete".to_owned());
+    first.arms.push(arm);
+    let mut raw = ExperimentArm::new("raw", "TASK.md", fake_agent());
+    raw.arguments.push("complete".to_owned());
+    raw.contract_files.push(PathBuf::from("contract.bhcp"));
+    first.arms.push(raw);
+    first.judges.push(fake_judge());
+    let pre_registered = first.freeze().unwrap();
+    let mut reordered = first.clone();
+    reordered.arms.reverse();
+    assert_ne!(
+        pre_registered.plan_digest,
+        reordered.freeze().unwrap().plan_digest
+    );
+    let mut second = first.clone();
+    let second_scratch = fresh_scratch("stable-plan-copy");
+    second.scratch_root = second_scratch.clone();
+
+    let first_report = ExperimentController::new().run(&first).unwrap();
+    let second_report = ExperimentController::new().run(&second).unwrap();
+    assert_eq!(first_report.plan_digest, second_report.plan_digest);
+    assert_eq!(pre_registered.plan_digest, first_report.plan_digest);
+    assert_eq!(pre_registered.fixture_digest, first_report.fixture_digest);
+    assert_eq!(first_report.run_order, ["prose", "raw"]);
+
+    let mut changed = second;
+    let changed_scratch = fresh_scratch("stable-plan-changed");
+    changed.scratch_root = changed_scratch.clone();
+    changed.pins.model = "fake-model@2".to_owned();
+    let changed_report = ExperimentController::new().run(&changed).unwrap();
+    assert_ne!(first_report.plan_digest, changed_report.plan_digest);
+
+    let summary = changed_scratch.join("summary.md");
+    changed_report.write_markdown(&summary).unwrap();
+    let markdown = fs::read_to_string(&summary).unwrap();
+    assert!(markdown.contains(&changed_report.plan_digest));
+    assert!(!markdown.contains("\"model\":"));
+    assert!(changed_report.write_markdown(&summary).is_err());
+
+    fs::remove_dir_all(first_scratch).unwrap();
+    fs::remove_dir_all(second_scratch).unwrap();
+    fs::remove_dir_all(changed_scratch).unwrap();
 }
