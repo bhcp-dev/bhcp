@@ -2249,6 +2249,75 @@ pub fn apply_waiver(
             ));
         }
         match (&target.weakening, provenance.category) {
+            (WaiverWeakening::RemoveRequirement(expected), PolicyCategory::Requirement) => {
+                let rule = output
+                    .effective
+                    .requirements
+                    .get(provenance.effective_rule)
+                    .ok_or_else(|| waiver_target("waiver requirement target index is invalid"))?;
+                authorize_effective_rule(rule, authority_root)?;
+                if expected != &rule.value
+                    || normalized_scope(&target.scope) != normalized_scope(&rule.value.scope)
+                {
+                    return Err(waiver_change(
+                        "waiver requirement removal does not match the exact effective rule",
+                    ));
+                }
+                output
+                    .effective
+                    .requirements
+                    .remove(provenance.effective_rule);
+                remove_rule_provenance(
+                    &mut output.rule_provenance,
+                    PolicyCategory::Requirement,
+                    provenance.effective_rule,
+                );
+            }
+            (WaiverWeakening::RemoveEvidence(expected), PolicyCategory::Evidence) => {
+                let rule = output
+                    .effective
+                    .evidence
+                    .get(provenance.effective_rule)
+                    .ok_or_else(|| waiver_target("waiver evidence target index is invalid"))?;
+                authorize_effective_rule(rule, authority_root)?;
+                if expected != &rule.value
+                    || normalized_scope(&target.scope) != normalized_scope(&rule.value.scope)
+                {
+                    return Err(waiver_change(
+                        "waiver evidence removal does not match the exact effective rule",
+                    ));
+                }
+                output.effective.evidence.remove(provenance.effective_rule);
+                remove_rule_provenance(
+                    &mut output.rule_provenance,
+                    PolicyCategory::Evidence,
+                    provenance.effective_rule,
+                );
+            }
+            (WaiverWeakening::AllowProhibition(expected), PolicyCategory::Prohibition) => {
+                let rule = output
+                    .effective
+                    .prohibitions
+                    .get(provenance.effective_rule)
+                    .ok_or_else(|| waiver_target("waiver prohibition target index is invalid"))?;
+                authorize_effective_rule(rule, authority_root)?;
+                if expected != &rule.value
+                    || normalized_scope(&target.scope) != normalized_scope(&rule.value.scope)
+                {
+                    return Err(waiver_change(
+                        "waiver prohibition allowance does not match the exact effective rule",
+                    ));
+                }
+                output
+                    .effective
+                    .prohibitions
+                    .remove(provenance.effective_rule);
+                remove_rule_provenance(
+                    &mut output.rule_provenance,
+                    PolicyCategory::Prohibition,
+                    provenance.effective_rule,
+                );
+            }
             (WaiverWeakening::WeakenTypeMode { from, to }, PolicyCategory::TypeMode) => {
                 let rule = &mut output.effective.type_mode;
                 authorize_effective_rule(rule, authority_root)?;
@@ -2364,6 +2433,20 @@ fn authorize_effective_rule<T>(rule: &EffectiveRule<T>, authority_root: &str) ->
         ));
     }
     Ok(())
+}
+
+fn remove_rule_provenance(
+    provenance: &mut Vec<RuleProvenance>,
+    category: PolicyCategory,
+    index: usize,
+) {
+    provenance.retain(|entry| !(entry.category == category && entry.effective_rule == index));
+    for entry in provenance
+        .iter_mut()
+        .filter(|entry| entry.category == category && entry.effective_rule > index)
+    {
+        entry.effective_rule -= 1;
+    }
 }
 
 /// Composes validated source documents in organization-to-user order.
