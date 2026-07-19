@@ -531,7 +531,7 @@ effective-policy-document = {
   "semantic_id": semantic-id,
   "effective": effective-policy,
   "source_layers": [* policy-source-layer],
-  "provenance": [* policy-provenance],
+  "rule_provenance": [* policy-rule-provenance],
   ? "waivers": [* content-reference]
 }
 
@@ -581,7 +581,7 @@ policy-source = {
   "artifact": content-reference
 }
 source-rule-identity = [symbol-id, ref-id]
-policy-provenance = {
+policy-rule-provenance = {
   "category": policy-category,
   "effective_rule": uint,
   "sources": [1* source-rule-identity]

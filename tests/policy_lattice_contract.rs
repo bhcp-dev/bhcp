@@ -24,7 +24,7 @@ fn policy_rules_have_closed_category_operation_value_shapes() {
         "effective-policy-document = {",
         "\"form\": \"effective\"",
         "\"source_layers\": [* policy-source-layer]",
-        "\"provenance\": [* policy-provenance]",
+        "\"rule_provenance\": [* policy-rule-provenance]",
         "\"rules\": [1* source-rule-identity]",
     ] {
         assert!(

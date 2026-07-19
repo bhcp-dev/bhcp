@@ -63,10 +63,7 @@ fn all_rules() -> Vec<Value> {
                     ("effect", text("bhcp-effect/fs.read@0")),
                     (
                         "scope",
-                        Value::map([(
-                            "goals",
-                            array([text("example/goal.check@0")]),
-                        )]),
+                        Value::map([("goals", array([text("example/goal.check@0")]))]),
                     ),
                 ]),
             ),
@@ -80,10 +77,7 @@ fn all_rules() -> Vec<Value> {
             Value::map([
                 ("dimension", text("example/limit.attempts@0")),
                 ("unit", text("example/unit.count@0")),
-                (
-                    "maximum",
-                    array([text("integer"), Value::Integer(3)]),
-                ),
+                ("maximum", array([text("integer"), Value::Integer(3)])),
             ]),
         ),
         common_rule("f-type-mode", "type-mode", "strengthen", text("strict")),
@@ -120,10 +114,7 @@ fn effective_value() -> Value {
         ("limits", array([])),
         (
             "type_mode",
-            Value::map([
-                ("waivable", Value::Bool(false)),
-                ("value", text("dynamic")),
-            ]),
+            Value::map([("waivable", Value::Bool(false)), ("value", text("dynamic"))]),
         ),
     ])
 }
@@ -192,13 +183,19 @@ fn effective_policy_validates_semantic_and_artifact_identity() {
         .iter_mut()
         .find(|(key, _)| key == "semantic_id")
         .unwrap();
-    *semantic = (semantic.0.clone(), Value::map([
-        ("algorithm", text("bhcp.hash/sha3-512@0")),
-        ("digest", Value::Bytes(vec![0; 64])),
-    ]));
+    *semantic = (
+        semantic.0.clone(),
+        Value::map([
+            ("algorithm", text("bhcp.hash/sha3-512@0")),
+            ("digest", Value::Bytes(vec![0; 64])),
+        ]),
+    );
     let error = PolicyDocument::from_value(&Value::owned_map(entries)).unwrap_err();
     assert_eq!(error.code, "BHCP8001");
-    assert_eq!(error.message, "effective policy semantic_id does not match effective meaning");
+    assert_eq!(
+        error.message,
+        "effective policy semantic_id does not match effective meaning"
+    );
 }
 
 #[test]
@@ -233,19 +230,29 @@ fn normalization_and_scalar_boundaries_fail_closed() {
     let baseline = source_policy("repository");
     for (mutated, expected) in [
         (
-            replace_rule_field(&baseline, 1, "value", Value::map([
-                ("obligation", text("example/obligation.review@0")),
-                ("classes", array([text("static")])),
-                ("minimum", Value::Integer(0)),
-            ])),
+            replace_rule_field(
+                &baseline,
+                1,
+                "value",
+                Value::map([
+                    ("obligation", text("example/obligation.review@0")),
+                    ("classes", array([text("static")])),
+                    ("minimum", Value::Integer(0)),
+                ]),
+            ),
             "evidence minimum must be a positive integer",
         ),
         (
-            replace_rule_field(&baseline, 4, "value", Value::map([
-                ("dimension", text("example/limit.attempts@0")),
-                ("unit", text("example/unit.count@0")),
-                ("maximum", array([text("integer"), Value::Integer(-1)])),
-            ])),
+            replace_rule_field(
+                &baseline,
+                4,
+                "value",
+                Value::map([
+                    ("dimension", text("example/limit.attempts@0")),
+                    ("unit", text("example/unit.count@0")),
+                    ("maximum", array([text("integer"), Value::Integer(-1)])),
+                ]),
+            ),
             "limit maximum must be a non-negative exact number",
         ),
         (
@@ -292,7 +299,8 @@ fn mutate_rule(
     let Value::Map(mut root) = document.clone() else {
         unreachable!()
     };
-    let Value::Array(rules) = &mut root.iter_mut().find(|(key, _)| key == "rules").unwrap().1 else {
+    let Value::Array(rules) = &mut root.iter_mut().find(|(key, _)| key == "rules").unwrap().1
+    else {
         unreachable!()
     };
     let Value::Map(entries) = &mut rules[index] else {

@@ -790,7 +790,7 @@ scopes remain separate and the minimum applicable maximum governs their overlap.
 The document's `semantic_id` commits only to the `effective` member,
 including effective waivability and issuer constraints. `source_layers` retains
 content-addressed source documents grouped in organization → team → repository →
-user order; `provenance` maps each canonical effective-rule index to sorted source
+user order; `rule_provenance` maps each canonical effective-rule index to sorted source
 rule identities; and applied waiver references are retained. Those fields,
 signatures, timestamps, justifications, and source decomposition contribute to
 artifact identity but not semantic identity. Authoring enumeration order is
