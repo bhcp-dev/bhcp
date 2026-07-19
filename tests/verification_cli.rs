@@ -19,6 +19,8 @@ const CONTRACT: &str = r#"
     §ensures "oracle": oraclePassed;
     §ensures "change policy": policyPassed;
 
+    §allows "run registered adapters": bhcp-effect/process@0;
+
     §verify "public adapter": with experiment/verifier/public-rust@0 for "public";
     §verify "oracle adapter": with experiment/verifier/contextual-policy@0 for "oracle";
     §verify "change adapter": with experiment/verifier/change-policy@0 for "change policy";
@@ -51,30 +53,15 @@ impl Project {
                 .permissions(),
         )
         .unwrap();
-        let manifest = [
-            ("experiment/verifier/public-rust@0", modes[0]),
-            ("experiment/verifier/contextual-policy@0", modes[1]),
-            ("experiment/verifier/change-policy@0", modes[2]),
-        ]
-        .into_iter()
-        .map(|(symbol, mode)| {
-            format!(
-                r#"[[verifier_adapter]]
-symbol = "{symbol}"
-executable = "tools/verifier"
-argv = ["{mode}"]
-working_scope = "project"
-input_media_type = "application/vnd.bhcp.verification-request+cbor"
-output_media_type = "application/vnd.bhcp.verifier-result+cbor"
-timeout_ms = 2000
-allowed_effects = ["bhcp-effect/process@0"]
-evidence_kind = "static"
-"#
-            )
-        })
-        .collect::<Vec<_>>()
-        .join("\n");
-        fs::write(root.join("bhcp-project.toml"), manifest).unwrap();
+        fs::write(
+            root.join("bhcp-project.toml"),
+            manifest(&[
+                ("experiment/verifier/public-rust@0", modes[0]),
+                ("experiment/verifier/contextual-policy@0", modes[1]),
+                ("experiment/verifier/change-policy@0", modes[2]),
+            ]),
+        )
+        .unwrap();
         let contract = root.join("contract.bhcp");
         fs::write(&contract, CONTRACT).unwrap();
         let candidate = root.join("candidate.cbor");
@@ -107,6 +94,25 @@ evidence_kind = "static"
         }
     }
 
+    fn set_manifest(&self, adapters: &[(&str, &str)]) {
+        fs::write(self.root.join("bhcp-project.toml"), manifest(adapters)).unwrap();
+    }
+
+    fn set_manifest_effect(&self, effect: &str) {
+        fs::write(
+            self.root.join("bhcp-project.toml"),
+            manifest_with_effect(
+                &[
+                    ("experiment/verifier/public-rust@0", "accepted"),
+                    ("experiment/verifier/contextual-policy@0", "accepted"),
+                    ("experiment/verifier/change-policy@0", "accepted"),
+                ],
+                effect,
+            ),
+        )
+        .unwrap();
+    }
+
     fn verify(&self) -> Output {
         Command::new(env!("CARGO_BIN_EXE_bhcp"))
             .args([
@@ -120,6 +126,32 @@ evidence_kind = "static"
             .output()
             .unwrap()
     }
+}
+
+fn manifest(adapters: &[(&str, &str)]) -> String {
+    manifest_with_effect(adapters, "bhcp-effect/process@0")
+}
+
+fn manifest_with_effect(adapters: &[(&str, &str)], effect: &str) -> String {
+    adapters
+        .iter()
+        .map(|(symbol, mode)| {
+            format!(
+                r#"[[verifier_adapter]]
+symbol = "{symbol}"
+executable = "tools/verifier"
+argv = ["{mode}"]
+working_scope = "project"
+input_media_type = "application/vnd.bhcp.verification-request+cbor"
+output_media_type = "application/vnd.bhcp.verifier-result+cbor"
+timeout_ms = 2000
+allowed_effects = ["{effect}"]
+evidence_kind = "static"
+"#
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 impl Drop for Project {
@@ -156,11 +188,60 @@ fn verify_runs_public_oracle_and_change_policy_through_the_project_registry() {
     }
 }
 
+#[test]
+fn verify_keeps_rejection_unavailability_and_malicious_output_distinct() {
+    let rejected = Project::new(["accepted", "rejected", "accepted"]).verify();
+    assert_eq!(rejected.status.code(), Some(3));
+    let rejected_bundle = decode_deterministic(&rejected.stdout).unwrap();
+    assert!(contains_text(&rejected_bundle, "refuted"));
+
+    let unavailable = Project::new(["accepted", "accepted", "accepted"]);
+    unavailable.set_manifest(&[
+        ("experiment/verifier/public-rust@0", "accepted"),
+        (
+            "experiment/verifier/contextual-policy-v2@0",
+            "accepted",
+        ),
+        ("experiment/verifier/change-policy@0", "accepted"),
+    ]);
+    let unavailable = unavailable.verify();
+    assert_eq!(unavailable.status.code(), Some(4));
+    let unavailable_bundle = decode_deterministic(&unavailable.stdout).unwrap();
+    assert!(contains_text(
+        &unavailable_bundle,
+        "bhcp.reason/verifier-unregistered@0"
+    ));
+
+    let malicious = Project::new(["accepted", "malformed", "accepted"]).verify();
+    assert_eq!(malicious.status.code(), Some(5));
+    let malicious_bundle = decode_deterministic(&malicious.stdout).unwrap();
+    assert!(contains_text(
+        &malicious_bundle,
+        "bhcp.evidence-gap/verifier-fault@0"
+    ));
+    assert!(contains_text(
+        &malicious_bundle,
+        "bhcp.fault/adapter-malformed-output@0"
+    ));
+}
+
+#[test]
+fn verify_does_not_let_the_local_manifest_self_authorize_adapter_effects() {
+    let project = Project::new(["accepted", "accepted", "accepted"]);
+    project.set_manifest_effect("bhcp-effect/fs.read@0");
+    let output = project.verify();
+    assert_eq!(output.status.code(), Some(5));
+    let bundle = decode_deterministic(&output.stdout).unwrap();
+    assert!(contains_text(&bundle, "bhcp.fault/adapter-boundary@0"));
+}
+
 fn contains_text(value: &Value, needle: &str) -> bool {
     match value {
         Value::Text(value) => value == needle,
         Value::Array(values) => values.iter().any(|value| contains_text(value, needle)),
-        Value::Map(entries) => entries.iter().any(|(_, value)| contains_text(value, needle)),
+        Value::Map(entries) => entries
+            .iter()
+            .any(|(_, value)| contains_text(value, needle)),
         Value::Tag(_, value) => contains_text(value, needle),
         _ => false,
     }
