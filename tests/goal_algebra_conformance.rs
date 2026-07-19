@@ -68,10 +68,17 @@ fn complete_goal_algebra_regenerates_and_round_trips_deterministically() {
         let compiled = compile_source(&read(&source_path), source_path.to_str().unwrap()).unwrap();
         let expected_ast = fs::read(fixture_root.join(&case.ast)).unwrap();
         let expected_ir = fs::read(fixture_root.join(&case.ir)).unwrap();
-        assert_eq!(compiled.ast_bytes, expected_ast, "{} AST drift", case.behavior);
+        assert_eq!(
+            compiled.ast_bytes, expected_ast,
+            "{} AST drift",
+            case.behavior
+        );
         assert_eq!(compiled.ir_bytes, expected_ir, "{} IR drift", case.behavior);
 
-        for (bytes, kind) in [(&expected_ast, "canonical-ast"), (&expected_ir, "semantic-ir")] {
+        for (bytes, kind) in [
+            (&expected_ast, "canonical-ast"),
+            (&expected_ir, "semantic-ir"),
+        ] {
             let value = decode_deterministic(bytes).unwrap();
             validate_root(&value, kind).unwrap();
             assert_eq!(encode_deterministic(&value).unwrap(), *bytes);
@@ -98,8 +105,10 @@ fn complete_goal_algebra_regenerates_and_round_trips_deterministically() {
 
 #[test]
 fn feature_manifest_distinguishes_complete_algebra_from_deferred_graphs() {
-    let value = parse_diagnostic(&read(root().join("schemas/v0/examples/feature-manifest.diag")))
-        .unwrap();
+    let value = parse_diagnostic(&read(
+        root().join("schemas/v0/examples/feature-manifest.diag"),
+    ))
+    .unwrap();
     validate_root(&value, "feature-manifest").unwrap();
 
     let Value::Array(entries) = value.get("features_supported").unwrap() else {
@@ -115,14 +124,23 @@ fn feature_manifest_distinguishes_complete_algebra_from_deferred_graphs() {
         assert!(levels.insert(feature.as_str(), level.as_str()).is_none());
     }
     assert_eq!(levels.remove("bhcp/core@0"), Some("required"));
-    for feature in [ALL_FEATURE, ANY_FEATURE, NONE_FEATURE, CHAIN_FEATURE, GATE_FEATURE] {
+    for feature in [
+        ALL_FEATURE,
+        ANY_FEATURE,
+        NONE_FEATURE,
+        CHAIN_FEATURE,
+        GATE_FEATURE,
+    ] {
         assert_eq!(levels.remove(feature), Some("supported"), "{feature}");
     }
     assert_eq!(
         levels.remove("bhcp/feature.complete-obligation-graph@0"),
         Some("unsupported")
     );
-    assert!(levels.is_empty(), "unclassified feature support entries: {levels:?}");
+    assert!(
+        levels.is_empty(),
+        "unclassified feature support entries: {levels:?}"
+    );
 
     let Some(Value::Array(document_entries)) = value.get("documents") else {
         panic!("documents must be an array")
@@ -134,7 +152,10 @@ fn feature_manifest_distinguishes_complete_algebra_from_deferred_graphs() {
             _ => panic!("document support entries must be text"),
         })
         .collect::<BTreeSet<_>>();
-    assert_eq!(documents, ["canonical-ast", "semantic-ir"].into_iter().collect());
+    assert_eq!(
+        documents,
+        ["canonical-ast", "semantic-ir"].into_iter().collect()
+    );
     assert_eq!(value.get("native_extensions"), Some(&Value::Array(vec![])));
 }
 

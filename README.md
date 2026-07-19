@@ -266,6 +266,15 @@ cargo test --test self_hosted_chain
 cargo test --test self_hosted_gate
 ```
 
+The [goal-algebra conformance manifest](conformance/v0/goal-algebra/manifest.txt)
+indexes all five canonical sources, their explicit `§compose` equivalents where the
+surface model exposes one, the ten checked-in AST/IR artifacts, and named executable
+empty/adversarial proof evidence. `tests/goal_algebra_conformance.rs` recompiles and
+schema-round-trips every entry byte for byte, checks the exact six-fixture generator
+and 17-root inventories, and verifies that the feature-manifest example advertises
+the five implemented self-hosted behaviors while marking complete obligation-graph
+construction unsupported.
+
 The reducer evaluator now statically checks every branch before execution, supports
 typed literals, Boolean negation/conjunction/disjunction, equality, and total
 conditionals, and exposes a closed behavior-neutral API over sealed observations for
