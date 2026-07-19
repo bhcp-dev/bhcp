@@ -88,6 +88,8 @@ struct Waiver {
     has_audit_reference: bool,
 }
 
+type TimeMutation = (&'static str, fn(&mut Waiver), &'static str);
+
 fn authorize(rule: &Rule, waiver: &Waiver, decision_time: i64) -> Result<(), &'static str> {
     if (waiver.policy, waiver.rule) != (rule.policy, rule.id) {
         return Err("WAIVER_RULE_MISMATCH");
@@ -235,7 +237,7 @@ fn exact_scope_time_authority_and_nonwaivable_vectors_fail_closed() {
         "WAIVER_NONWAIVABLE",
     ));
 
-    let time_mutations: [(&str, fn(&mut Waiver), &str); 2] = [
+    let time_mutations: [TimeMutation; 2] = [
         (
             "premature",
             |waiver: &mut Waiver| waiver.not_before = 4,
