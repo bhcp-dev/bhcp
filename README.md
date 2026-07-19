@@ -96,7 +96,7 @@ rather than erased.
 | Canonical definition | Implemented source slice | Explicitly deferred |
 | --- | --- | --- |
 | `§goal` / `§function` | Goals and the checked prelude-function boundary described above | General project functions and the remaining S7 goal grammar |
-| `§policy` | Layer, `§extends`, six closed typed rules, scopes/parameters, waivability, issuers, and spans | Expression-valued clauses, waiver/profile shorthand, composition, and enforcement |
+| `§policy` | Layer, `§extends`, six closed typed rules, scopes/parameters, waivability, issuers, composition, inspection, and policy-aware elaboration | Expression-valued policy clauses, waiver/profile shorthand, and execution-time enforcement |
 | Other S7 definitions | None | `§type`, `§predicate`, `§syntax`, `§profile`, `§waiver`, `§extension`, and `§refines` |
 
 `bhcp.hash/sha3-512@0` is the default and only currently registered identity
@@ -332,7 +332,16 @@ duplicates with restrictive waiver governance, and emits canonical source-layer 
 rule provenance plus semantic/artifact identities. The policy CLI composes ordered
 source or CBOR inputs into validated deterministic bytes and human inspection names
 every source, effective rule, type mode, identity, and tightening provenance.
-Waiver validation and runtime enforcement remain later Phase 3 work.
+
+The Rust policy-aware compilation API applies a validated effective document before
+semantic IR emission. It rejects source type mode below the effective minimum,
+prohibited or ungranted authority, and an explicit dimensioned numeric `§limit`
+above its effective maximum with stable `BHCP8201`–`BHCP8204` diagnostics. Accepted
+IR retains the effective policy identities and per-goal indices for every applicable
+requirement, evidence demand, prohibition, capability, and limit. Equivalent policy
+decompositions keep the same program semantic ID while their retained artifact IDs
+remain auditable. Waiver validation and execution-time enforcement remain later
+Phase 3 work.
 
 Policy composition fails atomically with an auditable diagnostic: `BHCP8101`
 capability widening, `BHCP8102` limit loosening, `BHCP8103` type-mode weakening,

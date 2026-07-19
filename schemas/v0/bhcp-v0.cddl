@@ -241,6 +241,7 @@ fact-clause = {
 contract-clause = {
   clause-common,
   "kind": "requires" / "ensures" / "invariant" / "limit",
+  ? "dimension": symbol-id,
   "condition": expression
 }
 
@@ -347,6 +348,7 @@ goal-definition = {
   "effects": effect-row,
   "evidence": evidence-type,
   "clauses": [* clause],
+  ? "policy_decision": policy-decision,
   ? "body": kernel-network,
   ? "refines": symbol-id
 }
@@ -397,7 +399,22 @@ semantic-ir-document = {
   "predicates": [* predicate-definition],
   "goals": [* goal-definition],
   "extensions": [* extension-node],
-  "entrypoints": [* ref-id]
+  "entrypoints": [* ref-id],
+  ? "effective_policy": effective-policy-reference
+}
+
+effective-policy-reference = {
+  "semantic_id": hash-id,
+  "artifact_id": hash-id
+}
+
+policy-decision = {
+  "type_mode": type-mode,
+  "requirements": [* uint],
+  "evidence": [* uint],
+  "prohibitions": [* uint],
+  "capabilities": [* uint],
+  "limits": [* uint]
 }
 
 ; ---------- Profiles, policies, waivers, and extensions ----------

@@ -211,6 +211,13 @@ fn render_policy_governance(rule: &Value) -> String {
 }
 
 fn render_semantic_ir(artifact: &Value, output: &mut String) {
+    if let Some(policy) = artifact.get("effective_policy") {
+        for field in ["semantic_id", "artifact_id"] {
+            if let Some(identity) = policy.get(field).and_then(render_hash) {
+                writeln!(output, "effective-policy {field} {identity}").unwrap();
+            }
+        }
+    }
     let Some(Value::Array(goals)) = artifact.get("goals") else {
         return;
     };
@@ -218,6 +225,27 @@ fn render_semantic_ir(artifact: &Value, output: &mut String) {
         let id = text_field(goal, "id").unwrap_or("?");
         let symbol = text_field(goal, "symbol").unwrap_or("?");
         writeln!(output, "goal {id} {symbol}").unwrap();
+        if let Some(decision) = goal.get("policy_decision") {
+            let mode = text_field(decision, "type_mode").unwrap_or("?");
+            writeln!(output, "  policy type-mode {mode}").unwrap();
+            for category in [
+                "requirements",
+                "evidence",
+                "prohibitions",
+                "capabilities",
+                "limits",
+            ] {
+                let indices = match decision.get(category) {
+                    Some(Value::Array(values)) => values
+                        .iter()
+                        .map(render_value)
+                        .collect::<Vec<_>>()
+                        .join(", "),
+                    _ => "?".to_owned(),
+                };
+                writeln!(output, "  policy {category} [{indices}]").unwrap();
+            }
+        }
         if let Some(input) = goal.get("input") {
             writeln!(output, "  input  {}", render_type(input)).unwrap();
         }

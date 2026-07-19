@@ -130,6 +130,13 @@ limit units fail before an effective artifact is emitted. The Rust boundary repo
 source-topology failures. Conflict messages retain the attempted source rule and
 earlier authority, while malformed typed policy values remain `BHCP8001`.
 
+Policy-aware semantic IR optionally retains an `effective_policy` reference with
+both semantic and artifact identities. Each governed goal carries a normalized
+`policy_decision` whose category arrays index the applicable effective requirements,
+evidence demands, prohibitions, capabilities, and limits, plus the enforced type
+mode. A contract `limit` may carry a semantic dimension symbol for exact ceiling
+comparison. These are optional for legacy ungoverned IR and add no new root type.
+
 The cddl-rs CBOR validator is not used for instances yet: version 0.10.6 misvalidates
 repeated references to controlled aliases used by this schema, including
 `[* feature-id]` where `feature-id` ultimately carries `.regexp`. The normative

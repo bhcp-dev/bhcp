@@ -257,6 +257,7 @@ fn semantic_ir_resolves_network_reducers_as_bhcp_functions() {
         output: text.clone(),
         evidence: BhcpType::Evidence(vec!["static".to_owned()]),
         clauses: vec![],
+        policy_decision: None,
         body: None,
     };
     let parent = GoalDefinition {
@@ -266,6 +267,7 @@ fn semantic_ir_resolves_network_reducers_as_bhcp_functions() {
         output: text.clone(),
         evidence: BhcpType::Evidence(vec!["static".to_owned()]),
         clauses: vec![],
+        policy_decision: None,
         body: Some(KernelNetwork {
             id: "network-1".to_owned(),
             output: text,
@@ -283,6 +285,7 @@ fn semantic_ir_resolves_network_reducers_as_bhcp_functions() {
         functions: vec![reducer],
         goals: vec![child, parent],
         entrypoints: vec!["goal-parent".to_owned()],
+        effective_policy: None,
         semantic_id: None,
         artifact_id: None,
     };

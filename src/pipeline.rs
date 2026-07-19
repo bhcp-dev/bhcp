@@ -6,14 +6,18 @@ use crate::hash::{HashAlgorithm, artifact_hash_with, semantic_hash_with};
 use crate::kernel::{ArgumentMode, KernelArgument, KernelChild, KernelNetwork};
 use crate::model::{
     BhcpType, Binding, CanonicalAstDocument, Clause, ClauseKind, ContentReference, Effect,
-    Expression, ExpressionForm, FieldType, FunctionDefinition, GoalDefinition, HashId,
-    SemanticIrDocument, VariantCaseType, VerifierBinding, features_for,
+    EffectivePolicyReference, Expression, ExpressionForm, FieldType, FunctionDefinition,
+    GoalDefinition, HashId, PolicyDecision, SemanticIrDocument, VariantCaseType, VerifierBinding,
+    features_for,
 };
 use crate::parser::{
     ParsedProgram, SurfaceArgumentMode, SurfaceClauseKind, SurfaceComposition, SurfaceEffect,
     SurfaceExpression, SurfaceFunction, SurfaceGoal, SurfaceLiteral, SurfaceType, parse_canonical,
 };
-use crate::policy::SourcePolicyDocument;
+use crate::policy::{
+    EffectivePolicyDocument, ExactNumber, PolicyDocument, PolicyScope, SourcePolicyDocument,
+    TypeMode,
+};
 use crate::prelude::{
     ALL_FEATURE, ALL_LOWERER, ALL_REDUCER, ANY_FEATURE, ANY_LOWERER, ANY_REDUCER, CHAIN_FEATURE,
     CHAIN_LOWERER, CHAIN_REDUCER, DerivedChild, DerivedForm, GATE_FEATURE, GATE_LOWERER,
@@ -83,13 +87,49 @@ pub fn compile_source(source: &str, source_name: &str) -> Result<Compilation> {
     compile_source_with_algorithm(source, source_name, HashAlgorithm::default())
 }
 
+pub fn compile_source_with_policy(
+    source: &str,
+    source_name: &str,
+    policy: &EffectivePolicyDocument,
+) -> Result<Compilation> {
+    let algorithm = policy
+        .header
+        .semantic_id
+        .as_ref()
+        .map(|identity| HashAlgorithm::from_id(&identity.algorithm))
+        .transpose()?
+        .unwrap_or_default();
+    compile_source_with_policy_and_algorithm(source, source_name, policy, algorithm)
+}
+
+pub fn compile_source_with_policy_and_algorithm(
+    source: &str,
+    source_name: &str,
+    policy: &EffectivePolicyDocument,
+    algorithm: HashAlgorithm,
+) -> Result<Compilation> {
+    compile_source_internal(source, source_name, algorithm, Some(policy))
+}
+
 pub fn compile_source_with_algorithm(
     source: &str,
     source_name: &str,
     algorithm: HashAlgorithm,
 ) -> Result<Compilation> {
+    compile_source_internal(source, source_name, algorithm, None)
+}
+
+fn compile_source_internal(
+    source: &str,
+    source_name: &str,
+    algorithm: HashAlgorithm,
+    policy: Option<&EffectivePolicyDocument>,
+) -> Result<Compilation> {
     let (ast, program) = parse_internal(source, source_name, algorithm)?;
     let mut ir = elaborate(&program, source_name, algorithm)?;
+    if let Some(policy) = policy {
+        apply_effective_policy(&mut ir, policy, source_name, algorithm)?;
+    }
     let semantic_hash = semantic_hash_with(&ir, algorithm)?;
     ir.semantic_id = Some(semantic_hash.clone());
     let ir_hash = artifact_hash_with(&ir.to_value(false), algorithm)?;
@@ -107,6 +147,250 @@ pub fn compile_source_with_algorithm(
         semantic_hash,
         ir_hash,
     })
+}
+
+fn apply_effective_policy(
+    ir: &mut SemanticIrDocument,
+    policy: &EffectivePolicyDocument,
+    source_name: &str,
+    algorithm: HashAlgorithm,
+) -> Result<()> {
+    PolicyDocument::Effective(policy.clone()).validate()?;
+    if let Some(feature) = policy.header.features.first() {
+        return Err(policy_enforcement_error(
+            "BHCP8200",
+            format!("unsupported effective policy feature {feature:?}"),
+            source_name,
+        ));
+    }
+    let semantic_id = policy.header.semantic_id.clone().ok_or_else(|| {
+        policy_enforcement_error(
+            "BHCP8200",
+            "effective policy requires a semantic identity",
+            source_name,
+        )
+    })?;
+    let artifact_id = policy.header.artifact_id.clone().ok_or_else(|| {
+        policy_enforcement_error(
+            "BHCP8200",
+            "effective policy requires an artifact identity",
+            source_name,
+        )
+    })?;
+    if semantic_id.algorithm != algorithm.id() || artifact_id.algorithm != algorithm.id() {
+        return Err(policy_enforcement_error(
+            "BHCP8200",
+            "source and effective policy identity algorithms differ",
+            source_name,
+        ));
+    }
+
+    let required_mode = policy.effective.type_mode.value;
+    let source_mode = TypeMode::InferStrict;
+    if source_mode < required_mode {
+        return Err(policy_enforcement_error(
+            "BHCP8201",
+            format!(
+                "source requests type mode {} below effective policy minimum {}",
+                source_mode.as_str(),
+                required_mode.as_str()
+            ),
+            source_name,
+        ));
+    }
+
+    for goal in &mut ir.goals {
+        let requirements =
+            applicable_indices(&policy.effective.requirements, &goal.symbol, |rule| {
+                rule.value.scope.as_ref()
+            });
+        let evidence = applicable_indices(&policy.effective.evidence, &goal.symbol, |rule| {
+            rule.value.scope.as_ref()
+        });
+        let prohibitions =
+            applicable_indices(&policy.effective.prohibitions, &goal.symbol, |rule| {
+                rule.value.scope.as_ref()
+            });
+        let capabilities =
+            applicable_indices(&policy.effective.capabilities, &goal.symbol, |rule| {
+                rule.value.scope.as_ref()
+            });
+        let limits = applicable_indices(&policy.effective.limits, &goal.symbol, |rule| {
+            rule.value.scope.as_ref()
+        });
+
+        for clause in &goal.clauses {
+            match &clause.kind {
+                ClauseKind::Authority {
+                    kind: "allows",
+                    effects,
+                } => {
+                    for effect in effects {
+                        if prohibitions.iter().any(|index| {
+                            policy.effective.prohibitions[*index].value.effect == effect.id
+                        }) {
+                            return Err(policy_enforcement_error(
+                                "BHCP8202",
+                                format!(
+                                    "goal {} requests prohibited effect {}",
+                                    goal.symbol, effect.id
+                                ),
+                                source_name,
+                            ));
+                        }
+                        let granted = capabilities.iter().any(|index| {
+                            let capability = &policy.effective.capabilities[*index].value;
+                            capability.effect == effect.id
+                                && request_within_scope(effect, capability.scope.as_ref())
+                        });
+                        if !granted {
+                            return Err(policy_enforcement_error(
+                                "BHCP8203",
+                                format!(
+                                    "goal {} has unresolved authority for effect {}",
+                                    goal.symbol, effect.id
+                                ),
+                                source_name,
+                            ));
+                        }
+                    }
+                }
+                ClauseKind::Contract {
+                    kind: "limit",
+                    dimension: Some(dimension),
+                    condition,
+                } => {
+                    let requested = expression_limit_maximum(condition).ok_or_else(|| {
+                        policy_enforcement_error(
+                            "BHCP8204",
+                            format!(
+                                "goal {} limit {} must use a direct non-negative exact upper bound",
+                                goal.symbol, dimension
+                            ),
+                            source_name,
+                        )
+                    })?;
+                    for index in &limits {
+                        let ceiling = &policy.effective.limits[*index].value;
+                        if ceiling.dimension == *dimension
+                            && requested.compare(&ceiling.maximum).is_gt()
+                        {
+                            return Err(policy_enforcement_error(
+                                "BHCP8204",
+                                format!(
+                                    "goal {} limit {} exceeds the effective policy maximum",
+                                    goal.symbol, dimension
+                                ),
+                                source_name,
+                            ));
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+
+        goal.policy_decision = Some(PolicyDecision {
+            type_mode: required_mode.as_str().to_owned(),
+            requirements,
+            evidence,
+            prohibitions,
+            capabilities,
+            limits,
+        });
+    }
+    ir.effective_policy = Some(EffectivePolicyReference {
+        semantic_id,
+        artifact_id,
+    });
+    Ok(())
+}
+
+fn applicable_indices<T, F>(rules: &[T], goal: &str, scope: F) -> Vec<usize>
+where
+    F: Fn(&T) -> Option<&PolicyScope>,
+{
+    rules
+        .iter()
+        .enumerate()
+        .filter_map(|(index, rule)| {
+            scope(rule)
+                .is_none_or(|scope| scope_matches_goal(scope, goal))
+                .then_some(index)
+        })
+        .collect()
+}
+
+fn scope_matches_goal(scope: &PolicyScope, goal: &str) -> bool {
+    scope
+        .goals
+        .as_ref()
+        .is_none_or(|goals| goals.iter().any(|candidate| candidate == goal))
+}
+
+fn request_within_scope(effect: &Effect, scope: Option<&PolicyScope>) -> bool {
+    let Some(scope) = scope else {
+        return true;
+    };
+    let resource_allowed = scope.resources.as_ref().is_none_or(|resources| {
+        effect
+            .resource
+            .as_ref()
+            .is_some_and(|resource| resources.contains(resource))
+    });
+    let operation_allowed = scope.operations.as_ref().is_none_or(|operations| {
+        effect.parameters.iter().any(|parameter| {
+            matches!(parameter, Value::Text(operation) if operations.contains(operation))
+        })
+    });
+    resource_allowed && operation_allowed
+}
+
+fn expression_limit_maximum(expression: &Expression) -> Option<ExactNumber> {
+    let ExpressionForm::Binary(operator, _, right) = &expression.form else {
+        return None;
+    };
+    if operator != "<=" {
+        return None;
+    }
+    let ExpressionForm::Literal(value) = &right.form else {
+        return None;
+    };
+    match value {
+        Value::Array(parts) => match parts.as_slice() {
+            [Value::Text(kind), Value::Integer(value)] if kind == "integer" && *value >= 0 => {
+                Some(ExactNumber::Integer(*value))
+            }
+            [
+                Value::Text(kind),
+                Value::Integer(numerator),
+                Value::Integer(denominator),
+            ] if kind == "rational" && *numerator >= 0 && *denominator > 0 => {
+                Some(ExactNumber::Rational {
+                    numerator: *numerator,
+                    denominator: *denominator,
+                })
+            }
+            [
+                Value::Text(kind),
+                Value::Integer(coefficient),
+                Value::Integer(exponent),
+            ] if kind == "decimal" && *coefficient >= 0 => Some(ExactNumber::Decimal {
+                coefficient: *coefficient,
+                exponent: *exponent,
+            }),
+            _ => None,
+        },
+        _ => None,
+    }
+}
+
+fn policy_enforcement_error(
+    code: &'static str,
+    message: impl Into<String>,
+    source_name: &str,
+) -> Diagnostic {
+    Diagnostic::new(code, message, source_name, 1, 1)
 }
 
 fn parse_internal(
@@ -248,6 +532,7 @@ fn elaborate(
         functions,
         goals,
         entrypoints,
+        effective_policy: None,
         semantic_id: None,
         artifact_id: None,
     })
@@ -537,7 +822,11 @@ fn lower_goal(
                 kind,
                 binding: bindings[&clause_index].clone(),
             },
-            SurfaceClauseKind::Contract { kind, condition } => {
+            SurfaceClauseKind::Contract {
+                kind,
+                dimension,
+                condition,
+            } => {
                 let condition = lower_expression(condition, &environment, source_name, ids)?;
                 if condition.value_type != BhcpType::Primitive("Bool") {
                     return Err(error(
@@ -547,7 +836,11 @@ fn lower_goal(
                         &surface.at,
                     ));
                 }
-                ClauseKind::Contract { kind, condition }
+                ClauseKind::Contract {
+                    kind,
+                    dimension: dimension.clone(),
+                    condition,
+                }
             }
             SurfaceClauseKind::Authority { kind, effects } => {
                 let mut effects: Vec<_> = effects
@@ -651,6 +944,7 @@ fn lower_goal(
         output,
         evidence: BhcpType::Evidence(vec![evidence.to_owned()]),
         clauses,
+        policy_decision: None,
         body,
     })
 }

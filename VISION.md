@@ -108,6 +108,12 @@ normalization make equivalent programs share a semantic identity even when their
 surface profiles differ. Complete artifacts retain their own provenance-sensitive
 identity.
 
+The current Rust slice reaches policy-aware elaboration: a validated effective
+policy can gate type mode, authority, prohibitions, and explicit dimensioned numeric
+limits before semantic IR exists. Accepted IR retains its governing policy and
+normalized decisions. Execution-time enforcement, waivers, and the later graph
+stages remain separate roadmap work.
+
 ## Effects, policy, and evidence
 
 Ambient authority and self-reported success are unacceptable foundations for
