@@ -138,6 +138,13 @@ fn main() -> ExitCode {
                 ExitCode::SUCCESS
             }
         }
+        "judge-expect-no-sibling-oracle" => {
+            if std::path::Path::new("../oracle/oracle").exists() {
+                ExitCode::from(75)
+            } else {
+                ExitCode::SUCCESS
+            }
+        }
         "judge-expect-oracle" => {
             if std::path::Path::new("oracle").is_dir() {
                 ExitCode::SUCCESS

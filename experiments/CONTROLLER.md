@@ -53,7 +53,9 @@ view for each ordered judge. Non-oracle judges receive no oracle path; only a
 judge explicitly registered with `uses_oracle` receives an exact copy of the
 frozen oracle. Judge environments are cleared and rebuilt with only the fixed
 tool directory plus `/usr/bin:/bin`, offline Cargo mode, and a controller-owned
-target directory. A judge that changes its candidate or oracle view
+target directory. Each judge view and target is removed after its evidence is
+recorded, so a later judge cannot traverse into an earlier oracle-bearing view
+or its build artifacts. A judge that changes its candidate or oracle view
 contaminates the session even if it exits zero.
 
 ## Agent result protocol

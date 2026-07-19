@@ -930,6 +930,12 @@ impl ExperimentController {
                 judge_workspace.join("oracle").exists()
             };
             judge_contaminated |= subject_changed || oracle_changed;
+            fs::remove_dir_all(&judge_workspace).map_err(|error| {
+                failure(format!("cannot remove ephemeral judge workspace: {error}"))
+            })?;
+            fs::remove_dir_all(&judge_target).map_err(|error| {
+                failure(format!("cannot remove ephemeral judge target: {error}"))
+            })?;
         }
         let total_elapsed_millis = elapsed_millis(started.elapsed());
         if judge_contaminated {

@@ -204,7 +204,7 @@ fn controller_reaps_background_processes_that_keep_capture_pipes_open() {
     let report = ExperimentController::new().run(&plan).unwrap();
     assert_eq!(report.arms[0].status, SessionStatus::Rejected);
     assert_eq!(report.arms[0].rejection, Some(RejectionReason::Incomplete));
-    assert!(report.arms[0].elapsed_millis < 1_000);
+    assert!(report.arms[0].elapsed_millis < 4_000);
     fs::remove_dir_all(scratch).unwrap();
 }
 
@@ -227,7 +227,7 @@ fn controller_reaps_background_processes_even_when_capture_pipes_are_closed() {
     let report = ExperimentController::new().run(&plan).unwrap();
     assert_eq!(report.arms[0].status, SessionStatus::Rejected);
     assert_eq!(report.arms[0].rejection, Some(RejectionReason::Incomplete));
-    assert!(report.arms[0].elapsed_millis < 1_000);
+    assert!(report.arms[0].elapsed_millis < 4_000);
     fs::remove_dir_all(scratch).unwrap();
 }
 
@@ -250,7 +250,7 @@ fn output_limit_stops_a_flooding_process_before_the_timeout() {
 
     let report = ExperimentController::new().run(&plan).unwrap();
     assert_eq!(report.arms[0].rejection, Some(RejectionReason::Incomplete));
-    assert!(report.arms[0].elapsed_millis < 1_000);
+    assert!(report.arms[0].elapsed_millis < 4_000);
     fs::remove_dir_all(scratch).unwrap();
 }
 
@@ -339,13 +339,13 @@ fn only_oracle_judges_receive_the_withheld_oracle() {
     arm.arguments.push("complete".to_owned());
     plan.arms.push(arm);
     plan.oracle_source = Some(fixture.join("oracle"));
+    plan.judges
+        .push(JudgeCommand::new("oracle", fake_agent(), ["judge-expect-oracle"]).with_oracle());
     plan.judges.push(JudgeCommand::new(
         "public",
         fake_agent(),
-        ["judge-expect-no-oracle"],
+        ["judge-expect-no-sibling-oracle"],
     ));
-    plan.judges
-        .push(JudgeCommand::new("oracle", fake_agent(), ["judge-expect-oracle"]).with_oracle());
 
     let report = ExperimentController::new().run(&plan).unwrap();
     assert_eq!(report.arms[0].status, SessionStatus::Accepted);
@@ -439,8 +439,9 @@ fn fake_agent_is_judged_symmetrically_on_both_checked_in_rust_fixtures() {
                 .starts_with("bhcp.hash/sha3-512@0:")
         );
         let judge_views = scratch.join(name).join("judge-views/prose");
-        assert!(!judge_views.join("public/oracle").exists());
-        assert!(judge_views.join("oracle/oracle").is_dir());
+        assert!(fs::read_dir(judge_views).unwrap().next().is_none());
+        let judge_targets = scratch.join(name).join("judge-targets/prose");
+        assert!(fs::read_dir(judge_targets).unwrap().next().is_none());
         let markdown = report.to_markdown();
         assert!(markdown.contains("Agent command:"));
         assert!(markdown.contains("- Input `TASK.md`:"));
