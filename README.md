@@ -221,6 +221,18 @@ The next executable boundary is to generalize the total pure expression evaluato
 the metamodel beyond this `all` slice, then add `gate`, `any`, `none`, and `chain` as
 checked-in prelude source without adding behavior kinds to Rust or semantic IR.
 
+## Contributing and autonomous delivery
+
+[AGENTS.md](AGENTS.md) is the canonical repository operating contract for humans
+and autonomous workers. It defines authority order, meaningful TDD, the local Rust
+gate, one-issue/one-PR delivery, native dependencies, atomic remote-ref claims,
+independent review, fenced release, and post-merge consistency.
+
+The versioned [project-loop profile](.codex/project-profile.md) provides the exact
+`bhcp-dev/bhcp` adapter details used by reusable roadmap automation: issue queries,
+readiness labels, lock namespaces, concurrency tokens, CI check names, review rules,
+and completion criteria. Labels and comments mirror claims; they are never locks.
+
 ## Status
 
 The executable slice is not a claim that the execution platform already exists. v0
