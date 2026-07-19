@@ -16,7 +16,7 @@ use crate::parser::{
 use crate::policy::SourcePolicyDocument;
 use crate::prelude::{
     ALL_FEATURE, ALL_LOWERER, ALL_REDUCER, ANY_FEATURE, ANY_LOWERER, ANY_REDUCER, DerivedChild,
-    DerivedForm, NetworkShape, Prelude,
+    DerivedForm, NONE_FEATURE, NONE_LOWERER, NONE_REDUCER, NetworkShape, Prelude,
 };
 use crate::value::Value;
 
@@ -127,6 +127,9 @@ fn parse_internal(
     if uses_self_hosted_any(&program) {
         features.push(ANY_FEATURE.to_owned());
     }
+    if uses_self_hosted_none(&program) {
+        features.push(NONE_FEATURE.to_owned());
+    }
     let mut ast = CanonicalAstDocument {
         features,
         root: program.ast.clone(),
@@ -223,6 +226,9 @@ fn elaborate(
     if uses_self_hosted_any(program) {
         features.push(ANY_FEATURE.to_owned());
     }
+    if uses_self_hosted_none(program) {
+        features.push(NONE_FEATURE.to_owned());
+    }
     Ok(SemanticIrDocument {
         features,
         functions,
@@ -247,6 +253,22 @@ fn uses_self_hosted_any(program: &ParsedProgram) -> bool {
         Some(SurfaceComposition::Compose { reducer, .. }) => reducer == ANY_REDUCER,
         _ => false,
     })
+}
+
+fn uses_self_hosted_none(program: &ParsedProgram) -> bool {
+    program.goals.iter().any(|goal| {
+        goal.body
+            .as_ref()
+            .is_some_and(is_self_hosted_none_composition)
+    })
+}
+
+fn is_self_hosted_none_composition(composition: &SurfaceComposition) -> bool {
+    match composition {
+        SurfaceComposition::DerivedNone { .. } => true,
+        SurfaceComposition::Compose { reducer, .. } => reducer == NONE_REDUCER,
+        _ => false,
+    }
 }
 
 #[derive(Clone)]
@@ -289,10 +311,20 @@ fn goal_signature(goal: &SurfaceGoal, index: usize, source_name: &str) -> Result
     }
     input_fields.sort_by(|left, right| left.name.cmp(&right.name));
     output_fields.sort_by(|left, right| left.name.cmp(&right.name));
+    let output = if output_fields.is_empty()
+        && goal
+            .body
+            .as_ref()
+            .is_some_and(is_self_hosted_none_composition)
+    {
+        BhcpType::Primitive("Unit")
+    } else {
+        BhcpType::Record(output_fields)
+    };
     Ok(GoalSignature {
         id: format!("goal-{}", index + 1),
         input: BhcpType::Record(input_fields),
-        output: BhcpType::Record(output_fields),
+        output,
     })
 }
 
@@ -364,7 +396,18 @@ fn lower_goal(
     input_fields.sort_by(|left, right| left.name.cmp(&right.name));
     output_fields.sort_by(|left, right| left.name.cmp(&right.name));
     let input = BhcpType::Record(input_fields);
-    let output = BhcpType::Record(output_fields);
+    let declared_output = BhcpType::Record(output_fields);
+    let signature = &signatures[&goal.symbol];
+    debug_assert_eq!(signature.input, input);
+    debug_assert!(
+        signature.output == declared_output
+            || (declared_output == BhcpType::Record(vec![])
+                && goal
+                    .body
+                    .as_ref()
+                    .is_some_and(is_self_hosted_none_composition))
+    );
+    let output = signature.output.clone();
     let mut clauses = Vec::new();
     for (clause_index, surface) in goal.clauses.iter().enumerate() {
         let kind = match &surface.kind {
@@ -464,9 +507,6 @@ fn lower_goal(
     } else {
         "unresolved"
     };
-    let signature = &signatures[&goal.symbol];
-    debug_assert_eq!(signature.input, input);
-    debug_assert_eq!(signature.output, output);
     let body = goal
         .body
         .as_ref()
@@ -548,6 +588,14 @@ fn lower_composition(
         )?,
         SurfaceComposition::DerivedAny { .. } => prelude.lower(
             ANY_LOWERER,
+            DerivedForm {
+                input: parent.input.clone(),
+                output: parent.output.clone(),
+                children,
+            },
+        )?,
+        SurfaceComposition::DerivedNone { .. } => prelude.lower(
+            NONE_LOWERER,
             DerivedForm {
                 input: parent.input.clone(),
                 output: parent.output.clone(),

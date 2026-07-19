@@ -662,7 +662,9 @@ branch can conclude `any` despite unrelated faults. A satisfied branch refutes
 listed by the reducer, but cancellation MUST be represented and MUST respect resource
 cleanup. When multiple `any` children are satisfied in the same sealed observation
 set, the lexicographically least normalized child tag is the stable winner; authoring
-order and observation arrival order do not change that choice.
+order and observation arrival order do not change that choice. When `none` is
+unresolved after every child has completed, its partial evidence includes accepted
+counter-evidence from refuted children and partial evidence from unresolved children.
 
 ### S8.4 Contracts, authority, and planning
 
