@@ -64,6 +64,7 @@ fn every_phase_four_acceptance_claim_names_executable_evidence() {
         (46, 78, "2440a83f00f58fa2a93c4f0bbc71473a7fafa6a4"),
         (47, 79, "e76e50ce7720ca8c09d89edacd5fde3e3cffef51"),
         (48, 80, "7084f6e6a1a1a687cc1ba746f8ac10e194301000"),
+        (49, 81, "7ab426e6f5dabb2d11bd6245ac1da3337124ddb4"),
     ] {
         assert!(report.contains(&format!("| #{issue} | #{pull_request} | `{merge}` |")));
     }
