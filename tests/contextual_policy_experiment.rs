@@ -10,6 +10,21 @@ fn experiment() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("experiments/contextual-policy-agent")
 }
 
+#[test]
+fn replay_commands_select_exactly_rust_1_97_1() {
+    let output = pinned_tool_command("rustc")
+        .arg("--version")
+        .env("RUSTUP_TOOLCHAIN", "stable")
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "{}", output_text(&output));
+    assert!(
+        String::from_utf8(output.stdout)
+            .unwrap()
+            .starts_with("rustc 1.97.1 ")
+    );
+}
+
 fn cargo_test(manifest: &Path, target_name: &str) -> Output {
     Command::new(env!("CARGO"))
         .args([
