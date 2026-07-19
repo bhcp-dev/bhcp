@@ -1,5 +1,7 @@
 use bhcp::experiment_codex::summarize_events;
+#[cfg(target_os = "macos")]
 use std::fs;
+#[cfg(target_os = "macos")]
 use std::process::Command;
 
 #[test]
