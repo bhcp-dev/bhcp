@@ -167,6 +167,7 @@ impl AstNode {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct CanonicalAstDocument {
     pub features: Vec<String>,
+    pub profile: String,
     pub root: AstNode,
     pub source: ContentReference,
     pub artifact_id: Option<HashId>,
@@ -177,10 +178,7 @@ impl CanonicalAstDocument {
         let mut entries = header_entries(&self.features);
         entries.extend([
             ("kind".to_owned(), Value::Text("canonical-ast".to_owned())),
-            (
-                "profile".to_owned(),
-                Value::Text("bhcp/canonical@0".to_owned()),
-            ),
+            ("profile".to_owned(), Value::Text(self.profile.clone())),
             ("root".to_owned(), self.root.to_value()),
             ("source".to_owned(), self.source.to_value()),
         ]);
@@ -191,6 +189,12 @@ impl CanonicalAstDocument {
     }
     pub fn validate(&self) -> Result<()> {
         validate_features(&self.features)?;
+        if self.profile.is_empty() {
+            return Err(Diagnostic::plain(
+                "BHCP4001",
+                "canonical AST profile must be an exact non-empty symbol",
+            ));
+        }
         self.source.validate()?;
         self.root.validate(&mut HashSet::new())?;
         if let Some(hash) = &self.artifact_id {

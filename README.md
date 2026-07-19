@@ -99,7 +99,7 @@ rather than erased.
 | --- | --- | --- |
 | `§goal` / `§function` | Goals and the checked prelude-function boundary described above | General project functions and the remaining S7 goal grammar |
 | `§policy` | Layer, `§extends`, six closed typed rules, scopes/parameters, waivability, issuers, composition, inspection, policy-aware elaboration, and no-waiver conformance fixtures | Expression-valued policy clauses, waiver/profile shorthand, and enforcement beyond the compile-time/evidence boundary |
-| `§syntax` / `§profile` | Normative closed mapping, inheritance, formatting, overlay, and identity contract plus wire shapes and decision vectors | Source parsing, preamble scanning, typed Rust models, normalization, and formatting |
+| `§syntax` / `§profile` | Fixed byte-level profile preamble scanning plus the normative closed mapping, inheritance, formatting, overlay, and identity contract, wire shapes, and decision vectors | Syntax/profile source definitions, typed Rust models, custom-profile normalization, and formatting |
 | Other S7 definitions | None | `§type`, `§predicate`, `§waiver`, `§extension`, and `§refines` |
 
 The Phase 4 decision boundary admits only one-token keyword, punctuation, and symbol
@@ -109,8 +109,20 @@ formatting can change only insignificant whitespace. Profile children may select
 the same or a descendant syntax, may strengthen but not relax type mode, and append
 unique policy overlays in an auditable root-to-leaf order before ordinary monotonic
 policy composition. These rules are specified and executable as finite decision
-vectors; accepting noncanonical source remains deferred to the scanner/model/lowering
-issues that follow.
+vectors; accepting noncanonical source remains deferred to the profile model and
+lowering issues that follow.
+
+Before lexing, every source entry point scans the original bytes for the fixed
+`#!bhcp-profile namespace/name@version` ASCII preamble. An optional UTF-8 BOM may
+precede it; omission selects `bhcp/canonical@0`; and the directive must use ASCII
+spaces and an LF terminator. Duplicate, misplaced, aliased, malformed, non-ASCII,
+and invalid UTF-8 inputs fail as `BHCP0003` without emitting an artifact. The
+scanner preserves original byte, line, and column offsets and source hashing while
+masking only the accepted preamble for canonical lexing. The executable
+[`canonical-profile-preamble.bhcp`](conformance/v0/fixtures/canonical-profile-preamble.bhcp)
+example demonstrates explicit canonical selection. Exact custom profile symbols
+are selected profile-independently but fail closed as `BHCP0004` until their
+normalizers are registered.
 
 `bhcp.hash/sha3-512@0` is the default and only currently registered identity
 algorithm, implemented through the pinned pure-Rust `sha3` crate. It provides a roughly 256-bit

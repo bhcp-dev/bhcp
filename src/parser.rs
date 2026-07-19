@@ -267,6 +267,197 @@ pub struct ParsedProgram {
     pub ast: AstNode,
 }
 
+pub const CANONICAL_PROFILE: &str = "bhcp/canonical@0";
+const PROFILE_PREAMBLE: &[u8] = b"#!bhcp-profile";
+const UTF8_BOM: &[u8] = &[0xef, 0xbb, 0xbf];
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ProfilePreamble {
+    pub profile: String,
+    pub canonical_source: String,
+    pub body_start: usize,
+    pub had_preamble: bool,
+}
+
+pub fn scan_profile_preamble(source: &[u8], source_name: &str) -> Result<ProfilePreamble> {
+    let decoded = std::str::from_utf8(source).map_err(|_| {
+        preamble_error(
+            "profile-selected source must be valid UTF-8",
+            source_name,
+            1,
+            1,
+        )
+    })?;
+
+    let bom_length = usize::from(source.starts_with(UTF8_BOM)) * UTF8_BOM.len();
+    if let Some(relative) = source[bom_length..]
+        .windows(UTF8_BOM.len())
+        .position(|window| window == UTF8_BOM)
+    {
+        let offset = bom_length + relative;
+        let (line, column) = source_point(decoded, offset);
+        return Err(preamble_error(
+            "the UTF-8 BOM may occur only once at byte zero",
+            source_name,
+            line,
+            column,
+        ));
+    }
+
+    let mut profile = CANONICAL_PROFILE.to_owned();
+    let mut body_start = bom_length;
+    let mut had_preamble = false;
+    let remainder = &source[bom_length..];
+    if remainder.starts_with(PROFILE_PREAMBLE) {
+        had_preamble = true;
+        let line_end = remainder
+            .iter()
+            .position(|byte| *byte == b'\n')
+            .ok_or_else(|| {
+                preamble_error("profile preamble must end with ASCII LF", source_name, 1, 1)
+            })?;
+        let line = &remainder[..line_end];
+        if !line.is_ascii() || line.iter().any(|byte| byte.is_ascii_control()) {
+            return Err(preamble_error(
+                "profile preamble permits ASCII text and spaces followed by LF only",
+                source_name,
+                1,
+                1,
+            ));
+        }
+        let suffix = &line[PROFILE_PREAMBLE.len()..];
+        let spaces = suffix.iter().take_while(|byte| **byte == b' ').count();
+        if spaces == 0 {
+            return Err(preamble_error(
+                "profile preamble requires an ASCII space before the exact profile symbol",
+                source_name,
+                1,
+                1,
+            ));
+        }
+        let selected = &suffix[spaces..];
+        if !valid_profile_symbol(selected) {
+            return Err(preamble_error(
+                "profile preamble requires one exact namespace/name@version symbol with no alias or trailing text",
+                source_name,
+                1,
+                1,
+            ));
+        }
+        profile = String::from_utf8(selected.to_vec()).expect("validated ASCII profile symbol");
+        body_start = bom_length + line_end + 1;
+    } else if remainder.starts_with(b"#!") {
+        return Err(preamble_error(
+            "unrecognized or aliased profile preamble directive",
+            source_name,
+            1,
+            1,
+        ));
+    }
+
+    if let Some((line, column, repeated_bom)) = misplaced_preamble(source, body_start) {
+        let message = if repeated_bom {
+            "the UTF-8 BOM may occur only once at byte zero"
+        } else if had_preamble {
+            "duplicate profile preamble is forbidden"
+        } else {
+            "profile preamble must be the first non-BOM bytes"
+        };
+        return Err(preamble_error(message, source_name, line, column));
+    }
+
+    let mut masked = source.to_vec();
+    for byte in &mut masked[bom_length..body_start] {
+        if *byte != b'\n' {
+            *byte = b' ';
+        }
+    }
+    let canonical_source = String::from_utf8(masked).expect("validated and ASCII-masked UTF-8");
+    Ok(ProfilePreamble {
+        profile,
+        canonical_source,
+        body_start,
+        had_preamble,
+    })
+}
+
+fn source_point(source: &str, byte_offset: usize) -> (usize, usize) {
+    let prefix = &source[..byte_offset];
+    let line = prefix.bytes().filter(|byte| *byte == b'\n').count() + 1;
+    let column = prefix
+        .rsplit_once('\n')
+        .map_or(prefix, |(_, tail)| tail)
+        .chars()
+        .count()
+        + 1;
+    (line, column)
+}
+
+fn valid_profile_symbol(value: &[u8]) -> bool {
+    let Some(at) = value.iter().position(|byte| *byte == b'@') else {
+        return false;
+    };
+    if value[at + 1..].contains(&b'@') {
+        return false;
+    }
+    let (path, version_with_at) = value.split_at(at);
+    let version = &version_with_at[1..];
+    let mut components = path.split(|byte| *byte == b'/');
+    let Some(namespace) = components.next() else {
+        return false;
+    };
+    let remaining: Vec<_> = components.collect();
+    !namespace.is_empty()
+        && !remaining.is_empty()
+        && valid_symbol_component(namespace)
+        && remaining
+            .iter()
+            .all(|component| valid_symbol_component(component))
+        && valid_symbol_component(version)
+}
+
+fn valid_symbol_component(value: &[u8]) -> bool {
+    !value.is_empty()
+        && value
+            .iter()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(*byte, b'.' | b'_' | b'-'))
+}
+
+fn misplaced_preamble(source: &[u8], scan_start: usize) -> Option<(usize, usize, bool)> {
+    let mut line_start = scan_start;
+    while line_start < source.len() {
+        let line_end = source[line_start..]
+            .iter()
+            .position(|byte| *byte == b'\n')
+            .map_or(source.len(), |offset| line_start + offset);
+        let line = &source[line_start..line_end];
+        let indentation = line.iter().take_while(|byte| **byte == b' ').count();
+        let candidate = &line[indentation..];
+        let repeated_bom = candidate.starts_with(UTF8_BOM);
+        if repeated_bom || candidate.starts_with(b"#!") {
+            let line_number = 1 + source[..line_start]
+                .iter()
+                .filter(|byte| **byte == b'\n')
+                .count();
+            return Some((line_number, indentation + 1, repeated_bom));
+        }
+        if line_end == source.len() {
+            break;
+        }
+        line_start = line_end + 1;
+    }
+    None
+}
+
+fn preamble_error(
+    message: impl Into<String>,
+    source_name: &str,
+    line: usize,
+    column: usize,
+) -> Diagnostic {
+    Diagnostic::new("BHCP0003", message, source_name, line, column)
+}
+
 pub fn parse_canonical(
     source: &str,
     source_name: &str,
@@ -284,10 +475,9 @@ pub fn parse_canonical(
 }
 
 fn lex(source: &str, source_name: &str) -> Result<Vec<Token>> {
-    if source
-        .chars()
-        .any(|character| !character.is_ascii() && character != '§')
-    {
+    if source.chars().enumerate().any(|(index, character)| {
+        !character.is_ascii() && character != '§' && !(index == 0 && character == '\u{feff}')
+    }) {
         return Err(Diagnostic::new(
             "BHCP0002",
             "dependency-free canonical source currently accepts ASCII plus the precomposed § sigil; unsupported Unicode is rejected",
@@ -298,7 +488,11 @@ fn lex(source: &str, source_name: &str) -> Result<Vec<Token>> {
     }
     let characters: Vec<char> = source.chars().collect();
     let mut tokens = Vec::new();
-    let (mut index, mut byte, mut line, mut column) = (0usize, 0usize, 1usize, 1usize);
+    let (mut index, mut byte, mut line, mut column) = if characters.first() == Some(&'\u{feff}') {
+        (1usize, UTF8_BOM.len(), 1usize, 1usize)
+    } else {
+        (0usize, 0usize, 1usize, 1usize)
+    };
     let point = |byte, line, column| Point { byte, line, column };
     let advance =
         |index: &mut usize, byte: &mut usize, line: &mut usize, column: &mut usize| -> char {
