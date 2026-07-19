@@ -865,6 +865,19 @@ evidence-edge = {
   "to": ref-id,
   "kind": "supports" / "refutes" / "derives-from" / "produces" / "depends-on"
 }
+policy-evidence-source = {
+  "layer": policy-layer,
+  "policy": symbol-id,
+  "rule": ref-id
+}
+policy-evidence-obligation = {
+  "id": ref-id,
+  "symbol": symbol-id,
+  "classes": [1* evidence-class],
+  "minimum": uint .gt 0,
+  "effective_rule": uint,
+  "sources": [1* policy-evidence-source]
+}
 evidence-bundle-document = {
   document-header,
   "kind": "evidence-bundle",
@@ -874,7 +887,8 @@ evidence-bundle-document = {
   "items": [* evidence-item],
   "gaps": [* evidence-gap],
   "edges": [* evidence-edge],
-  "obligation_status": { * ref-id => "discharged" / "refuted" / "unresolved" }
+  "obligation_status": { * ref-id => "discharged" / "refuted" / "unresolved" },
+  ? "policy_obligations": [1* policy-evidence-obligation]
 }
 
 feature-support = {

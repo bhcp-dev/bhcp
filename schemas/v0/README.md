@@ -98,7 +98,11 @@ before emission. Process-produced items retain the captured executable as
 provenance `source`; the local manifest remains deployment configuration rather than
 a new root document. The process-integration suite validates exact structural target
 mapping, deterministic registration ordering and timestamps, all outcome categories,
-and malformed output through this same CDDL root. This does not claim the
+and malformed output through this same CDDL root. Applicable policy evidence demands
+use the optional `policy_obligations` mapping to retain the structural target,
+effective-rule index, accepted classes, minimum, and sorted source-layer provenance;
+their claims, items, gaps, and status remain in the ordinary evidence-bundle fields.
+This does not claim the
 still-deferred general obligation/execution graph builders or full CDDL instance
 evaluation.
 

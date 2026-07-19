@@ -844,6 +844,14 @@ zero. A limit maximum MUST be an exact non-negative number. Two overlapping limi
 for the same dimension with different units are rejected in v0; implicit unit
 conversion is forbidden.
 
+Each applicable effective evidence rule creates one structural policy-evidence
+obligation. Exact duplicate restrictions remain one obligation with unioned source
+provenance; distinct additive rules remain independent and later layers cannot remove
+an earlier demand. The obligation records its effective-rule index, semantic
+obligation symbol, accepted class set, positive minimum, and every originating
+`(layer, policy symbol, source rule ID)`. Source provenance is audit material and does
+not enter program semantic identity.
+
 A goal `§limit` may prefix its condition with `dimension-symbol:`. That dimension is
 semantic and lets elaboration compare a direct non-negative exact `<=` boundary
 against the applicable effective maximum; the policy rule supplies the unit. An
@@ -1003,6 +1011,18 @@ labels. Target order and consistent label renaming do not affect semantic identi
 Without `for`, the binding is goal-wide and may produce claims for every contract
 obligation; satisfaction still requires accepted coverage for each obligation.
 
+A host registry MAY explicitly bind a policy evidence-obligation symbol to one or
+more verifier symbols. The mapping grants no execution authority: every producer
+must still be registered through the ordinary in-process or bounded adapter boundary.
+Each selected producer receives only the deterministic structural policy-obligation
+ID. Accepted evidence MUST name the policy obligation as its predicate and use one of
+its accepted classes; the minimum counts distinct bound producers. Mapping and
+registration order are unobservable. An absent mapping or unavailable producer is a
+required unresolved gap. Accepted refutation still refutes, an inconclusive producer
+still leaves a gap when the minimum is unmet, and an operational failure remains a
+fault. Meeting the minimum discharges the obligation even if an additional producer
+is inconclusive; accepted refutation still wins.
+
 Total pure contract conditions are re-evaluated over the typed goal input and
 candidate output. Targeted external evidence is additional required coverage: a
 false condition or accepted refuting evidence refutes that candidate obligation; an
@@ -1016,7 +1036,8 @@ Human inspection of an evidence bundle MUST expose every obligation status, the
 supporting or refuting disposition of each claim, and every gap's kind and registered
 reason code. In particular, missing, rejected, unresolved, malformed, and operationally
 faulted adapter results MUST remain distinguishable after CBOR validation and
-inspection.
+inspection. Policy-added obligations additionally expose their semantic symbol,
+accepted classes, minimum, effective-rule index, and source-layer provenance.
 
 Schema anchors: all `*-graph-document`, `planner-request-document`,
 `planner-result-document`, `evidence-bundle-document`, and

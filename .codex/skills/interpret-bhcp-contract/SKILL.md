@@ -6,8 +6,7 @@ description: Interpret and operationalize canonical BHCP contracts without inven
 # Interpret BHCP Contract
 
 Treat compiler output as authoritative. Never infer meaning absent from the compiled
-contract. Batch independent discovery and reads. Do not inventory the repository,
-list tests, query Cargo metadata, or read the same file twice unless blocked.
+contract or reread unrelated repository material.
 
 ## Establish authority
 
@@ -24,8 +23,6 @@ list tests, query Cargo metadata, or read the same file twice unless blocked.
    debugging, capture its canonical CBOR outside the repository and pass the `.cbor`
    file back to `bhcp inspect`. Never stream raw AST or IR bytes into conversation.
 
-Keep updates sparse. Do not narrate each workflow transition.
-
 ## Build a compact working view
 
 Keep the checklist internal as `ID · requirement/effect · verifier · action`. Do not
@@ -34,6 +31,8 @@ print it unless the user asks.
 - Include only clauses that affect implementation or acceptance.
 - Apply each `verify -> target` binding to its target rows. Never create a checklist
   row for a `verify` clause; its own clause ID is not an obligation.
+- Treat each inspected `policy-obligation` as mandatory; retain its structural ID,
+  accepted classes, minimum, and layer/policy/rule provenance.
 - Treat `requires` as assumptions to establish; `ensures` and `limit` as mandatory;
   `forbids` as hard boundaries; `allows` as an upper bound; and `prefer` only after
   mandatory obligations hold.
@@ -54,6 +53,9 @@ state separate from evidence state. Update evidence only from the producer bound
 that obligation; if unavailable, mark its obligations unresolved. Never add tests or
 extra edits as a substitute for an unavailable adapter. A visible check is not
 adapter evidence unless it is the registered producer.
+
+For policy obligations, count distinct bound producers. Missing mappings or
+registrations are unresolved; refutation and faults retain their states.
 
 Report the semantic ID, changed files, checks and adapters run, obligation status
 grouped by ID or range, and remaining gaps. Claim success only when every mandatory

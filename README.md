@@ -201,6 +201,15 @@ registrations produce required unresolved gaps; arbitrary project commands are n
 silently executed. Evidence timestamps are injected, and the implemented boundary
 accepts canonical UTC timestamps at second precision.
 
+Applicable effective-policy evidence rules add deterministic structural obligations
+to that same boundary. Hosts explicitly bind each policy obligation symbol to one or
+more registered verifier symbols; registration and binding order are unobservable.
+Accepted items must use a policy-approved class and matching predicate, and the
+positive minimum counts distinct bound producers. Evidence bundles expose the
+effective rule index and every originating layer, policy symbol, and source rule.
+Missing mappings or registrations remain required unresolved gaps; rejection and
+operational fault behavior is unchanged.
+
 This library boundary does not yet build obligation or execution graphs. Process-backed
 adapters now register through the generic verifier registry rather than becoming kernel
 primitives. Dispatch deterministically encodes the closed typed candidate
@@ -340,8 +349,10 @@ above its effective maximum with stable `BHCP8201`–`BHCP8204` diagnostics. Acc
 IR retains the effective policy identities and per-goal indices for every applicable
 requirement, evidence demand, prohibition, capability, and limit. Equivalent policy
 decompositions keep the same program semantic ID while their retained artifact IDs
-remain auditable. Waiver validation and execution-time enforcement remain later
-Phase 3 work.
+remain auditable. Applicable evidence demands are dispatched through explicit
+policy-obligation-to-verifier registry bindings and retain source-layer provenance in
+the evidence bundle. Waiver validation and broader execution-time enforcement remain
+later Phase 3 work.
 
 Policy composition fails atomically with an auditable diagnostic: `BHCP8101`
 capability widening, `BHCP8102` limit loosening, `BHCP8103` type-mode weakening,
