@@ -159,6 +159,7 @@ dependencies = [
  "landlock",
  "nix",
  "seccompiler",
+ "serde_json",
  "sha3",
  "unicode-normalization",
 ]

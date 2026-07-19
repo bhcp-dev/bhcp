@@ -1,0 +1,3 @@
+Work autonomously on the coding task in ../TASK.md. Meet every stated requirement; an independent oracle is withheld until you stop. Do not use the network. Edit only src/lib.rs and preserve the public API. Run all visible formatting, Clippy, and test checks before reporting success. Do not ask questions.
+
+Use $interpret-bhcp-contract. The canonical machine contract is ../contract.bhcp and its pinned identity is ../contract.semantic-id. Treat every targeted obligation and verifier binding in that contract as required for acceptance. Report obligation evidence only when its bound producer actually ran. Your structured final response must state whether you claim success.

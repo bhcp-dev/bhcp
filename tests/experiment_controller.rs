@@ -34,6 +34,32 @@ fn fake_judge() -> JudgeCommand {
 }
 
 #[test]
+fn frozen_plan_tracks_every_nested_trusted_executable() {
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let scratch = fresh_scratch("trusted-executable-digest");
+    fs::create_dir_all(&scratch).unwrap();
+    let trusted = scratch.join("nested-tool");
+    fs::copy(fake_agent(), &trusted).unwrap();
+
+    let mut plan = ExperimentPlan::new(
+        "trusted-executable-digest",
+        root.join("experiments/minimal-coding-agent"),
+        &scratch,
+        pins(),
+    );
+    plan.trusted_executables.push(trusted.clone());
+    plan.arms
+        .push(ExperimentArm::new("prose", "TASK.md", fake_agent()));
+    plan.judges.push(fake_judge());
+
+    let before = plan.freeze().unwrap();
+    fs::write(&trusted, "changed executable bytes").unwrap();
+    let after = plan.freeze().unwrap();
+    assert_ne!(before.plan_digest, after.plan_digest);
+    fs::remove_dir_all(scratch).unwrap();
+}
+
+#[test]
 fn pins_and_run_order_are_mandatory_and_closed() {
     let mut plan = ExperimentPlan::new(
         "pilot-test",

@@ -11,7 +11,7 @@ speaking the closed result protocol below.
 An `ExperimentPlan` fixes, in order:
 
 - the experiment and arm IDs;
-- model, reasoning, `workspace-write/no-network` sandbox, and toolchain pins;
+- model, reasoning, registered sandbox, and toolchain pins;
 - timeout and captured-output ceilings;
 - each arm's prompt, optional canonical contract inputs, executable identity,
 and exact arguments;
@@ -23,8 +23,8 @@ and exact arguments;
 digest, and run order before any process starts. Tree identities use typed,
 canonical entries for every directory, path, and file body; delimiter-shaped
 file bytes cannot alias another tree. Changing an input, pin, arm order,
-executable, judge, or limit changes the plan digest. The controller rechecks
-that frozen value before every arm and after the run.
+executable, nested trusted executable, judge, or limit changes the plan digest. The
+controller rechecks that frozen value before every arm and after the run.
 
 ## Isolated session lifecycle
 
@@ -48,6 +48,15 @@ to controller-owned target directories outside candidate trees. Every
 candidate path—including a directory named `target`—remains part of identity
 and contamination checks.
 
+The contextual-policy multi-seed driver additionally implements the
+`workspace-write/no-network/read-confined` pin on macOS. Its outer filesystem
+profile denies the host user and temporary trees, admits only registered runtime
+and controller-owned paths, and makes the original oracle unreadable. A positive
+staged-prompt probe and negative original-oracle probe run under the same profile
+before Codex starts. Exact Codex, BHCP, Rustup, and toolchain files are frozen in
+the plan; isolated credentials are readable by the Codex parent but not its child
+commands. Other operating systems fail closed for this pin.
+
 Only after a complete session does the controller create an isolated candidate
 view for each ordered judge. Non-oracle judges receive no oracle path; only a
 judge explicitly registered with `uses_oracle` receives an exact copy of the
@@ -67,7 +76,7 @@ bhcp-agent-result@0
 status=completed
 model=<exact plan pin>
 reasoning=<exact plan pin>
-sandbox=workspace-write/no-network
+sandbox=<exact plan pin>
 toolchain=<exact plan pin>
 claimed_success=<true|false>
 input_tokens=<unsigned integer>

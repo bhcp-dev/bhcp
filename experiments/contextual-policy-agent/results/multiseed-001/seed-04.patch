@@ -1,0 +1,62 @@
+diff --git a/src/lib.rs b/src/lib.rs
+--- a/src/lib.rs
++++ b/src/lib.rs
+@@ -67,17 +67,17 @@ impl Policy {
+ 
+     #[must_use]
+     pub fn decide(&self, tenant: &str, subject: &str, action: &str, resource: &str) -> Decision {
+-        let _requested_tenant = tenant;
+         let selected = self
+             .rules
+             .iter()
+             .filter(|rule| {
+                 rule.enabled
++                    && rule.tenant == tenant
+                     && pattern_matches(&rule.subject, subject)
+                     && pattern_matches(&rule.action, action)
+                     && pattern_matches(&rule.resource, resource)
+             })
+-            .max_by_key(|rule| (specificity_score(rule), rule.priority));
++            .max_by(|left, right| compare_rules(left, right));
+ 
+         match selected {
+             Some(rule) => Decision {
+@@ -96,13 +96,29 @@ fn pattern_matches(pattern: &str, value: &str) -> bool {
+     pattern == "*" || pattern == value
+ }
+ 
+-fn specificity_score(rule: &Rule) -> usize {
+-    [
+-        rule.subject.as_str(),
+-        rule.action.as_str(),
+-        rule.resource.as_str(),
+-    ]
+-    .into_iter()
+-    .filter(|pattern| *pattern != "*")
+-    .count()
++fn compare_rules(left: &Rule, right: &Rule) -> std::cmp::Ordering {
++    specificity_tuple(left)
++        .cmp(&specificity_tuple(right))
++        .then_with(|| left.priority.cmp(&right.priority))
++        .then_with(|| effect_rank(left.effect).cmp(&effect_rank(right.effect)))
++        .then_with(|| right.id.cmp(&left.id))
++}
++
++fn specificity_tuple(rule: &Rule) -> (usize, usize, usize) {
++    (
++        pattern_specificity(&rule.resource),
++        pattern_specificity(&rule.subject),
++        pattern_specificity(&rule.action),
++    )
++}
++
++fn pattern_specificity(pattern: &str) -> usize {
++    usize::from(pattern != "*")
++}
++
++fn effect_rank(effect: Effect) -> usize {
++    match effect {
++        Effect::Allow => 0,
++        Effect::Deny => 1,
++    }
+ }

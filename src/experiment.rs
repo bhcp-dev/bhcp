@@ -12,7 +12,7 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use crate::diagnostic::{Diagnostic, Result};
-use crate::hash::{HashAlgorithm, format_hash, hash_value};
+use crate::hash::{HashAlgorithm, format_hash, hash_reader, hash_value};
 use crate::value::Value;
 
 #[cfg(unix)]
@@ -46,10 +46,11 @@ impl ExperimentPins {
                 return Err(invalid(format!("experiment {name} pin must not be empty")));
             }
         }
-        if self.sandbox != "workspace-write/no-network" {
-            return Err(invalid(
-                "experiment sandbox pin must be workspace-write/no-network",
-            ));
+        if !matches!(
+            self.sandbox.as_str(),
+            "workspace-write/no-network" | "workspace-write/no-network/read-confined"
+        ) {
+            return Err(invalid("experiment sandbox pin is not registered"));
         }
         Ok(())
     }
@@ -295,6 +296,7 @@ pub struct ExperimentPlan {
     pub judges: Vec<JudgeCommand>,
     pub oracle_source: Option<PathBuf>,
     pub allowed_changes: Vec<PathBuf>,
+    pub trusted_executables: Vec<PathBuf>,
 }
 
 impl ExperimentPlan {
@@ -314,6 +316,7 @@ impl ExperimentPlan {
             judges: Vec::new(),
             oracle_source: None,
             allowed_changes: vec![PathBuf::from("subject/src/lib.rs")],
+            trusted_executables: Vec::new(),
         }
     }
 
@@ -351,6 +354,14 @@ impl ExperimentPlan {
                     )));
                 }
             }
+        }
+        for executable in &self.trusted_executables {
+            if !executable.is_absolute() || !executable.is_file() {
+                return Err(invalid(
+                    "trusted executable must be an absolute existing file",
+                ));
+            }
+            path_text(executable)?;
         }
         for path in &self.allowed_changes {
             validate_relative_file("allowed change", path)?;
@@ -1340,7 +1351,7 @@ fn plan_digest(plan: &ExperimentPlan, fixture_digest: &str) -> Result<String> {
             ]))
         })
         .collect::<Result<Vec<_>>>()?;
-    let value = Value::map([
+    let Value::Map(mut fields) = Value::map([
         ("kind", Value::Text("experiment-plan@0".to_owned())),
         ("id", Value::Text(plan.id.clone())),
         ("fixture_digest", Value::Text(fixture_digest.to_owned())),
@@ -1381,7 +1392,26 @@ fn plan_digest(plan: &ExperimentPlan, fixture_digest: &str) -> Result<String> {
             ),
         ),
         ("withheld_oracle", Value::Bool(plan.oracle_source.is_some())),
-    ]);
+    ]) else {
+        unreachable!("Value::map must create a map")
+    };
+    if !plan.trusted_executables.is_empty() {
+        fields.push((
+            "trusted_executables".to_owned(),
+            Value::Array(
+                plan.trusted_executables
+                    .iter()
+                    .map(|executable| {
+                        Ok(Value::map([
+                            ("path", Value::Text(path_text(executable)?)),
+                            ("digest", Value::Text(digest_file(executable)?)),
+                        ]))
+                    })
+                    .collect::<Result<Vec<_>>>()?,
+            ),
+        ));
+    }
+    let value = Value::owned_map(fields);
     Ok(format_hash(&hash_value(&value, HashAlgorithm::default())?))
 }
 
@@ -1392,9 +1422,11 @@ fn path_text(path: &Path) -> Result<String> {
 }
 
 fn digest_file(path: &Path) -> Result<String> {
-    let bytes = fs::read(path)
+    let file = fs::File::open(path)
         .map_err(|error| failure(format!("cannot read experiment input: {error}")))?;
-    Ok(format_hash(&HashAlgorithm::default().hash(&bytes)))
+    let hash = hash_reader(file)
+        .map_err(|error| failure(format!("cannot read experiment input: {error}")))?;
+    Ok(format_hash(&hash))
 }
 
 fn digest_bytes(bytes: &[u8]) -> String {

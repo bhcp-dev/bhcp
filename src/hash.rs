@@ -3,6 +3,7 @@ use crate::diagnostic::{Diagnostic, Result};
 use crate::model::{HashId, SemanticIrDocument};
 use crate::value::Value;
 use sha3::{Digest, Sha3_512};
+use std::io::Read;
 
 pub const SHA3_512: &str = "bhcp.hash/sha3-512@0";
 
@@ -36,6 +37,22 @@ impl HashAlgorithm {
             digest,
         }
     }
+}
+
+pub fn hash_reader(mut reader: impl Read) -> std::io::Result<HashId> {
+    let mut hasher = Sha3_512::new();
+    let mut buffer = [0_u8; 64 * 1024];
+    loop {
+        let read = reader.read(&mut buffer)?;
+        if read == 0 {
+            break;
+        }
+        hasher.update(&buffer[..read]);
+    }
+    Ok(HashId {
+        algorithm: SHA3_512.to_owned(),
+        digest: hasher.finalize().to_vec(),
+    })
 }
 
 pub fn hash_value(value: &Value, algorithm: HashAlgorithm) -> Result<HashId> {
@@ -84,7 +101,16 @@ pub fn format_hash(hash: &HashId) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{HashAlgorithm, format_hash};
+    use super::{HashAlgorithm, format_hash, hash_reader};
+
+    #[test]
+    fn streaming_hash_matches_the_in_memory_identity() {
+        let bytes = b"a deterministic input split across reader buffers";
+        assert_eq!(
+            hash_reader(bytes.as_slice()).unwrap(),
+            HashAlgorithm::Sha3_512.hash(bytes)
+        );
+    }
 
     #[test]
     fn sha3_512_matches_known_vectors() {

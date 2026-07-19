@@ -39,9 +39,17 @@ test = false
 bench = false
 doc = false
 
+[[bin]]
+name = "bhcp-experiment-fake-codex"
+path = "tests/fixtures/experiment_fake_codex.rs"
+test = false
+bench = false
+doc = false
+
 [dependencies]
 cddl = { version = "=0.10.6", default-features = false, features = ["additional-controls", "ast-span", "cbor", "json", "std"] }
 sha3 = { version = "=0.12.0", default-features = false }
+serde_json = { version = "=1.0.150", default-features = false, features = ["std"] }
 unicode-normalization = { version = "=0.1.25", default-features = false }
 
 [target.'cfg(target_os = "linux")'.dependencies]

@@ -1,0 +1,197 @@
+diff --git a/src/lib.rs b/src/lib.rs
+--- a/src/lib.rs
++++ b/src/lib.rs
+@@ -67,17 +67,17 @@ impl Policy {
+ 
+     #[must_use]
+     pub fn decide(&self, tenant: &str, subject: &str, action: &str, resource: &str) -> Decision {
+-        let _requested_tenant = tenant;
+         let selected = self
+             .rules
+             .iter()
+             .filter(|rule| {
+                 rule.enabled
++                    && rule.tenant == tenant
+                     && pattern_matches(&rule.subject, subject)
+                     && pattern_matches(&rule.action, action)
+                     && pattern_matches(&rule.resource, resource)
+             })
+-            .max_by_key(|rule| (specificity_score(rule), rule.priority));
++            .max_by(|left, right| compare_rules(left, right));
+ 
+         match selected {
+             Some(rule) => Decision {
+@@ -96,13 +96,164 @@ fn pattern_matches(pattern: &str, value: &str) -> bool {
+     pattern == "*" || pattern == value
+ }
+ 
+-fn specificity_score(rule: &Rule) -> usize {
+-    [
+-        rule.subject.as_str(),
+-        rule.action.as_str(),
+-        rule.resource.as_str(),
+-    ]
+-    .into_iter()
+-    .filter(|pattern| *pattern != "*")
+-    .count()
++fn compare_rules(left: &Rule, right: &Rule) -> std::cmp::Ordering {
++    use std::cmp::Ordering;
++
++    let left_specificity = (
++        is_exact(&left.resource),
++        is_exact(&left.subject),
++        is_exact(&left.action),
++    );
++    let right_specificity = (
++        is_exact(&right.resource),
++        is_exact(&right.subject),
++        is_exact(&right.action),
++    );
++
++    left_specificity
++        .cmp(&right_specificity)
++        .then_with(|| left.priority.cmp(&right.priority))
++        .then_with(|| match (left.effect, right.effect) {
++            (Effect::Deny, Effect::Allow) => Ordering::Greater,
++            (Effect::Allow, Effect::Deny) => Ordering::Less,
++            _ => Ordering::Equal,
++        })
++        .then_with(|| right.id.cmp(&left.id))
++}
++
++fn is_exact(pattern: &str) -> bool {
++    pattern != "*"
++}
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++
++    fn allow_rule(
++        id: &str,
++        tenant: &str,
++        subject: &str,
++        action: &str,
++        resource: &str,
++        priority: i32,
++    ) -> Rule {
++        Rule::new(
++            id,
++            tenant,
++            subject,
++            action,
++            resource,
++            priority,
++            Effect::Allow,
++        )
++    }
++
++    fn deny_rule(
++        id: &str,
++        tenant: &str,
++        subject: &str,
++        action: &str,
++        resource: &str,
++        priority: i32,
++    ) -> Rule {
++        Rule::new(
++            id,
++            tenant,
++            subject,
++            action,
++            resource,
++            priority,
++            Effect::Deny,
++        )
++    }
++
++    #[test]
++    fn ignores_other_tenants() {
++        let policy = Policy::new([allow_rule("a", "tenant-a", "alice", "read", "doc", 1)]);
++
++        assert_eq!(
++            policy.decide("tenant-b", "alice", "read", "doc"),
++            Decision {
++                effect: Effect::Deny,
++                rule_id: None,
++            }
++        );
++    }
++
++    #[test]
++    fn prefers_more_specific_resource() {
++        let policy = Policy::new([
++            allow_rule("wild", "tenant", "alice", "read", "*", 10),
++            deny_rule("specific", "tenant", "alice", "read", "doc", 1),
++        ]);
++
++        assert_eq!(
++            policy.decide("tenant", "alice", "read", "doc"),
++            Decision {
++                effect: Effect::Deny,
++                rule_id: Some("specific".to_string()),
++            }
++        );
++    }
++
++    #[test]
++    fn priority_breaks_equal_specificity() {
++        let policy = Policy::new([
++            allow_rule("low", "tenant", "alice", "read", "doc", 1),
++            deny_rule("high", "tenant", "alice", "read", "doc", 2),
++        ]);
++
++        assert_eq!(
++            policy.decide("tenant", "alice", "read", "doc"),
++            Decision {
++                effect: Effect::Deny,
++                rule_id: Some("high".to_string()),
++            }
++        );
++    }
++
++    #[test]
++    fn deny_wins_when_all_other_factors_tie() {
++        let policy = Policy::new([
++            allow_rule("allow", "tenant", "alice", "read", "doc", 1),
++            deny_rule("deny", "tenant", "alice", "read", "doc", 1),
++        ]);
++
++        assert_eq!(
++            policy.decide("tenant", "alice", "read", "doc"),
++            Decision {
++                effect: Effect::Deny,
++                rule_id: Some("deny".to_string()),
++            }
++        );
++    }
++
++    #[test]
++    fn smaller_rule_id_breaks_final_tie() {
++        let policy = Policy::new([
++            allow_rule("b", "tenant", "alice", "read", "doc", 1),
++            allow_rule("a", "tenant", "alice", "read", "doc", 1),
++        ]);
++
++        assert_eq!(
++            policy.decide("tenant", "alice", "read", "doc"),
++            Decision {
++                effect: Effect::Allow,
++                rule_id: Some("a".to_string()),
++            }
++        );
++    }
++
++    #[test]
++    fn denies_when_no_rule_is_eligible() {
++        let policy = Policy::new([allow_rule("a", "tenant", "alice", "read", "doc", 1)]);
++
++        assert_eq!(
++            policy.decide("tenant", "bob", "read", "doc"),
++            Decision {
++                effect: Effect::Deny,
++                rule_id: None,
++            }
++        );
++    }
+ }
