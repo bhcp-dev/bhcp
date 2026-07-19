@@ -46,10 +46,11 @@ impl ExperimentPins {
                 return Err(invalid(format!("experiment {name} pin must not be empty")));
             }
         }
-        if self.sandbox != "workspace-write/no-network" {
-            return Err(invalid(
-                "experiment sandbox pin must be workspace-write/no-network",
-            ));
+        if !matches!(
+            self.sandbox.as_str(),
+            "workspace-write/no-network" | "workspace-write/no-network/read-confined"
+        ) {
+            return Err(invalid("experiment sandbox pin is not registered"));
         }
         Ok(())
     }
@@ -238,6 +239,7 @@ pub struct ExperimentArm {
     pub executable: PathBuf,
     pub arguments: Vec<String>,
     pub contract_files: Vec<PathBuf>,
+    pub trusted_executables: Vec<PathBuf>,
 }
 
 impl ExperimentArm {
@@ -252,6 +254,7 @@ impl ExperimentArm {
             executable: executable.into(),
             arguments: Vec::new(),
             contract_files: Vec::new(),
+            trusted_executables: Vec::new(),
         }
     }
 }
@@ -340,6 +343,15 @@ impl ExperimentPlan {
                 )));
             }
             path_text(&arm.executable)?;
+            for executable in &arm.trusted_executables {
+                if !executable.is_absolute() || !executable.is_file() {
+                    return Err(invalid(format!(
+                        "arm {:?} trusted executable must be an absolute existing file",
+                        arm.id
+                    )));
+                }
+                path_text(executable)?;
+            }
             let mut visible_files = BTreeSet::from([&arm.prompt_file]);
             for file in &arm.contract_files {
                 validate_relative_file("contract file", file)?;
@@ -1315,6 +1327,20 @@ fn plan_digest(plan: &ExperimentPlan, fixture_digest: &str) -> Result<String> {
                         arm.contract_files
                             .iter()
                             .map(|path| path_text(path).map(Value::Text))
+                            .collect::<Result<Vec<_>>>()?,
+                    ),
+                ),
+                (
+                    "trusted_executables",
+                    Value::Array(
+                        arm.trusted_executables
+                            .iter()
+                            .map(|executable| {
+                                Ok(Value::map([
+                                    ("path", Value::Text(path_text(executable)?)),
+                                    ("digest", Value::Text(digest_file(executable)?)),
+                                ]))
+                            })
                             .collect::<Result<Vec<_>>>()?,
                     ),
                 ),
