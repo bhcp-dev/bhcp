@@ -50,6 +50,10 @@ fn rustup_installation() -> (PathBuf, PathBuf, PathBuf, PathBuf) {
     (cargo_home, rustup_home, rustup, toolchain_bin)
 }
 
+fn fixture_deny_root() -> PathBuf {
+    fs::canonicalize(env!("CARGO_MANIFEST_DIR")).unwrap()
+}
+
 #[test]
 fn historical_run_ids_retain_their_direct_cargo_judges() {
     let root = fresh_root("historical");
@@ -110,7 +114,7 @@ fn corrected_read_confined_protocol_uses_a_new_run_id() {
     let mode = Path::new("freeze-004");
     let fake = Path::new(env!("CARGO_BIN_EXE_bhcp-experiment-fake-agent"));
     let codex = Path::new(env!("CARGO_BIN_EXE_bhcp-experiment-fake-codex"));
-    let deny_root = PathBuf::from(std::env::var_os("HOME").unwrap());
+    let deny_root = fixture_deny_root();
     let output = run(&[
         mode,
         fake,
@@ -151,7 +155,7 @@ fn corrected_protocol_rejects_a_toolchain_not_selected_by_rustup() {
     let (cargo_home, rustup_home, rustup, _) = rustup_installation();
     let fake = Path::new(env!("CARGO_BIN_EXE_bhcp-experiment-fake-agent"));
     let codex = Path::new(env!("CARGO_BIN_EXE_bhcp-experiment-fake-codex"));
-    let deny_root = PathBuf::from(std::env::var_os("HOME").unwrap());
+    let deny_root = fixture_deny_root();
     let output = run(&[
         Path::new("freeze-003"),
         fake,
