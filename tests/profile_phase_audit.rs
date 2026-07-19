@@ -38,8 +38,11 @@ fn every_phase_four_acceptance_claim_names_executable_evidence() {
             "missing evidence function: {line}",
         );
         assert!(
-            report.contains(&format!("`{}`", fields[3])),
-            "report omits evidence function: {line}",
+            report.lines().any(|report_line| {
+                report_line.starts_with(&format!("| #{issue} |"))
+                    && report_line.contains(&format!("`{}`", fields[3]))
+            }),
+            "report misplaces or omits evidence function: {line}",
         );
     }
 
