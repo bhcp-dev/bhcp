@@ -174,6 +174,28 @@ fn type_mode_policy() -> bhcp::policy::EffectivePolicyDocument {
     compose_policies(&parsed.documents, HashAlgorithm::default()).unwrap()
 }
 
+fn additive_policy() -> bhcp::policy::EffectivePolicyDocument {
+    let source = r#"§policy example/policy.org@0 {
+  layer organization;
+  rule a-requirement: requirement add {
+    requirement: example/requirement.review@0,
+    scope: { goals: [example/goal.deploy@0] }
+  } waivable by ["security-team"];
+  rule b-evidence: evidence add {
+    obligation: example/obligation.review@0,
+    classes: [static],
+    minimum: 1,
+    scope: { goals: [example/goal.deploy@0] }
+  } waivable by ["security-team"];
+  rule c-prohibition: prohibition deny {
+    effect: bhcp-effect/network@0,
+    scope: { goals: [example/goal.deploy@0] }
+  } waivable by ["security-team"];
+}"#;
+    let parsed = parse_policy_source(source, "waiver-additive.bhcp").unwrap();
+    compose_policies(&parsed.documents, HashAlgorithm::default()).unwrap()
+}
+
 #[test]
 fn valid_exact_waiver_is_deterministic_audited_and_changes_only_effective_meaning() {
     let baseline = policy(true);
@@ -334,4 +356,78 @@ fn type_mode_weakening_is_exact_and_preserves_the_audit_boundary() {
         effective.effective.type_mode.value,
         bhcp::policy::TypeMode::InferStrict
     );
+}
+
+#[test]
+fn additive_removals_and_allow_over_deny_remove_only_the_exact_target() {
+    let scope = || Value::map([("goals", array([text("example/goal.deploy@0")]))]);
+    let cases = [
+        (
+            "a-requirement",
+            Value::map([
+                ("category", text("requirement")),
+                ("operation", text("remove")),
+                (
+                    "value",
+                    Value::map([
+                        ("requirement", text("example/requirement.review@0")),
+                        ("scope", scope()),
+                    ]),
+                ),
+            ]),
+            (0, 1, 1),
+        ),
+        (
+            "b-evidence",
+            Value::map([
+                ("category", text("evidence")),
+                ("operation", text("remove")),
+                (
+                    "value",
+                    Value::map([
+                        ("obligation", text("example/obligation.review@0")),
+                        ("classes", array([text("static")])),
+                        ("minimum", Value::Integer(1)),
+                        ("scope", scope()),
+                    ]),
+                ),
+            ]),
+            (1, 0, 1),
+        ),
+        (
+            "c-prohibition",
+            Value::map([
+                ("category", text("prohibition")),
+                ("operation", text("allow")),
+                (
+                    "value",
+                    Value::map([
+                        ("effect", text("bhcp-effect/network@0")),
+                        ("scope", scope()),
+                    ]),
+                ),
+            ]),
+            (1, 1, 0),
+        ),
+    ];
+    for (rule, weakening, expected) in cases {
+        let value = replace_target(waiver_value("security-team", rule), rule, weakening);
+        let waiver = WaiverDocument::from_value(&value).unwrap();
+        let effective = apply_waiver(
+            &additive_policy(),
+            &waiver,
+            "2026-07-19T13:30:00Z",
+            HashAlgorithm::default(),
+        )
+        .unwrap();
+        assert_eq!(
+            (
+                effective.effective.requirements.len(),
+                effective.effective.evidence.len(),
+                effective.effective.prohibitions.len(),
+            ),
+            expected,
+            "{rule}"
+        );
+    }
 }
