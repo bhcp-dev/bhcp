@@ -1,0 +1,24 @@
+{
+  "version": "bhcp/v0",
+  "features": [],
+  "kind": "syntax",
+  "symbol": "example/syntax.layout-symbolic@0",
+  "preamble": "#!bhcp-profile",
+  "mappings": [
+    {"category": "keyword", "canonical": "ensures", "surface": "guarantees"},
+    {"category": "keyword", "canonical": "goal", "surface": "aim"},
+    {"category": "keyword", "canonical": "input", "surface": "arg"},
+    {"category": "keyword", "canonical": "output", "surface": "result"},
+    {"category": "keyword", "canonical": "requires", "surface": "needs"},
+    {"category": "keyword", "canonical": "verify", "surface": "prove"},
+    {"category": "open-delimiter", "canonical": "{", "surface": "^"},
+    {"category": "close-delimiter", "canonical": "}", "surface": "~"},
+    {"category": "terminator", "canonical": ";", "surface": "?"},
+    {"category": "alias", "canonical": "bhcp-verifier/expression@0", "surface": "proof"}
+  ],
+  "formatting": {
+    "indent_width": 2,
+    "line_width": 54,
+    "final_newline": true
+  }
+}

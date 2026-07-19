@@ -1,0 +1,9 @@
+{
+  "version": "bhcp/v0",
+  "features": [],
+  "kind": "profile",
+  "symbol": "example/profile.layout-narrative@0",
+  "syntax": "example/syntax.layout-narrative@0",
+  "policy_overlays": ["example/policy.layout@0"],
+  "type_mode": "infer-strict"
+}

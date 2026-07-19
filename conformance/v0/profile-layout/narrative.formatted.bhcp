@@ -1,0 +1,9 @@
+#!bhcp-profile example/profile.layout-narrative@0
+// The same governed goal, written as a narrative layout.
+§objective example/Layout@0 ^~
+      §accepts name: Text$
+      §returns greeting: Text$
+      §provided "a person has a name": name != ""$
+      §promises "we return a greeting": greeting == "Hello, " + name$
+      §checked "validated expression": with validation$
+~^
