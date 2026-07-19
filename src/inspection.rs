@@ -21,6 +21,8 @@ pub fn render_artifact(artifact: &Value, source: Option<&str>) -> String {
         render_semantic_ir(artifact, &mut output);
     } else if kind == "policy" {
         render_policy(artifact, &mut output);
+    } else if kind == "evidence-bundle" {
+        render_evidence_bundle(artifact, &mut output);
     } else {
         if let Some(profile) = text_field(artifact, "profile") {
             writeln!(output, "profile {profile}").unwrap();
@@ -30,6 +32,63 @@ pub fn render_artifact(artifact: &Value, source: Option<&str>) -> String {
         }
     }
     output
+}
+
+fn render_evidence_bundle(artifact: &Value, output: &mut String) {
+    if let Some(Value::Map(statuses)) = artifact.get("obligation_status") {
+        for (obligation, status) in statuses {
+            let Value::Text(status) = status else {
+                continue;
+            };
+            writeln!(output, "obligation {obligation} {status}").unwrap();
+        }
+    }
+    if let Some(Value::Array(claims)) = artifact.get("claims") {
+        for claim in claims {
+            let id = text_field(claim, "id").unwrap_or("?");
+            let obligation = text_field(claim, "obligation").unwrap_or("?");
+            let polarity = text_field(claim, "polarity").unwrap_or("?");
+            let status = text_field(claim, "status").unwrap_or("?");
+            let outcome = if polarity == "refutes" && status == "accepted" {
+                "rejected"
+            } else {
+                status
+            };
+            let predicate = text_field(claim, "predicate").unwrap_or("?");
+            writeln!(
+                output,
+                "claim {id} {obligation} {outcome} {polarity} {predicate}"
+            )
+            .unwrap();
+        }
+    }
+    if let Some(Value::Array(items)) = artifact.get("items") {
+        for item in items {
+            let id = text_field(item, "id").unwrap_or("?");
+            let class = text_field(item, "class").unwrap_or("?");
+            let verifier = text_field(item, "verifier").unwrap_or("?");
+            writeln!(output, "evidence {id} {class} {verifier}").unwrap();
+        }
+    }
+    if let Some(Value::Array(gaps)) = artifact.get("gaps") {
+        for gap in gaps {
+            let id = text_field(gap, "id").unwrap_or("?");
+            let kind = text_field(gap, "kind").unwrap_or("?");
+            let reason = gap
+                .get("reason")
+                .and_then(|reason| text_field(reason, "code"))
+                .unwrap_or("?");
+            let obligations = match gap.get("obligations") {
+                Some(Value::Array(obligations)) => obligations
+                    .iter()
+                    .filter_map(text_value)
+                    .collect::<Vec<_>>()
+                    .join(", "),
+                _ => "?".to_owned(),
+            };
+            writeln!(output, "gap {id} {kind} {reason} -> {obligations}").unwrap();
+        }
+    }
 }
 
 fn render_policy(artifact: &Value, output: &mut String) {

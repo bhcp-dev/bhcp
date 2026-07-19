@@ -28,6 +28,21 @@ const SOURCE: &str = r#"
 }
 "#;
 
+const ORDER_SOURCE: &str = r#"
+§goal example/OrderedVerify@0 {
+    §input repository: Text;
+    §output firstPassed: Bool;
+    §output secondPassed: Bool;
+
+    §requires "pinned": repository == "subject@0";
+    §ensures "first": firstPassed;
+    §ensures "second": secondPassed;
+
+    §verify "second process": with example/verifier.second@0 for "second";
+    §verify "first process": with example/verifier.first@0 for "first";
+}
+"#;
+
 static NEXT_PROJECT: AtomicUsize = AtomicUsize::new(1);
 
 struct TestProject {
@@ -61,8 +76,12 @@ fn compilation() -> Compilation {
 }
 
 fn declaration(mode: &str) -> VerifierAdapterDeclaration {
+    declaration_for("example/verifier.fixture@0", mode)
+}
+
+fn declaration_for(symbol: &str, mode: &str) -> VerifierAdapterDeclaration {
     VerifierAdapterDeclaration {
-        symbol: "example/verifier.fixture@0".to_owned(),
+        symbol: symbol.to_owned(),
         executable: PathBuf::from("tools/verifier-fixture"),
         argv: vec![mode.to_owned()],
         working_scope: WorkingScope::Project,
@@ -195,6 +214,22 @@ fn process_evidence_uses_only_resolved_targets_and_retains_adapter_provenance() 
     );
     report.bundle.validate().unwrap();
     validate_root(&report.bundle.to_value(true), "evidence-bundle").unwrap();
+
+    let mut retargeted = report.bundle.clone();
+    let process_claim = item.claims[0].clone();
+    let other_target = retargeted
+        .obligation_status
+        .keys()
+        .find(|obligation| !targets.contains(obligation))
+        .unwrap()
+        .clone();
+    retargeted
+        .claims
+        .iter_mut()
+        .find(|claim| claim.id == process_claim)
+        .unwrap()
+        .obligation = other_target;
+    assert_eq!(retargeted.validate().unwrap_err().code, "BHCP7001");
 }
 
 #[test]
@@ -234,6 +269,58 @@ fn fixed_boundary_inputs_are_byte_deterministic_and_timestamp_changes_are_artifa
         item.produced_at.clear();
     }
     assert_eq!(without_times, later_without_times);
+}
+
+#[test]
+fn process_registration_order_does_not_change_bundle_order_or_bytes() {
+    let project = TestProject::new();
+    let compilation = compile_source(ORDER_SOURCE, "adapter-order.bhcp").unwrap();
+    let make_registry = |symbols: [&str; 2]| {
+        let mut registry = VerifierRegistry::new();
+        for symbol in symbols {
+            registry
+                .register_adapter(
+                    VerifierProcessRunner::new(&project.root).unwrap(),
+                    declaration_for(symbol, "accepted"),
+                    vec!["bhcp-effect/process@0".to_owned()],
+                    CancellationToken::new(),
+                )
+                .unwrap();
+        }
+        registry
+    };
+    let input = input();
+    let output = Value::map([
+        ("firstPassed", Value::Bool(true)),
+        ("secondPassed", Value::Bool(true)),
+    ]);
+    let run = |registry: &VerifierRegistry| {
+        registry
+            .verify(VerificationRequest {
+                compilation: &compilation,
+                goal: "example/OrderedVerify@0",
+                input: &input,
+                output: &output,
+                subject: reference("subject"),
+                execution_graph: reference("execution-graph"),
+                produced_at: "2026-07-19T06:00:00Z",
+            })
+            .unwrap()
+    };
+
+    let first = run(&make_registry([
+        "example/verifier.first@0",
+        "example/verifier.second@0",
+    ]));
+    let second = run(&make_registry([
+        "example/verifier.second@0",
+        "example/verifier.first@0",
+    ]));
+
+    assert_eq!(first.bundle_bytes, second.bundle_bytes);
+    assert_eq!(first.bundle_hash, second.bundle_hash);
+    assert_eq!(first.payloads, second.payloads);
+    assert_eq!(first.adapter_records, second.adapter_records);
 }
 
 #[test]

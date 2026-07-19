@@ -286,6 +286,23 @@ closed as an operational fault. The audit record MUST retain the exact declarati
 obligation targets plus content references for the declaration, executable, request,
 and response when one was produced.
 
+When a goal-level verifier resolves to a process adapter, the registry MUST encode the
+opaque payload as the deterministic closed candidate record `{ input: I, output: O }`,
+MUST pass only the binding's already-resolved structural obligation targets, and MUST
+intersect the declaration with an explicit effective effect ceiling before launch.
+Accepted evidence supports exactly those targets; accepted counter-evidence from a
+rejected result refutes exactly those targets. An absent registration creates an
+`unsupported` gap, an unresolved result creates a required unresolved gap, and a
+faulted or malformed process result creates a verifier-fault gap while the overall
+verification state remains operationally faulted.
+
+For process-produced evidence, the captured executable content reference is the
+verifier artifact and the normalized adapter-declaration content reference is the
+evidence provenance source. The verification report MUST also retain the complete
+adapter audit record. The host injects `produced_at` at the verification boundary;
+adapter output cannot provide or override evidence timestamps. Registry insertion
+order is not observable in bundle ordering or identity.
+
 The evaluator MAY provide fixed, versioned, total pure primitive definitions at the
 bottom of expression evaluation for constructing and inspecting language values,
 including sealed kernel observations and checked result construction.
@@ -967,6 +984,12 @@ verifier operational-contract failure remains faulted rather than becoming
 counter-evidence. For a fixed timestamp, content references, candidate, registry,
 and verifier outputs, evidence-bundle bytes MUST be deterministic. Timestamps and
 provenance remain artifact identity inputs.
+
+Human inspection of an evidence bundle MUST expose every obligation status, the
+supporting or refuting disposition of each claim, and every gap's kind and registered
+reason code. In particular, missing, rejected, unresolved, malformed, and operationally
+faulted adapter results MUST remain distinguishable after CBOR validation and
+inspection.
 
 Schema anchors: all `*-graph-document`, `planner-request-document`,
 `planner-result-document`, `evidence-bundle-document`, and

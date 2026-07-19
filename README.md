@@ -190,10 +190,12 @@ registrations produce required unresolved gaps; arbitrary project commands are n
 silently executed. Evidence timestamps are injected, and the implemented boundary
 accepts canonical UTC timestamps at second precision.
 
-This library boundary does not yet build obligation or execution graphs or connect
-process-backed adapters to evidence-bundle dispatch. The manifest and bounded process
-runner are implemented; the next vertical slice maps their typed outcomes into the
-generic registry instead of making adapters kernel primitives.
+This library boundary does not yet build obligation or execution graphs. Process-backed
+adapters now register through the generic verifier registry rather than becoming kernel
+primitives. Dispatch deterministically encodes the closed typed candidate
+`{ input, output }`, passes only the binding's resolved structural targets and an
+explicit effective effect ceiling, and maps the result into the same evidence-bundle
+model as an in-process verifier.
 
 ### Project-local verifier adapters
 
@@ -250,6 +252,15 @@ An unsupported or unavailable sandbox is an execution failure, never a silent di
 launch. The local declaration is not a new CDDL artifact and does not change semantic
 ID.
 
+Evidence items produced by an adapter identify the captured executable as the verifier
+artifact and the exact normalized adapter declaration as provenance source. The
+verification report also retains every process audit record, including declaration,
+targets, request/response references, executable reference, and exit code. The host
+injects the canonical UTC production timestamp; adapter output cannot supply or
+override it. Fixed candidates, content references, timestamps, registrations, and
+adapter outputs therefore produce byte-identical bundles regardless of registry
+insertion order.
+
 Operationally, a missing executable, canonical path escape, malformed or oversized
 output, stderr flooding, nonzero exit, timeout, and cancellation are different
 conditions; sandbox setup also fails closed as a process fault. Timeouts and
@@ -268,9 +279,10 @@ whether BHCP makes completion claims more precise and mechanically checkable, no
 whether hidden requirements can surprise an agent.
 
 The fixture documentation defines the two-arm protocol and verifier boundary. The
-generic dispatcher and evidence-bundle model are now executable; an external
-controller must still register and run the experiment-specific Rust, oracle, and
-change-policy adapters and provide the execution-graph reference.
+generic dispatcher, bounded process integration, and evidence-bundle model are now
+executable; an external controller must still select and register the
+experiment-specific Rust, oracle, and change-policy declarations and provide the
+execution-graph reference.
 
 The explicitly invoked repo skill at
 [`.codex/skills/interpret-bhcp-contract/`](.codex/skills/interpret-bhcp-contract/)

@@ -93,8 +93,14 @@ The Rust implementation also has a strongly typed `evidence-bundle-document` mod
 for the registered verifier slice. It validates claim/item/gap references,
 per-obligation status justification, evidence classes, verifier and trust symbols,
 content references, deterministic artifact identity, and canonical timestamp tags
-before emission. This does not claim the still-deferred general obligation/execution
-graph builders or full CDDL instance evaluation.
+before emission. Process-produced items retain the captured executable as
+`verifier_artifact` and the normalized local adapter declaration as the optional
+provenance `source`; the local manifest remains deployment configuration rather than
+a new root document. The process-integration suite validates exact structural target
+mapping, deterministic registration ordering and timestamps, all outcome categories,
+and malformed output through this same CDDL root. This does not claim the
+still-deferred general obligation/execution graph builders or full CDDL instance
+evaluation.
 
 Source and effective `policy-document` values also cross a strongly typed Rust
 boundary. It rejects unknown fields and invalid category/operation/value pairings,
