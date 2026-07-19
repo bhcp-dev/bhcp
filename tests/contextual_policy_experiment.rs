@@ -353,7 +353,7 @@ fn pilot_006_preserves_the_negative_result_and_latest_skill_follow_up() {
         ),
         (
             "results/pilot-006/latest-skill/SKILL.md",
-            "7c6b39df7e7682afa59e2d75d1f4cb13276ea2c7",
+            "391bdeb2e85e378393561ded1d97d0896047f6de",
         ),
         (
             "results/pilot-006/latest-skill/agents/openai.yaml",
