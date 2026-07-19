@@ -491,7 +491,10 @@ fn multiseed_004_preserves_the_registered_negative_result() {
     assert_eq!(controller.matches(after).count(), 5);
     assert_eq!(controller.matches("Claimed | no").count(), 0);
     assert_eq!(controller.matches("| no |").count(), 5);
-    assert_eq!(git_blob(&root.join("subject/src/lib.rs")), "3f126bfde1c0e06309686c9c3514548759d650eb");
+    assert_eq!(
+        git_blob(&root.join("subject/src/lib.rs")),
+        "3f126bfde1c0e06309686c9c3514548759d650eb"
+    );
 
     for seed in 1..=5 {
         let patch = result.join(format!("seed-{seed:02}.patch"));

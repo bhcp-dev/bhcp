@@ -1,4 +1,6 @@
-use std::ffi::{OsStr, OsString};
+use std::ffi::OsStr;
+#[cfg(target_os = "macos")]
+use std::ffi::OsString;
 use std::fs::{self, OpenOptions};
 use std::io::{BufReader, Read, Write};
 use std::path::{Path, PathBuf};
@@ -321,7 +323,25 @@ fn confined_command(parameters: &SandboxParameters<'_>) -> Result<Command, Strin
 }
 
 #[cfg(not(target_os = "macos"))]
-fn confined_command(_parameters: &SandboxParameters<'_>) -> Result<Command, String> {
+fn confined_command(parameters: &SandboxParameters<'_>) -> Result<Command, String> {
+    let SandboxParameters {
+        deny_root,
+        workspace,
+        target,
+        cargo_home,
+        rustup_home,
+        codex,
+        auth,
+    } = parameters;
+    let _ = (
+        deny_root,
+        workspace,
+        target,
+        cargo_home,
+        rustup_home,
+        codex,
+        auth,
+    );
     Err("read-confined Codex experiments require macOS sandbox-exec".to_owned())
 }
 
