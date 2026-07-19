@@ -29,6 +29,27 @@ fn text(output: &Output) -> String {
     )
 }
 
+fn rustup_installation() -> (PathBuf, PathBuf, PathBuf, PathBuf) {
+    let home = PathBuf::from(std::env::var_os("HOME").unwrap());
+    let cargo_home = std::env::var_os("CARGO_HOME")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| home.join(".cargo"));
+    let rustup_home = std::env::var_os("RUSTUP_HOME")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| home.join(".rustup"));
+    let rustup = cargo_home.join("bin/rustup");
+    let selected = Command::new(&rustup)
+        .args(["which", "cargo", "--toolchain", "1.97.1"])
+        .output()
+        .unwrap();
+    assert!(selected.status.success(), "{}", text(&selected));
+    let toolchain_bin = PathBuf::from(String::from_utf8(selected.stdout).unwrap().trim())
+        .parent()
+        .unwrap()
+        .to_owned();
+    (cargo_home, rustup_home, rustup, toolchain_bin)
+}
+
 #[test]
 fn historical_run_ids_retain_their_direct_cargo_judges() {
     let root = fresh_root("historical");
@@ -62,7 +83,37 @@ fn historical_run_ids_retain_their_direct_cargo_judges() {
 #[test]
 fn corrected_read_confined_protocol_uses_a_new_run_id() {
     let root = fresh_root("corrected");
-    for directory in ["codex-home", "cargo-home", "rustup-home", "toolchain/bin"] {
+    fs::create_dir(root.join("codex-home")).unwrap();
+    let (cargo_home, rustup_home, rustup, toolchain_bin) = rustup_installation();
+    let mode = Path::new("freeze-003");
+    let fake = Path::new(env!("CARGO_BIN_EXE_bhcp-experiment-fake-agent"));
+    let codex = Path::new(env!("CARGO_BIN_EXE_bhcp-experiment-fake-codex"));
+    let deny_root = PathBuf::from(std::env::var_os("HOME").unwrap());
+    let output = run(&[
+        mode,
+        fake,
+        codex,
+        &root.join("codex-home"),
+        &cargo_home,
+        &rustup_home,
+        fake,
+        &rustup,
+        &toolchain_bin,
+        &deny_root,
+        &root.join("scratch"),
+    ]);
+    assert!(output.status.success(), "{}", text(&output));
+    let output = text(&output);
+    assert!(output.contains("experiment_id=contextual-policy-multiseed-003"));
+    assert!(output.contains("sandbox=workspace-write/no-network/read-confined"));
+    assert!(output.contains("run_order=seed-01,seed-02,seed-03,seed-04,seed-05"));
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn corrected_protocol_rejects_a_toolchain_not_selected_by_rustup() {
+    let root = fresh_root("mismatched-toolchain");
+    for directory in ["codex-home", "toolchain/bin"] {
         fs::create_dir_all(root.join(directory)).unwrap();
     }
     for executable in [
@@ -75,27 +126,24 @@ fn corrected_read_confined_protocol_uses_a_new_run_id() {
     ] {
         fs::write(root.join("toolchain/bin").join(executable), executable).unwrap();
     }
-    let mode = Path::new("freeze-003");
+    let (cargo_home, rustup_home, rustup, _) = rustup_installation();
     let fake = Path::new(env!("CARGO_BIN_EXE_bhcp-experiment-fake-agent"));
     let codex = Path::new(env!("CARGO_BIN_EXE_bhcp-experiment-fake-codex"));
     let deny_root = PathBuf::from(std::env::var_os("HOME").unwrap());
     let output = run(&[
-        mode,
+        Path::new("freeze-003"),
         fake,
         codex,
         &root.join("codex-home"),
-        &root.join("cargo-home"),
-        &root.join("rustup-home"),
+        &cargo_home,
+        &rustup_home,
         fake,
-        fake,
+        &rustup,
         &root.join("toolchain/bin"),
         &deny_root,
         &root.join("scratch"),
     ]);
-    assert!(output.status.success(), "{}", text(&output));
-    let output = text(&output);
-    assert!(output.contains("experiment_id=contextual-policy-multiseed-003"));
-    assert!(output.contains("sandbox=workspace-write/no-network/read-confined"));
-    assert!(output.contains("run_order=seed-01,seed-02,seed-03,seed-04,seed-05"));
+    assert!(!output.status.success());
+    assert!(text(&output).contains("does not select the frozen toolchain executable"));
     fs::remove_dir_all(root).unwrap();
 }
