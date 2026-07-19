@@ -1,0 +1,13 @@
+# name | mode | comma-separated canonical source inputs | expected semantic ID or diagnostic | expected artifact ID
+baseline | valid | layers/organization.bhcp,layers/team.bhcp,layers/repository.bhcp,layers/user.bhcp | bhcp.hash/sha3-512@0:f6028278c60e4abe069bdaf99cb6afed916c3a08eb9dd69a7f8b6a9497dfdd0ac3adad8a2bc5bc8f7b45a382e257eafa4542a2ae96173eb8b7a075b9822bf3c4 | bhcp.hash/sha3-512@0:48069e5431b677c3d711f2cc135887868d8d54d6292fc8768d04bc39524c845c0d4bd728656c1318b9c345280ba1d32be22164348f4d1041280541abe89276fd
+equivalent-decomposition | valid | equivalent-compact.bhcp | bhcp.hash/sha3-512@0:f6028278c60e4abe069bdaf99cb6afed916c3a08eb9dd69a7f8b6a9497dfdd0ac3adad8a2bc5bc8f7b45a382e257eafa4542a2ae96173eb8b7a075b9822bf3c4 | bhcp.hash/sha3-512@0:e87f49be90a5e9e522ebb3a672a1adc677f0bd297c91c9546598a15117327f0d488072229e8145e38fcecb17604060305ff58c3c2f4c8de3331436363155e962
+meaningful-change | valid | layers/organization.bhcp,layers/team.bhcp,layers/repository.bhcp,meaningful-change-user.bhcp | bhcp.hash/sha3-512@0:638374b582d5492317a66c184b173307b8c092ca1743c7a45eb334bbe3c9a86320703371c38513670129f29932322e2154c98779160b8db59e097bd6774b5ebc | bhcp.hash/sha3-512@0:8bd84829149a39cc218b9b7a214cd9f7829dce160078a7fc152920cb0bfa0a1c50bf22f6895fc9279212747af175d00dfd9d36da84f8d9769b673e2557bfadce
+capability-widening | compose-error | negative/capability-widening.bhcp | BHCP8101 | -
+limit-loosening | compose-error | negative/limit-loosening.bhcp | BHCP8102 | -
+type-mode-weakening | compose-error | negative/type-mode-weakening.bhcp | BHCP8103 | -
+incompatible-limit-units | compose-error | negative/incompatible-limit-units.bhcp | BHCP8107 | -
+missing-inheritance | compose-error | negative/missing-inheritance.bhcp | BHCP8110 | -
+remove-requirement | weakening-error | - | BHCP8104 | -
+remove-evidence | weakening-error | - | BHCP8105 | -
+allow-denied-effect | weakening-error | - | BHCP8106 | -
+unsupported-feature | unsupported-feature | - | BHCP8001 | -

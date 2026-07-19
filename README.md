@@ -22,8 +22,9 @@ parser, checker, planner, runtime, or SDK.
   platform artifact. Deterministic CBOR is the canonical wire representation.
 - [`schemas/v0/examples/`](schemas/v0/examples/) contains CBOR diagnostic examples
   for every root document type.
-- [`conformance/v0/`](conformance/v0/) is the normative scenario catalog that future
-  implementations must turn into executable fixtures.
+- [`conformance/v0/`](conformance/v0/) is the normative scenario catalog; implemented
+  slices include executable deterministic fixtures, including the complete no-waiver
+  layered-policy boundary.
 
 Normative terms such as **MUST**, **SHOULD**, and **MAY** are interpreted as in
 [RFC 2119](https://www.rfc-editor.org/rfc/rfc2119) and
@@ -55,6 +56,7 @@ cargo run -- hash conformance/v0/fixtures/canonical-simple.bhcp
 cargo run -- policy inspect conformance/v0/fixtures/canonical-policy.bhcp
 cargo run -- policy compose conformance/v0/fixtures/canonical-policy.bhcp > /tmp/effective-policy.cbor
 cargo run -- policy inspect /tmp/effective-policy.cbor
+cargo test --test policy_conformance
 ```
 
 `parse` and `lower` emit deterministic CBOR conforming to the existing CDDL
@@ -96,7 +98,7 @@ rather than erased.
 | Canonical definition | Implemented source slice | Explicitly deferred |
 | --- | --- | --- |
 | `§goal` / `§function` | Goals and the checked prelude-function boundary described above | General project functions and the remaining S7 goal grammar |
-| `§policy` | Layer, `§extends`, six closed typed rules, scopes/parameters, waivability, issuers, composition, inspection, and policy-aware elaboration | Expression-valued policy clauses, waiver/profile shorthand, and execution-time enforcement |
+| `§policy` | Layer, `§extends`, six closed typed rules, scopes/parameters, waivability, issuers, composition, inspection, policy-aware elaboration, and no-waiver conformance fixtures | Expression-valued policy clauses, waiver/profile shorthand, and enforcement beyond the compile-time/evidence boundary |
 | Other S7 definitions | None | `§type`, `§predicate`, `§syntax`, `§profile`, `§waiver`, `§extension`, and `§refines` |
 
 `bhcp.hash/sha3-512@0` is the default and only currently registered identity
@@ -351,8 +353,11 @@ requirement, evidence demand, prohibition, capability, and limit. Equivalent pol
 decompositions keep the same program semantic ID while their retained artifact IDs
 remain auditable. Applicable evidence demands are dispatched through explicit
 policy-obligation-to-verifier registry bindings and retain source-layer provenance in
-the evidence bundle. Waiver validation and broader execution-time enforcement remain
-later Phase 3 work.
+the evidence bundle. The manifest-driven `conformance/v0/policy` suite pins the full
+four-layer no-waiver composite, equivalent and meaningful-change identities, every
+weakening diagnostic, source/CBOR CLI parity, schema round trips, and the resulting
+per-goal enforcement decision. Waiver validation and broader execution-time
+enforcement remain later Phase 3 work.
 
 Policy composition fails atomically with an auditable diagnostic: `BHCP8101`
 capability widening, `BHCP8102` limit loosening, `BHCP8103` type-mode weakening,

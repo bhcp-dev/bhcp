@@ -363,7 +363,8 @@ fn normalization_and_scalar_boundaries_fail_closed() {
 
 #[test]
 fn checked_in_policy_fixture_uses_the_strong_model() {
-    let source = fs::read_to_string(root().join("schemas/v0/examples/policy.diag")).unwrap();
+    let source =
+        fs::read_to_string(root().join("schemas/v0/examples/layered-policy.diag")).unwrap();
     let value = parse_diagnostic(&source).unwrap();
     let document = PolicyDocument::from_value(&value).unwrap();
     assert_eq!(document.to_value(true), value);

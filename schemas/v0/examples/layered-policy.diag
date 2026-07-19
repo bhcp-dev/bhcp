@@ -1,0 +1,63 @@
+{
+  "version": "bhcp/v0",
+  "features": [],
+  "kind": "policy",
+  "form": "source",
+  "symbol": "example/policy.repository@0",
+  "layer": "repository",
+  "rules": [
+    {
+      "id": "a-requirement",
+      "category": "requirement",
+      "operation": "add",
+      "value": {"requirement": "example/requirement.audit@0"},
+      "waivable": false
+    },
+    {
+      "id": "b-evidence",
+      "category": "evidence",
+      "operation": "add",
+      "value": {
+        "obligation": "example/obligation.review@0",
+        "classes": ["static"],
+        "minimum": 1
+      },
+      "waivable": false
+    },
+    {
+      "id": "c-prohibition",
+      "category": "prohibition",
+      "operation": "deny",
+      "value": {"effect": "bhcp-effect/network@0"},
+      "waivable": false
+    },
+    {
+      "id": "d-capability",
+      "category": "capability",
+      "operation": "narrow",
+      "value": {
+        "effect": "bhcp-effect/fs.read@0",
+        "scope": {"goals": ["example/Conformance@0"]}
+      },
+      "waivable": false
+    },
+    {
+      "id": "e-limit",
+      "category": "limit",
+      "operation": "tighten",
+      "value": {
+        "dimension": "example/limit.attempts@0",
+        "unit": "example/unit.count@0",
+        "maximum": ["integer", 3]
+      },
+      "waivable": false
+    },
+    {
+      "id": "f-type-mode",
+      "category": "type-mode",
+      "operation": "strengthen",
+      "value": "infer-strict",
+      "waivable": false
+    }
+  ]
+}

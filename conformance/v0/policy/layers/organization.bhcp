@@ -1,0 +1,28 @@
+§policy example/policy.organization@0 {
+  layer organization;
+  rule a-capability: capability narrow {
+    effect: bhcp-effect/fs.read@0,
+    scope: {
+      goals: [example/Conformance@0, example/Other@0]
+    }
+  } nonwaivable;
+  rule b-evidence: evidence add {
+    obligation: example/obligation.review@0,
+    classes: [static],
+    minimum: 1,
+    scope: { goals: [example/Conformance@0] }
+  } nonwaivable;
+  rule c-limit: limit tighten {
+    dimension: example/limit.attempts@0,
+    unit: example/unit.count@0,
+    maximum: ["integer", 10]
+  } nonwaivable;
+  rule d-mode: type-mode strengthen gradual nonwaivable;
+  rule e-prohibition: prohibition deny {
+    effect: bhcp-effect/network@0
+  } nonwaivable;
+  rule f-requirement: requirement add {
+    requirement: example/requirement.audit@0,
+    scope: { goals: [example/Conformance@0] }
+  } nonwaivable;
+}

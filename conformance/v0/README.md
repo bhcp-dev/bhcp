@@ -32,17 +32,18 @@ contract clauses, including capability-bounded project adapters and their determ
 evidence mapping. It does not yet claim general obligation-graph construction,
 freshness windows, signatures, or full proof coverage.
 
-The canonical policy parser fixture `fixtures/canonical-policy.bhcp` executes the
-authored source boundary for POL-01: explicit layer and inheritance syntax, stable
-rule IDs, a diagnostic-only label, and closed typed rules lower to a validated source
-policy document. The Rust composition suite executes the remaining POL-01/POL-02
-boundaries over typed documents:
-layer/source normalization, inheritance validation, restrictive joins, exact-number
-limits, deny retention, decomposition-independent semantic identity, and adversarial
-weakening rejection. Waiver application is still represented only by WAV-01/WAV-02
-acceptance requirements. The policy CLI suite executes POL-06 across source and
-canonical-CBOR inputs, including byte parity, detailed audit inspection, stable
-failure diagnostics, and the absence of partial output.
+The manifest at `policy/manifest.txt` makes the complete no-waiver POL-01 through
+POL-08 slice executable. Its canonical sources cover organization, team, repository,
+and user layers plus all six closed category/operation pairs. The harness regenerates
+and pins deterministic effective artifacts, proves equivalent decompositions share a
+semantic identity while retaining distinct artifact identities, and proves a
+meaningful restriction changes both identities. It also compiles `policy/program.bhcp`
+under the baseline policy, validates the retained per-goal enforcement decision and
+effective-policy identities against semantic IR, and checks stable authority and
+limit denials. Every invalid weakening, topology conflict, incompatible unit, and
+unsupported feature has a manifest-pinned diagnostic; source and canonical-CBOR CLI
+composition must be byte-identical and fail atomically. Waiver application remains
+represented only by WAV-01/WAV-02 acceptance requirements.
 
 ## Syntax, identity, and encoding
 

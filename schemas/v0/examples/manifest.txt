@@ -2,7 +2,7 @@ canonical-ast.diag canonical-ast
 semantic-ir.diag semantic-ir
 syntax.diag syntax
 profile.diag profile
-policy.diag policy
+layered-policy.diag policy
 waiver.diag waiver
 extension-descriptor.diag extension-descriptor
 obligation-graph.diag obligation-graph

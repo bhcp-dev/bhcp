@@ -1,0 +1,16 @@
+§policy example/negative.limit.organization@0 {
+  layer organization;
+  rule a-limit: limit tighten {
+    dimension: example/limit.attempts@0,
+    unit: example/unit.count@0,
+    maximum: ["integer", 5]
+  } nonwaivable;
+}
+§policy example/negative.limit.repository@0 {
+  layer repository;
+  rule a-limit: limit tighten {
+    dimension: example/limit.attempts@0,
+    unit: example/unit.count@0,
+    maximum: ["integer", 6]
+  } nonwaivable;
+}

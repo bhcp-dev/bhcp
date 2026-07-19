@@ -72,7 +72,8 @@ semantic.
 
 The files in [`examples/`](examples/) use CBOR diagnostic notation and contain at
 least one instance of every root alternative. `examples/manifest.txt` binds each
-fixture to its expected root kind. The Rust validation harness:
+fixture to its expected root kind; its `layered-policy.diag` entry exercises all six
+closed policy category/operation shapes. The Rust validation harness:
 
 - parses the normative bundle with cddl-rs 0.10.6 and rejects malformed CDDL;
 - checks the CDDL root inventory, the minimal kernel-network shape, and the disjoint
@@ -114,6 +115,14 @@ artifact IDs before accepting external deterministic CBOR. Effective rule proven
 uses `rule_provenance`; the distinct generic document-header `provenance` map remains
 available without a wire-key collision.
 
+The manifest-driven fixtures under
+[`conformance/v0/policy/`](../../conformance/v0/policy/) extend that root example into
+the four-layer no-waiver slice. Each generated effective document is validated as a
+`policy` root, decoded and re-encoded deterministically, and reconstructed through the
+strongly typed policy boundary before its pinned semantic and artifact identities are
+accepted. The compiled baseline program is likewise validated as a `semantic-ir`
+root with the exact normalized policy decision retained.
+
 Canonical `§policy` source is lowered into this source-document model before it is
 accepted. The implemented slice covers layer and `§extends`, every closed typed rule,
 scope and parameter meta-values, waivability and issuers, and retains definition and
@@ -154,6 +163,7 @@ Run from the repository root:
 
 ```sh
 cargo test --test schema_fixtures
+cargo test --test policy_conformance
 ```
 
 Schema shape validation is not a substitute for the cross-field and behavioral

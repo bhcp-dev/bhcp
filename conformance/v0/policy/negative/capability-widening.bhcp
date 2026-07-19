@@ -1,0 +1,14 @@
+§policy example/negative.capability.organization@0 {
+  layer organization;
+  rule a-capability: capability narrow {
+    effect: bhcp-effect/fs.read@0,
+    scope: { goals: [example/Conformance@0] }
+  } nonwaivable;
+}
+§policy example/negative.capability.repository@0 {
+  layer repository;
+  rule a-capability: capability narrow {
+    effect: bhcp-effect/fs.read@0,
+    scope: { goals: [example/Conformance@0, example/Other@0] }
+  } nonwaivable;
+}

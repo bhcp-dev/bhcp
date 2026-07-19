@@ -7,9 +7,9 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 
 use bhcp::cbor::{decode_deterministic, encode_deterministic};
 use bhcp::model::HashId;
-use bhcp::pipeline::parse_policy_source;
+use bhcp::pipeline::{compile_source_with_policy, parse_policy_source};
 use bhcp::policy::{
-    EffectivePolicyDocument, PolicyDocument, PolicyLayer, PolicyWeakeningAttempt,
+    EffectivePolicyDocument, PolicyDocument, PolicyLayer, PolicyRule, PolicyWeakeningAttempt,
     SourceRuleIdentity, compose_policies, reject_policy_weakening,
 };
 use bhcp::schema::validate_root;
@@ -148,6 +148,35 @@ fn manifest_covers_the_complete_no_waiver_policy_slice() {
             case.name
         );
     }
+
+    let mut operations = BTreeSet::new();
+    for input in &cases["baseline"].inputs {
+        let path = fixture_root().join(input);
+        let parsed =
+            parse_policy_source(&fs::read_to_string(&path).unwrap(), path.to_str().unwrap())
+                .unwrap();
+        for rule in &parsed.documents[0].rules {
+            operations.insert(match rule {
+                PolicyRule::Requirement { .. } => ("requirement", "add"),
+                PolicyRule::Evidence { .. } => ("evidence", "add"),
+                PolicyRule::Prohibition { .. } => ("prohibition", "deny"),
+                PolicyRule::Capability { .. } => ("capability", "narrow"),
+                PolicyRule::Limit { .. } => ("limit", "tighten"),
+                PolicyRule::TypeMode { .. } => ("type-mode", "strengthen"),
+            });
+        }
+    }
+    assert_eq!(
+        operations,
+        BTreeSet::from([
+            ("capability", "narrow"),
+            ("evidence", "add"),
+            ("limit", "tighten"),
+            ("prohibition", "deny"),
+            ("requirement", "add"),
+            ("type-mode", "strengthen"),
+        ])
+    );
 }
 
 #[test]
@@ -252,6 +281,48 @@ fn composition_and_typed_weakening_diagnostics_match_the_manifest() {
             case.name
         );
     }
+}
+
+#[test]
+fn baseline_policy_drives_compilation_decisions_and_denials() {
+    let baseline = compose(&case_map()["baseline"]).unwrap();
+    let path = fixture_root().join("program.bhcp");
+    let source = fs::read_to_string(&path).unwrap();
+    let compiled = compile_source_with_policy(&source, path.to_str().unwrap(), &baseline).unwrap();
+    validate_root(&compiled.ir.to_value(true), "semantic-ir").unwrap();
+
+    let reference = compiled.ir.effective_policy.as_ref().unwrap();
+    assert_eq!(
+        reference.semantic_id,
+        baseline.header.semantic_id.clone().unwrap()
+    );
+    assert_eq!(
+        reference.artifact_id,
+        baseline.header.artifact_id.clone().unwrap()
+    );
+
+    let decision = compiled.ir.goals[0].policy_decision.as_ref().unwrap();
+    assert_eq!(decision.requirements, [0, 1, 2, 3]);
+    assert_eq!(decision.evidence, [0, 1, 2]);
+    assert_eq!(decision.prohibitions, [0, 1]);
+    assert_eq!(decision.capabilities, [0]);
+    assert_eq!(decision.limits, [0]);
+    assert_eq!(decision.type_mode, "infer-strict");
+
+    let loose = source.replace("attempts <= 3", "attempts <= 4");
+    assert_eq!(
+        compile_source_with_policy(&loose, "loose-limit.bhcp", &baseline)
+            .unwrap_err()
+            .code,
+        "BHCP8204"
+    );
+    let unauthorized = source.replace("fs.read", "fs.write");
+    assert_eq!(
+        compile_source_with_policy(&unauthorized, "unauthorized-effect.bhcp", &baseline)
+            .unwrap_err()
+            .code,
+        "BHCP8203"
+    );
 }
 
 #[test]
