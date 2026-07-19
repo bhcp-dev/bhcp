@@ -88,6 +88,31 @@ fn waiver_value(issuer: &str, decision_rule: &str) -> Value {
     ])
 }
 
+fn replace_target(document: Value, rule: &str, weakening: Value) -> Value {
+    let Value::Map(mut entries) = document else {
+        unreachable!()
+    };
+    let Value::Array(targets) = &mut entries
+        .iter_mut()
+        .find(|(key, _)| key == "targets")
+        .unwrap()
+        .1
+    else {
+        unreachable!()
+    };
+    let Value::Map(target) = &mut targets[0] else {
+        unreachable!()
+    };
+    target.iter_mut().find(|(key, _)| key == "rule").unwrap().1 =
+        array([text("example/policy.org@0"), text(rule)]);
+    target
+        .iter_mut()
+        .find(|(key, _)| key == "weakening")
+        .unwrap()
+        .1 = weakening;
+    Value::owned_map(entries)
+}
+
 fn policy(waivable: bool) -> bhcp::policy::EffectivePolicyDocument {
     let governance = if waivable {
         "waivable by [\"security-team\"]"
@@ -106,6 +131,18 @@ fn policy(waivable: bool) -> bhcp::policy::EffectivePolicyDocument {
 }}"#
     );
     let parsed = parse_policy_source(&source, "waiver-policy.bhcp").unwrap();
+    compose_policies(&parsed.documents, HashAlgorithm::default()).unwrap()
+}
+
+fn capability_policy() -> bhcp::policy::EffectivePolicyDocument {
+    let source = r#"§policy example/policy.org@0 {
+  layer organization;
+  rule filesystem: capability narrow {
+    effect: bhcp-effect/fs.read@0,
+    scope: { goals: [example/goal.deploy@0] }
+  } waivable by ["security-team"];
+}"#;
+    let parsed = parse_policy_source(source, "waiver-capability.bhcp").unwrap();
     compose_policies(&parsed.documents, HashAlgorithm::default()).unwrap()
 }
 
@@ -179,4 +216,67 @@ fn invalid_or_inactive_waivers_fail_atomically_with_stable_diagnostics() {
     )
     .unwrap_err();
     assert_eq!(error.code, "BHCP8306");
+}
+
+#[test]
+fn capability_broadening_applies_the_same_exact_scope_authority_and_audit_boundary() {
+    let scope = Value::map([("goals", array([text("example/goal.deploy@0")]))]);
+    let capability = |goals: &[&str]| {
+        Value::map([
+            ("effect", text("bhcp-effect/fs.read@0")),
+            (
+                "scope",
+                Value::map([("goals", array(goals.iter().map(|goal| text(goal))))]),
+            ),
+        ])
+    };
+    let weakening = Value::map([
+        ("category", text("capability")),
+        ("operation", text("broaden")),
+        ("from", capability(&["example/goal.deploy@0"])),
+        (
+            "to",
+            capability(&["example/goal.deploy@0", "example/goal.preview@0"]),
+        ),
+    ]);
+    let mut value = replace_target(
+        waiver_value("security-team", "filesystem"),
+        "filesystem",
+        weakening,
+    );
+    let Value::Map(entries) = &mut value else {
+        unreachable!()
+    };
+    let Value::Array(targets) = &mut entries
+        .iter_mut()
+        .find(|(key, _)| key == "targets")
+        .unwrap()
+        .1
+    else {
+        unreachable!()
+    };
+    let Value::Map(target) = &mut targets[0] else {
+        unreachable!()
+    };
+    target.iter_mut().find(|(key, _)| key == "scope").unwrap().1 = scope;
+
+    let waiver = WaiverDocument::from_value(&value).unwrap();
+    let effective = apply_waiver(
+        &capability_policy(),
+        &waiver,
+        "2026-07-19T13:30:00Z",
+        HashAlgorithm::default(),
+    )
+    .unwrap();
+    assert_eq!(
+        effective.effective.capabilities[0]
+            .value
+            .scope
+            .as_ref()
+            .unwrap()
+            .goals
+            .as_ref()
+            .unwrap(),
+        &["example/goal.deploy@0", "example/goal.preview@0"]
+    );
 }
