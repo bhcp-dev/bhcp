@@ -173,6 +173,12 @@ supports no BHCP-versus-prose advantage.
 BHCP v0 is not complete; these measured limits are part of the evidence boundary,
 not a claim that the broader runtime or a population effect already exists.
 
+The next evidence study is preregistered over the four checked-in Rust fixture
+strata, one pinned model, three fresh sessions per task, and separate registered-use
+and symmetric prose-versus-contract arms. Its 36-session, zero-incremental-spend
+ceiling and descriptive analysis do not turn that repository frame into a population
+or model-wide claim; unfavorable and incomplete outcomes remain required evidence.
+
 ## Version zero
 
 v0 proves a coherent semantic foundation rather than a universal programming

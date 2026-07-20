@@ -115,6 +115,13 @@ result, executable evidence function, and reviewed delivery. It preserves histor
 and infrastructure-invalid records without promoting them to hardened registered
 observations.
 
+The later [evidence-generalization preregistration](evidence-generalization/preregistration.md)
+is a closed input to future runs, not a controller result. It pins the four-task
+repository frame, prose and BHCP treatments, model/toolchain boundary, exact 36-session
+schedule, analysis, exclusions, stopping rules, and resource authority before any
+model turn. Each execution issue must additionally freeze its concrete runner,
+adapters, prompts, and complete plan before launching the first registered session.
+
 The fake-agent integration tests exercise every rejection category and judge the
 unmodified starters of the earlier Rust fixtures symmetrically: public tests pass,
 the unchanged withheld oracles reject them, and neither agent sees an oracle before

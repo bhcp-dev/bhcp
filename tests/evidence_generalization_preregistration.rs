@@ -37,22 +37,34 @@ fn protocol_freezes_population_arms_schedule_analysis_and_resource_authority() {
     let repository = root();
     let manifest = read(repository.join("experiments/evidence-generalization/preregistration.txt"));
     let report = read(repository.join("experiments/evidence-generalization/preregistration.md"));
+    assert_eq!(
+        manifest.lines().filter(|line| !line.is_empty()).count(),
+        53,
+        "the closed manifest may not gain unparsed records"
+    );
 
     for exact in [
         "version|bhcp-evidence-generalization@0",
         "base|d5ef5ac29a12dabe2fe2af3f0ec35437204d29c8",
         "model|codex-cli=0.142.4|model=gpt-5.4-mini|reasoning=medium|rust=1.97.1|sandbox=workspace-write/no-network/read-confined",
+        "skill|.codex/skills/interpret-bhcp-contract/SKILL.md@2f6ec206a69311548624eaa8a293c51a15467d33",
         "authorization|decision=approved-on-merge|incremental-usd=0|existing-entitlement-only=true|overage=stop-before-launch",
         "resource|sessions=36|model-minutes=540|input-tokens=12000000|output-tokens=500000|reasoning-tokens=500000|concurrency=2",
         "stopping|no-efficacy-stop|no-futility-stop|no-replacement|stop-on-safety-or-identity-failure|retain-completed-records",
         "analysis|positive-use=clopper-pearson-95|comparative=paired-risk-difference+exact-mcnemar|resources=median+iqr|alpha=descriptive-only",
         "inference|repository-fixture-frame-only|single-model|no-population-causal-model-wide-or-general-language-claim",
+        "preflight|freeze-runner-manifest-adapters-prompts-and-plan-before-first-model-turn|smoke-may-test-infrastructure-only|no-outcome-adaptation",
     ] {
         assert!(
             manifest.lines().any(|line| line == exact),
             "missing frozen protocol record: {exact}"
         );
     }
+    let skill = manifest
+        .lines()
+        .find_map(|line| line.strip_prefix("skill|"))
+        .expect("missing skill pin");
+    assert_blob(&repository, skill);
 
     let expected_tasks = BTreeMap::from([
         (
@@ -225,4 +237,27 @@ fn protocol_freezes_population_arms_schedule_analysis_and_resource_authority() {
     ] {
         assert!(report.contains(required), "report omits: {required}");
     }
+
+    let report_path = repository.join("experiments/evidence-generalization/preregistration.md");
+    let mut local_links = BTreeSet::new();
+    let mut remaining = report.as_str();
+    while let Some(start) = remaining.find("](") {
+        remaining = &remaining[start + 2..];
+        let end = remaining.find(')').expect("unterminated Markdown link");
+        let target = &remaining[..end];
+        remaining = &remaining[end + 1..];
+        if target.starts_with("https://") || target.starts_with('#') {
+            continue;
+        }
+        let path = target.split('#').next().unwrap();
+        assert!(
+            report_path.parent().unwrap().join(path).exists(),
+            "broken local link: {target}"
+        );
+        local_links.insert(target);
+    }
+    assert!(
+        local_links.len() >= 10,
+        "preregistration links its frozen inputs"
+    );
 }
