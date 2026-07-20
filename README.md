@@ -587,8 +587,9 @@ The validator rejects missing, duplicate, and unknown records and checks the roo
 inventory against both the CDDL and diagnostic fixtures. It also runs the existing
 policy parser/composer and typed syntax, profile, waiver, and extension validators;
 checks canonical/alternate source equivalence and cross-artifact registry links;
-and audits the reviewed ownership/data-flow, obligation, and operational-outcome
-projections.
+binds extension rules by content identity and policy evidence demands to explicit
+producers; and audits reviewed types, direct limits, decreasing recursion, exact
+effect scopes, ownership/data flow, obligations, and operational outcomes.
 
 The nontrivial
 [`conformance/v0/reference-program/`](conformance/v0/reference-program/) subject

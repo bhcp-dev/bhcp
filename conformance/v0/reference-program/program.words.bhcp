@@ -6,8 +6,10 @@
 §type bhcp.reference/Receipt@0 = { digest: Text, revision: Integer };
 §type bhcp.reference/DeliveryError@0 = variant { Invalid(Text), Storage(Text) };
 §type bhcp.reference/Node@0 = { name: Text, depth: Integer, children: [bhcp.reference/Node@0] };
+§type bhcp.reference/WalkInput@0 = { node: bhcp.reference/Node@0, remaining: Integer };
 §type bhcp.reference/Delivery@0 = {
     tree_checked: Unit,
+    review_checkpoint: Unit,
     approval: variant { Excluded, Included(Text) },
     delivery: Result<bhcp.reference/Receipt@0, bhcp.reference/DeliveryError@0>
 };
@@ -36,19 +38,25 @@
     §input analysis: owned affine bhcp.reference/Analysis@0;
     §resource repository: owned linear Repository;
     §output receipt: Result<bhcp.reference/Receipt@0, bhcp.reference/DeliveryError@0>;
-    §allows fs.read(repository), fs.write(repository);
-    §forbids network;
+    §allows bhcp-effect/fs.read@0(repository), bhcp-effect/fs.write@0(repository);
+    §forbids bhcp-effect/network@0;
     §ensures "stored": match receipt {
         Ok(value) => bhcp.reference/nonEmpty@0(value.digest);
         Err(_) => false;
     };
 }
 
-§intent bhcp.reference/WalkTree@0 §refines Goal<bhcp.reference/Node@0, Unit> {
+§intent bhcp.reference/WalkTree@0 §refines Goal<bhcp.reference/WalkInput@0, Unit> {
     §input node: bhcp.reference/Node@0;
-    §limit "depth": bhcp.reference/limit.depth@0: 64;
+    §input remaining: Integer;
+    §requires "non-negative-depth": 0 <= remaining;
+    §requires "leaf-at-zero": remaining != 0 || node.children == [];
+    §limit "depth": bhcp.reference/limit.depth@0: remaining <= 64;
     §all forall child in node.children {
-        walked = bhcp.reference/WalkTree@0(node = child);
+        walked = bhcp.reference/WalkTree@0(
+            node = child,
+            remaining = remaining - 1
+        );
     };
 }
 
@@ -56,21 +64,27 @@
     §input patch: owned affine bhcp.reference/Patch@0;
     §input risk: bhcp.reference/Risk@0;
     §input tree: bhcp.reference/Node@0;
+    §input tree_depth: Integer;
     §resource repository: owned linear Repository;
+    §state attempts: Integer;
     §output outcome: bhcp.reference/Delivery@0;
     §requires "non-empty-digest": bhcp.reference/nonEmpty@0(patch.digest);
-    §allows fs.read(repository), fs.write(repository), process.spawn("cargo");
-    §forbids network;
-    §limit "attempts": bhcp.reference/limit.attempts@0: 3;
+    §requires "tree-depth-matches": tree.depth == tree_depth;
+    §allows bhcp-effect/fs.read@0(repository), bhcp-effect/fs.write@0(repository), bhcp-effect/process@0("cargo");
+    §forbids bhcp-effect/network@0;
+    §limit "attempts": bhcp.reference/limit.attempts@0: attempts <= 3;
     §prefer 10: "low-risk": !bhcp.reference/isHighRisk@0(risk);
     §all {
-        tree_checked = bhcp.reference/WalkTree@0(node = tree);
+        tree_checked = bhcp.reference/WalkTree@0(
+            node = tree,
+            remaining = tree_depth
+        );
+        review_checkpoint = bhcp.reference/review@0(risk = risk);
         approval = §gate when bhcp.reference/isHighRisk@0(risk) {
             accepted = bhcp.reference/Approve@0(risk = risk);
         };
         delivery = §chain {
-            reviewed = bhcp.reference/review@0(patch = move patch);
-            analyzed = bhcp.reference/AnalyzePatch@0(patch = move reviewed);
+            analyzed = bhcp.reference/AnalyzePatch@0(patch = move patch);
             receipt = bhcp.reference/Persist@0(
                 analysis = move analyzed,
                 repository = move repository

@@ -2,11 +2,11 @@
   layer organization;
   rule a-filesystem-read: capability narrow {
     effect: bhcp-effect/fs.read@0,
-    scope: { goals: [bhcp.reference/DeliverChange@0] }
+    scope: { goals: [bhcp.reference/DeliverChange@0, bhcp.reference/Persist@0] }
   } nonwaivable;
   rule b-filesystem-write: capability narrow {
     effect: bhcp-effect/fs.write@0,
-    scope: { goals: [bhcp.reference/DeliverChange@0] }
+    scope: { goals: [bhcp.reference/DeliverChange@0, bhcp.reference/Persist@0] }
   } nonwaivable;
   rule c-process: capability narrow {
     effect: bhcp-effect/process@0,
@@ -27,21 +27,17 @@
   rule f-network: prohibition deny {
     effect: bhcp-effect/network@0
   } waivable by ["security"];
-  rule g-signed-commits: requirement add {
-    requirement: bhcp.reference/requirement.signed-commits@0,
-    scope: { goals: [bhcp.reference/DeliverChange@0] }
-  } nonwaivable;
 }
 
 §policy bhcp.reference/repository-policy@0 {
   layer repository;
   rule a-filesystem-read: capability narrow {
     effect: bhcp-effect/fs.read@0,
-    scope: { goals: [bhcp.reference/DeliverChange@0] }
+    scope: { goals: [bhcp.reference/DeliverChange@0, bhcp.reference/Persist@0] }
   } nonwaivable;
   rule b-filesystem-write: capability narrow {
     effect: bhcp-effect/fs.write@0,
-    scope: { goals: [bhcp.reference/DeliverChange@0] }
+    scope: { goals: [bhcp.reference/DeliverChange@0, bhcp.reference/Persist@0] }
   } nonwaivable;
   rule c-human-evidence: evidence add {
     obligation: bhcp.reference/obligation.human-approval@0,
@@ -58,8 +54,4 @@
     unit: bhcp.reference/unit.count@0,
     maximum: ["integer", 2]
   } waivable by ["security"];
-  rule e-repository-review: requirement add {
-    requirement: bhcp.reference/requirement.repository-review@0,
-    scope: { goals: [bhcp.reference/DeliverChange@0] }
-  } nonwaivable;
 }

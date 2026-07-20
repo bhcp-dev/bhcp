@@ -3,8 +3,9 @@ use std::fs;
 use std::path::{Component, Path, PathBuf};
 
 use bhcp::hash::HashAlgorithm;
+use bhcp::model::ContentReference;
 use bhcp::pipeline::{compile_source, parse_policy_source};
-use bhcp::policy::{ExactNumber, WaiverDocument, WaiverWeakening, compose_policies};
+use bhcp::policy::{ExactNumber, WaiverDocument, WaiverWeakening, apply_waiver, compose_policies};
 use bhcp::profile::PresentationDocument;
 use bhcp::schema::{parse_diagnostic, validate_root, validate_schema_inventory};
 use bhcp::value::Value;
@@ -75,6 +76,12 @@ const ARTIFACTS: &[&str] = &[
     "profile-projection",
     "extension",
     "extension-projection",
+    "extension-type-rule",
+    "extension-effect-rule",
+    "extension-policy-rule",
+    "extension-normalization-rule",
+    "extension-evidence-rule",
+    "policy-evidence-registry",
     "planner-input",
     "execution-input",
     "expected-obligations",
@@ -125,6 +132,15 @@ const REGISTRY: &[(&str, &str)] = &[
     ("extension-document", "extension.diag"),
     ("extension-symbol", "bhcp.reference/review@0"),
     ("extension-lowering", "bhcp.reference/lowerReview@0"),
+    ("extension-type-rule", "extension-type.rule"),
+    ("extension-effect-rule", "extension-effect.rule"),
+    ("extension-policy-rule", "extension-policy.rule"),
+    (
+        "extension-normalization-rule",
+        "extension-normalization.rule",
+    ),
+    ("extension-evidence-rule", "extension-evidence.rule"),
+    ("policy-evidence-registry", "policy-evidence-registry.txt"),
     ("planner-input", "planner-input.txt"),
     ("execution-input", "execution-input.txt"),
     ("expected-obligations", "expected-obligations.txt"),
@@ -134,15 +150,16 @@ const REGISTRY: &[(&str, &str)] = &[
 const OBLIGATIONS: &[&str] = &[
     "source|bhcp.reference/DeliverChange@0:attempts|limit|formal|open",
     "source|bhcp.reference/DeliverChange@0:non-empty-digest|contract|formal|open",
+    "source|bhcp.reference/DeliverChange@0:tree-depth-matches|contract|formal|open",
     "source|bhcp.reference/AnalyzePatch@0:safe-result|contract|static|open",
     "source|bhcp.reference/Approve@0:high-risk|contract|human-approved|open",
     "source|bhcp.reference/Persist@0:stored|contract|formal|open",
     "source|bhcp.reference/WalkTree@0:depth|limit|formal|open",
+    "source|bhcp.reference/WalkTree@0:leaf-at-zero|contract|formal|open",
+    "source|bhcp.reference/WalkTree@0:non-negative-depth|contract|formal|open",
     "policy|bhcp.reference/limit.attempts@0|limit|formal|open",
     "policy|bhcp.reference/obligation.static-analysis@0|evidence-demand|static|open",
     "policy|bhcp.reference/obligation.human-approval@0|evidence-demand|human-approved|open",
-    "policy|bhcp.reference/requirement.signed-commits@0|requirement|-|open",
-    "policy|bhcp.reference/requirement.repository-review@0|requirement|-|open",
 ];
 
 const OUTCOMES: &[&str] = &[
@@ -154,6 +171,100 @@ const OUTCOMES: &[&str] = &[
     "stale|execution|completed|unresolved:stale-evidence",
     "cancelled|execution|completed|unresolved:cancelled",
     "faulted|execution|faulted|operational-fault",
+];
+
+const POLICY_EVIDENCE_BINDINGS: &[&str] = &[
+    "bhcp.reference/obligation.human-approval@0|bhcp.verifier/human-approval@0|bhcp.reference/Approve@0:high-risk",
+    "bhcp.reference/obligation.static-analysis@0|bhcp.verifier/static-analysis@0|bhcp.reference/AnalyzePatch@0:safe-result",
+];
+
+const EXTENSION_RULES: &[(&str, &str, &str)] = &[
+    (
+        "type_rule",
+        "extension-type-rule",
+        "extension: bhcp.reference/review@0\ninput: bhcp.reference/Risk@0\noutput: Unit\nchildren: []\n",
+    ),
+    (
+        "effect_rule",
+        "extension-effect-rule",
+        "extension: bhcp.reference/review@0\neffects: []\n",
+    ),
+    (
+        "policy_rule",
+        "extension-policy-rule",
+        "extension: bhcp.reference/review@0\npolicy: inherit-enclosing-without-override\n",
+    ),
+    (
+        "normalization_rule",
+        "extension-normalization-rule",
+        "extension: bhcp.reference/review@0\nnormalization: lower-completely-to-kernel-network\nreducer: bhcp.reference/reviewReducer@0\n",
+    ),
+    (
+        "evidence_rule",
+        "extension-evidence-rule",
+        "extension: bhcp.reference/review@0\nevidence: checked-kernel-derivation\n",
+    ),
+];
+
+const PROGRAM_SEMANTICS: &[&str] = &[
+    "type|bhcp.reference/AnalyzePatch@0|input|patch|owned affine bhcp.reference/Patch@0",
+    "type|bhcp.reference/AnalyzePatch@0|output|analysis|owned affine bhcp.reference/Analysis@0",
+    "type|bhcp.reference/Approve@0|input|risk|bhcp.reference/Risk@0",
+    "type|bhcp.reference/Approve@0|output|approval|Text",
+    "type|bhcp.reference/Persist@0|input|analysis|owned affine bhcp.reference/Analysis@0",
+    "type|bhcp.reference/Persist@0|resource|repository|owned linear Repository",
+    "type|bhcp.reference/Persist@0|output|receipt|Result<bhcp.reference/Receipt@0,bhcp.reference/DeliveryError@0>",
+    "type|bhcp.reference/WalkTree@0|input|node|bhcp.reference/Node@0",
+    "type|bhcp.reference/WalkTree@0|input|remaining|Integer",
+    "type|bhcp.reference/WalkTree@0|output|result|Unit",
+    "type|bhcp.reference/DeliverChange@0|input|patch|owned affine bhcp.reference/Patch@0",
+    "type|bhcp.reference/DeliverChange@0|input|risk|bhcp.reference/Risk@0",
+    "type|bhcp.reference/DeliverChange@0|input|tree|bhcp.reference/Node@0",
+    "type|bhcp.reference/DeliverChange@0|input|tree_depth|Integer",
+    "type|bhcp.reference/DeliverChange@0|resource|repository|owned linear Repository",
+    "type|bhcp.reference/DeliverChange@0|state|attempts|Integer",
+    "type|bhcp.reference/DeliverChange@0|output|outcome|bhcp.reference/Delivery@0",
+    "type|bhcp.reference/review@0|input|risk|bhcp.reference/Risk@0",
+    "type|bhcp.reference/review@0|output|result|Unit",
+    "clause|bhcp.reference/WalkTree@0|non-negative-depth|requires|Bool|0 <= remaining",
+    "clause|bhcp.reference/WalkTree@0|leaf-at-zero|requires|Bool|remaining != 0 || node.children == []",
+    "clause|bhcp.reference/DeliverChange@0|non-empty-digest|requires|Bool|bhcp.reference/nonEmpty@0(patch.digest)",
+    "clause|bhcp.reference/DeliverChange@0|tree-depth-matches|requires|Bool|tree.depth == tree_depth",
+    "limit|bhcp.reference/WalkTree@0|depth|bhcp.reference/limit.depth@0|remaining|64|Bool",
+    "limit|bhcp.reference/DeliverChange@0|attempts|bhcp.reference/limit.attempts@0|attempts|3|Bool",
+    "effect|bhcp.reference/Persist@0|allow|bhcp-effect/fs.read@0|resource.repository",
+    "effect|bhcp.reference/Persist@0|allow|bhcp-effect/fs.write@0|resource.repository",
+    "effect|bhcp.reference/Persist@0|forbid|bhcp-effect/network@0|-",
+    "effect|bhcp.reference/DeliverChange@0|allow|bhcp-effect/fs.read@0|resource.repository",
+    "effect|bhcp.reference/DeliverChange@0|allow|bhcp-effect/fs.write@0|resource.repository",
+    "effect|bhcp.reference/DeliverChange@0|allow|bhcp-effect/process@0|literal.cargo",
+    "effect|bhcp.reference/DeliverChange@0|forbid|bhcp-effect/network@0|-",
+    "recursion|bhcp.reference/WalkTree@0|children.*|well-founded|remaining|remaining - 1|0 <= remaining|remaining != 0 || node.children == []",
+    "reducer|bhcp.reference/reviewReducer@0|bhcp.reference/Risk@0|{}|Reduction<Unit>|pending-or-concluded",
+    "lowerer|bhcp.reference/lowerReview@0|Meta<DerivedForm,bhcp.reference/Risk@0,Unit>|Meta<NetworkShape,bhcp.reference/Risk@0,Unit>|bhcp/meta.network-shape@0",
+    "extension-shape|bhcp.reference/review@0|bhcp.reference/Risk@0|Unit|no-children",
+];
+
+const PROGRAM_DEFINITIONS: &[(&str, &str)] = &[
+    ("type", "bhcp.reference/NonEmptyText@0"),
+    ("type", "bhcp.reference/Risk@0"),
+    ("type", "bhcp.reference/Patch@0"),
+    ("type", "bhcp.reference/Analysis@0"),
+    ("type", "bhcp.reference/Receipt@0"),
+    ("type", "bhcp.reference/DeliveryError@0"),
+    ("type", "bhcp.reference/Node@0"),
+    ("type", "bhcp.reference/WalkInput@0"),
+    ("type", "bhcp.reference/Delivery@0"),
+    ("function", "bhcp.reference/isHighRisk@0"),
+    ("predicate", "bhcp.reference/nonEmpty@0"),
+    ("goal", "bhcp.reference/AnalyzePatch@0"),
+    ("goal", "bhcp.reference/Approve@0"),
+    ("goal", "bhcp.reference/Persist@0"),
+    ("goal", "bhcp.reference/WalkTree@0"),
+    ("goal", "bhcp.reference/DeliverChange@0"),
+    ("function", "bhcp.reference/reviewReducer@0"),
+    ("function", "bhcp.reference/lowerReview@0"),
+    ("extension", "bhcp.reference/review@0"),
 ];
 
 #[derive(Debug)]
@@ -350,6 +461,7 @@ struct ProgramContract {
     facts: BTreeMap<(String, String, String), String>,
     consumes: BTreeSet<(String, String, String)>,
     calls: Vec<DataCall>,
+    semantics: BTreeSet<String>,
 }
 
 fn parse_program_contract(text: &str) -> Result<ProgramContract, String> {
@@ -393,6 +505,23 @@ fn parse_program_contract(text: &str) -> Result<ProgramContract, String> {
                     source: (*source).to_owned(),
                 });
             }
+            [kind, ..]
+                if matches!(
+                    *kind,
+                    "type"
+                        | "clause"
+                        | "limit"
+                        | "effect"
+                        | "recursion"
+                        | "reducer"
+                        | "lowerer"
+                        | "extension-shape"
+                ) =>
+            {
+                if !contract.semantics.insert(line.to_owned()) {
+                    return Err("duplicate semantic projection row".to_owned());
+                }
+            }
             _ => {
                 return Err(format!("program contract line {} is malformed", index + 1));
             }
@@ -418,6 +547,16 @@ fn validate_program_projection(root: &Path, text: &str) -> Result<(), String> {
     let canonical = read_reference(root, "program.bhcp")?;
     let extension_source = read_reference(root, "extension.bhcp")?;
     let projection = parse_program_contract(text)?;
+    if projection.semantics != expected_set(PROGRAM_SEMANTICS) {
+        return Err("program semantic projection mismatch".to_owned());
+    }
+    let expected_definitions = PROGRAM_DEFINITIONS
+        .iter()
+        .map(|(kind, symbol)| ((*kind).to_owned(), (*symbol).to_owned()))
+        .collect::<BTreeSet<_>>();
+    if projection.definitions != expected_definitions {
+        return Err("program definition projection mismatch".to_owned());
+    }
     let definition_symbols = projection
         .definitions
         .iter()
@@ -479,7 +618,7 @@ fn validate_program_projection(root: &Path, text: &str) -> Result<(), String> {
                     (owner == callee && kind == "output").then_some(mode.as_str())
                 })
                 .ok_or_else(|| format!("step {step} has no declared output"))?
-        } else if call.source == "quantifier.child" {
+        } else if call.source == "quantifier.child" || call.source.starts_with("expression.") {
             "unrestricted"
         } else {
             return Err(format!(
@@ -510,7 +649,10 @@ fn validate_program_projection(root: &Path, text: &str) -> Result<(), String> {
         if !canonical.contains(&call_marker) {
             return Err(format!("source omits projected call {call_marker}"));
         }
-        let source_name = call.source.rsplit('.').next().unwrap_or(&call.source);
+        let source_name = call
+            .source
+            .strip_prefix("expression.")
+            .unwrap_or_else(|| call.source.rsplit('.').next().unwrap_or(&call.source));
         let argument_marker = if call.mode == "move" {
             format!("{} = move {source_name}", call.argument)
         } else {
@@ -518,6 +660,48 @@ fn validate_program_projection(root: &Path, text: &str) -> Result<(), String> {
         };
         if !canonical.contains(&argument_marker) {
             return Err(format!("source omits projected argument {argument_marker}"));
+        }
+    }
+
+    for marker in [
+        "§type bhcp.reference/Risk@0 = variant { Low, High };",
+        "§type bhcp.reference/Patch@0 = { bytes: Bytes, digest: Text };",
+        "§type bhcp.reference/WalkInput@0 = { node: bhcp.reference/Node@0, remaining: Integer };",
+        "§input patch: owned affine bhcp.reference/Patch@0;",
+        "§output analysis: owned affine bhcp.reference/Analysis@0;",
+        "§input analysis: owned affine bhcp.reference/Analysis@0;",
+        "§resource repository: owned linear Repository;",
+        "§input remaining: Integer;",
+        "§input tree_depth: Integer;",
+        "§state attempts: Integer;",
+        "§output outcome: bhcp.reference/Delivery@0;",
+        "§requires \"non-negative-depth\": 0 <= remaining;",
+        "§requires \"leaf-at-zero\": remaining != 0 || node.children == [];",
+        "§requires \"tree-depth-matches\": tree.depth == tree_depth;",
+        "§limit \"depth\": bhcp.reference/limit.depth@0: remaining <= 64;",
+        "§limit \"attempts\": bhcp.reference/limit.attempts@0: attempts <= 3;",
+        "remaining = remaining - 1",
+        "§allows bhcp-effect/fs.read@0(repository), bhcp-effect/fs.write@0(repository);",
+        "§allows bhcp-effect/fs.read@0(repository), bhcp-effect/fs.write@0(repository), bhcp-effect/process@0(\"cargo\");",
+    ] {
+        if !canonical.contains(marker) {
+            return Err(format!("source omits semantic projection marker {marker}"));
+        }
+    }
+    for marker in [
+        "parent: bhcp.reference/Risk@0",
+        "observations: {}",
+        "): Reduction<Unit> =",
+        "bhcp/kernel.pending@0",
+        "bhcp/kernel.conclude@0",
+        "bhcp/meta.network-shape@0(",
+        "Meta<DerivedForm, bhcp.reference/Risk@0, Unit>",
+        "Meta<NetworkShape, bhcp.reference/Risk@0, Unit>",
+    ] {
+        if !extension_source.contains(marker) {
+            return Err(format!(
+                "extension omits semantic projection marker {marker}"
+            ));
         }
     }
 
@@ -575,48 +759,9 @@ fn validate_program_contract(root: &Path) -> Result<(), String> {
     validate_program_projection(root, &read_reference(root, "program-contract.txt")?)
 }
 
-fn validate_reference_semantics(root: &Path) -> Result<(), String> {
-    let directory = reference_directory(root);
-    let registry = parse_registry(&read_reference(root, "registry.txt")?)?;
-    let expected_registry = REGISTRY
-        .iter()
-        .map(|(key, value)| ((*key).to_owned(), (*value).to_owned()))
-        .collect::<BTreeMap<_, _>>();
-    if registry != expected_registry {
-        return Err("reference registry mismatch".to_owned());
-    }
-    for (key, value) in &registry {
-        if (key.ends_with("program")
-            || key.ends_with("source")
-            || key.ends_with("document")
-            || matches!(
-                key.as_str(),
-                "program-contract"
-                    | "planner-input"
-                    | "execution-input"
-                    | "expected-obligations"
-                    | "outcome-matrix"
-            ))
-            && !directory.join(value).is_file()
-        {
-            return Err(format!("registry path {key} does not exist"));
-        }
-    }
-
-    let canonical = read_reference(root, "program.bhcp")?;
-    let alternate = read_reference(root, "program.words.bhcp")?;
-    let (preamble, alternate_body) = alternate
-        .split_once('\n')
-        .ok_or_else(|| "alternate program has no preamble".to_owned())?;
-    if preamble != "#!bhcp-profile bhcp.reference/review-profile@0" {
-        return Err("alternate program selects the wrong profile".to_owned());
-    }
-    if alternate_body.replace("§intent", "§goal") != canonical {
-        return Err("canonical and alternate source structures differ".to_owned());
-    }
-
-    let parsed_policy = parse_policy_source(&read_reference(root, "policy.bhcp")?, "policy.bhcp")
-        .map_err(|error| error.to_string())?;
+fn validate_reference_policy(text: &str) -> Result<(), String> {
+    let parsed_policy =
+        parse_policy_source(text, "policy.bhcp").map_err(|error| error.to_string())?;
     let policy_symbols = parsed_policy
         .documents
         .iter()
@@ -638,12 +783,39 @@ fn validate_reference_semantics(root: &Path) -> Result<(), String> {
         .iter()
         .map(|rule| rule.value.effect.as_str())
         .collect::<BTreeSet<_>>();
+    let capability_goals = effective_policy
+        .effective
+        .capabilities
+        .iter()
+        .map(|rule| {
+            (
+                rule.value.effect.as_str(),
+                rule.value
+                    .scope
+                    .as_ref()
+                    .and_then(|scope| scope.goals.as_ref())
+                    .cloned(),
+            )
+        })
+        .collect::<BTreeMap<_, _>>();
     if capability_effects
         != BTreeSet::from([
             "bhcp-effect/fs.read@0",
             "bhcp-effect/fs.write@0",
             "bhcp-effect/process@0",
         ])
+        || capability_goals.get("bhcp-effect/fs.read@0")
+            != Some(&Some(vec![
+                "bhcp.reference/DeliverChange@0".to_owned(),
+                "bhcp.reference/Persist@0".to_owned(),
+            ]))
+        || capability_goals.get("bhcp-effect/fs.write@0")
+            != Some(&Some(vec![
+                "bhcp.reference/DeliverChange@0".to_owned(),
+                "bhcp.reference/Persist@0".to_owned(),
+            ]))
+        || capability_goals.get("bhcp-effect/process@0")
+            != Some(&Some(vec!["bhcp.reference/DeliverChange@0".to_owned()]))
         || !effective_policy
             .effective
             .prohibitions
@@ -658,6 +830,78 @@ fn validate_reference_semantics(root: &Path) -> Result<(), String> {
             "reference policy does not authorize the declared effects and base limit".to_owned(),
         );
     }
+    Ok(())
+}
+
+fn validate_policy_evidence_bindings(canonical: &str, text: &str) -> Result<(), String> {
+    let bindings = text.lines().map(str::to_owned).collect::<BTreeSet<_>>();
+    if bindings != expected_set(POLICY_EVIDENCE_BINDINGS) {
+        return Err("policy evidence producer registry mismatch".to_owned());
+    }
+    for binding in &bindings {
+        let fields = binding.split('|').collect::<Vec<_>>();
+        let [obligation, producer, target] = fields.as_slice() else {
+            return Err("policy evidence producer binding is malformed".to_owned());
+        };
+        let (goal, label) = target
+            .split_once(':')
+            .ok_or_else(|| "policy evidence target is malformed".to_owned())?;
+        if !OBLIGATIONS
+            .iter()
+            .any(|row| row.starts_with(&format!("policy|{obligation}|evidence-demand|")))
+            || !canonical.contains(&format!("with {producer}"))
+            || !canonical.contains(&format!("§goal {goal}"))
+            || !canonical.contains(&format!("\"{label}\""))
+        {
+            return Err("policy evidence producer binding is disconnected".to_owned());
+        }
+    }
+    Ok(())
+}
+
+fn validate_reference_semantics(root: &Path) -> Result<(), String> {
+    let directory = reference_directory(root);
+    let registry = parse_registry(&read_reference(root, "registry.txt")?)?;
+    let expected_registry = REGISTRY
+        .iter()
+        .map(|(key, value)| ((*key).to_owned(), (*value).to_owned()))
+        .collect::<BTreeMap<_, _>>();
+    if registry != expected_registry {
+        return Err("reference registry mismatch".to_owned());
+    }
+    for (key, value) in &registry {
+        if (key.ends_with("program")
+            || key.ends_with("source")
+            || key.ends_with("document")
+            || matches!(
+                key.as_str(),
+                "program-contract"
+                    | "planner-input"
+                    | "execution-input"
+                    | "expected-obligations"
+                    | "outcome-matrix"
+                    | "policy-evidence-registry"
+            )
+            || key.ends_with("-rule"))
+            && !directory.join(value).is_file()
+        {
+            return Err(format!("registry path {key} does not exist"));
+        }
+    }
+
+    let canonical = read_reference(root, "program.bhcp")?;
+    let alternate = read_reference(root, "program.words.bhcp")?;
+    let (preamble, alternate_body) = alternate
+        .split_once('\n')
+        .ok_or_else(|| "alternate program has no preamble".to_owned())?;
+    if preamble != "#!bhcp-profile bhcp.reference/review-profile@0" {
+        return Err("alternate program selects the wrong profile".to_owned());
+    }
+    if alternate_body.replace("§intent", "§goal") != canonical {
+        return Err("canonical and alternate source structures differ".to_owned());
+    }
+
+    validate_reference_policy(&read_reference(root, "policy.bhcp")?)?;
 
     let syntax_value = parse_diagnostic(&read_reference(root, "syntax.diag")?)
         .map_err(|error| error.to_string())?;
@@ -734,13 +978,31 @@ fn validate_reference_semantics(root: &Path) -> Result<(), String> {
         || to.dimension != from.dimension
         || to.unit != from.unit
         || to.maximum != ExactNumber::Integer(3)
-        || !canonical.contains("§limit \"attempts\": bhcp.reference/limit.attempts@0: 3;")
+        || !canonical
+            .contains("§limit \"attempts\": bhcp.reference/limit.attempts@0: attempts <= 3;")
         || !read_reference(root, "planner-input.txt")?
             .contains("budget = { attempts: 3, wall-time: duration \"PT10M\", processes: 4 }")
     {
         return Err(
             "reference waiver does not materially authorize the frozen attempt budget".to_owned(),
         );
+    }
+    let waiver_policy = parse_policy_source(&read_reference(root, "policy.bhcp")?, "policy.bhcp")
+        .map_err(|error| error.to_string())?;
+    let base_policy = compose_policies(&waiver_policy.documents, HashAlgorithm::default())
+        .map_err(|error| error.to_string())?;
+    let waived_policy = apply_waiver(
+        &base_policy,
+        &waiver,
+        &registry["waiver-decision-at"],
+        HashAlgorithm::default(),
+    )
+    .map_err(|error| error.to_string())?;
+    if !waived_policy.effective.limits.iter().any(|rule| {
+        rule.value.dimension == "bhcp.reference/limit.attempts@0"
+            && rule.value.maximum == ExactNumber::Integer(3)
+    }) {
+        return Err("active reference waiver did not produce the attempt ceiling".to_owned());
     }
     let waiver_source = read_reference(root, "waiver.bhcp")?;
     for marker in [
@@ -760,7 +1022,7 @@ fn validate_reference_semantics(root: &Path) -> Result<(), String> {
     validate_root(&extension_value, "extension-descriptor").map_err(|error| error.to_string())?;
     if value_text(&extension_value, "symbol")? != "bhcp.reference/review@0"
         || value_text(&extension_value, "lowering")? != "bhcp.reference/lowerReview@0"
-        || !canonical.contains("bhcp.reference/review@0(patch = move patch)")
+        || !canonical.contains("bhcp.reference/review@0(risk = risk)")
     {
         return Err("derived extension is disconnected from the reference program".to_owned());
     }
@@ -774,6 +1036,25 @@ fn validate_reference_semantics(root: &Path) -> Result<(), String> {
             return Err(format!("extension source omits projected value {marker}"));
         }
     }
+    for (field, registry_key, expected_rule) in EXTENSION_RULES {
+        let bytes = fs::read(directory.join(&registry[*registry_key]))
+            .map_err(|error| format!("cannot read {registry_key}: {error}"))?;
+        if bytes != expected_rule.as_bytes() {
+            return Err(format!("extension {field} reviewed rule mismatch"));
+        }
+        let expected =
+            ContentReference::from_bytes("text/plain", &bytes, HashAlgorithm::default()).to_value();
+        if extension_value.get(field) != Some(&expected) {
+            return Err(format!(
+                "extension {field} does not bind its reviewed rule bytes"
+            ));
+        }
+    }
+
+    validate_policy_evidence_bindings(
+        &canonical,
+        &read_reference(root, "policy-evidence-registry.txt")?,
+    )?;
 
     let obligations = read_reference(root, "expected-obligations.txt")?
         .lines()
@@ -799,6 +1080,19 @@ fn validate_reference_semantics(root: &Path) -> Result<(), String> {
         return Err("reference outcome matrix mismatch".to_owned());
     }
     let execution_input = read_reference(root, "execution-input.txt")?;
+    for marker in [
+        "workspace = ",
+        "patch = ",
+        "risk = High",
+        "tree = { name: \"repository\", depth: 0, children: [] }",
+        "tree_depth = 0",
+        "attempts = 0",
+        "expected-output = bhcp.reference/Delivery@0",
+    ] {
+        if !execution_input.contains(marker) {
+            return Err(format!("execution input omits {marker}"));
+        }
+    }
     let cases = execution_input
         .lines()
         .filter_map(|line| line.strip_prefix("case = "))
@@ -826,6 +1120,7 @@ fn validate_reference_semantics(root: &Path) -> Result<(), String> {
                 | "waiver-document"
                 | "waiver-decision-at"
                 | "extension-document"
+                | "policy-evidence-registry"
                 | "execution-input"
                 | "expected-obligations"
                 | "outcome-matrix"
@@ -1043,5 +1338,47 @@ fn reference_validators_reject_invalid_policy_shapes_and_ownership() {
         validate_program_projection(&root, &projection)
             .unwrap_err()
             .contains("must move owned values")
+    );
+
+    let policy_scope = read_reference(&root, "policy.bhcp").unwrap().replacen(
+        "[bhcp.reference/DeliverChange@0, bhcp.reference/Persist@0]",
+        "[bhcp.reference/DeliverChange@0]",
+        1,
+    );
+    let scope_error = validate_reference_policy(&policy_scope).unwrap_err();
+    assert!(
+        scope_error.contains("BHCP8101")
+            || scope_error
+                == "reference policy does not authorize the declared effects and base limit"
+    );
+
+    let typed_projection = read_reference(&root, "program-contract.txt").unwrap();
+    for (from, to) in [
+        ("|attempts|3|Bool", "|attempts|3|Integer"),
+        ("|remaining|remaining - 1|", "|remaining|remaining + 1|"),
+        ("|bhcp-effect/fs.read@0|", "|fs.read|"),
+        ("|{}|Reduction<Unit>|", "|{}|Unit|"),
+    ] {
+        let mutation = typed_projection.replacen(from, to, 1);
+        assert_eq!(
+            validate_program_projection(&root, &mutation).unwrap_err(),
+            "program semantic projection mismatch"
+        );
+    }
+
+    let bindings = read_reference(&root, "policy-evidence-registry.txt")
+        .unwrap()
+        .replacen(
+            "bhcp.verifier/static-analysis@0",
+            "bhcp.verifier/missing@0",
+            1,
+        );
+    assert_eq!(
+        validate_policy_evidence_bindings(
+            &read_reference(&root, "program.bhcp").unwrap(),
+            &bindings,
+        )
+        .unwrap_err(),
+        "policy evidence producer registry mismatch"
     );
 }

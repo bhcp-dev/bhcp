@@ -18,6 +18,12 @@ extension-source|extension.bhcp
 extension-document|extension.diag
 extension-symbol|bhcp.reference/review@0
 extension-lowering|bhcp.reference/lowerReview@0
+extension-type-rule|extension-type.rule
+extension-effect-rule|extension-effect.rule
+extension-policy-rule|extension-policy.rule
+extension-normalization-rule|extension-normalization.rule
+extension-evidence-rule|extension-evidence.rule
+policy-evidence-registry|policy-evidence-registry.txt
 planner-input|planner-input.txt
 execution-input|execution-input.txt
 expected-obligations|expected-obligations.txt

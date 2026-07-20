@@ -6,9 +6,9 @@
   "extension_kind": "derived",
   "must_understand": false,
   "lowering": "bhcp.reference/lowerReview@0",
-  "type_rule": {"media_type": "text/bhcp", "size": 0, "digests": [{"algorithm": "bhcp.hash/sha3-512@0", "digest": h'00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000'}]},
-  "effect_rule": {"media_type": "text/bhcp", "size": 0, "digests": [{"algorithm": "bhcp.hash/sha3-512@0", "digest": h'00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000'}]},
-  "policy_rule": {"media_type": "text/bhcp", "size": 0, "digests": [{"algorithm": "bhcp.hash/sha3-512@0", "digest": h'00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000'}]},
-  "normalization_rule": {"media_type": "text/bhcp", "size": 0, "digests": [{"algorithm": "bhcp.hash/sha3-512@0", "digest": h'00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000'}]},
-  "evidence_rule": {"media_type": "text/bhcp", "size": 0, "digests": [{"algorithm": "bhcp.hash/sha3-512@0", "digest": h'00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000'}]}
+  "type_rule": {"media_type": "text/plain", "size": 90, "digests": [{"algorithm": "bhcp.hash/sha3-512@0", "digest": h'0b34366d366f9a04d8f4b638256d234c62bfbec7d175c740757993412af5d63f90f915256fc56ed3443f52997a95aaa763599ffeff3a400737ecf34669471d6e'}]},
+  "effect_rule": {"media_type": "text/plain", "size": 47, "digests": [{"algorithm": "bhcp.hash/sha3-512@0", "digest": h'418a8cc2c9d3fc2ac071a8ca332dc9c58729f8b2b267d32c3100e7a7b8dbe7b18304855d69869df4cc20a3415a3249b57054cc87b18fa4fe3acbca136b62f3a2'}]},
+  "policy_rule": {"media_type": "text/plain", "size": 78, "digests": [{"algorithm": "bhcp.hash/sha3-512@0", "digest": h'0295b1c2ee418d11178bf5d8c201969479a9ae7450d056e6ea19dcd5c72d461a27097395a0331014425344cbce145b1e0661d9e5bd4d05a651145df7649a34e4'}]},
+  "normalization_rule": {"media_type": "text/plain", "size": 125, "digests": [{"algorithm": "bhcp.hash/sha3-512@0", "digest": h'2c96ccb63eaed1c5e7b5b2f027674c34c116f6d4fab0e98e7765c83a99b22468ab7709fbba3b34cb84860f29e4d32fa12a66880f676e661909c34e6d0f39b0ca'}]},
+  "evidence_rule": {"media_type": "text/plain", "size": 71, "digests": [{"algorithm": "bhcp.hash/sha3-512@0", "digest": h'213e200c24f816ef02540023274ab45dbc35a096779a0b2f2eceb79aa10193239931147c9b390bd367390ae96f6e36602bef2296fbff1fd559c2dbebec81331b'}]}
 }

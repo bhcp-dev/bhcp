@@ -1,4 +1,4 @@
-# Reviewed typed projection for deferred source definitions and data flow.
+# Reviewed typed projection for deferred source definitions and semantic data flow.
 definition|type|bhcp.reference/NonEmptyText@0
 definition|type|bhcp.reference/Risk@0
 definition|type|bhcp.reference/Patch@0
@@ -6,6 +6,7 @@ definition|type|bhcp.reference/Analysis@0
 definition|type|bhcp.reference/Receipt@0
 definition|type|bhcp.reference/DeliveryError@0
 definition|type|bhcp.reference/Node@0
+definition|type|bhcp.reference/WalkInput@0
 definition|type|bhcp.reference/Delivery@0
 definition|function|bhcp.reference/isHighRisk@0
 definition|predicate|bhcp.reference/nonEmpty@0
@@ -25,22 +26,62 @@ fact|bhcp.reference/Persist@0|input|analysis|owned-affine
 fact|bhcp.reference/Persist@0|resource|repository|owned-linear
 fact|bhcp.reference/Persist@0|output|receipt|unrestricted
 fact|bhcp.reference/WalkTree@0|input|node|unrestricted
+fact|bhcp.reference/WalkTree@0|input|remaining|unrestricted
 fact|bhcp.reference/WalkTree@0|output|result|unrestricted
 fact|bhcp.reference/DeliverChange@0|input|patch|owned-affine
 fact|bhcp.reference/DeliverChange@0|input|risk|unrestricted
 fact|bhcp.reference/DeliverChange@0|input|tree|unrestricted
+fact|bhcp.reference/DeliverChange@0|input|tree_depth|unrestricted
 fact|bhcp.reference/DeliverChange@0|resource|repository|owned-linear
+fact|bhcp.reference/DeliverChange@0|state|attempts|unrestricted
 fact|bhcp.reference/DeliverChange@0|output|outcome|unrestricted
-fact|bhcp.reference/review@0|input|patch|owned-affine
-fact|bhcp.reference/review@0|output|patch|owned-affine
+fact|bhcp.reference/review@0|input|risk|unrestricted
+fact|bhcp.reference/review@0|output|result|unrestricted
 consume|bhcp.reference/AnalyzePatch@0|input.patch|output.analysis
 consume|bhcp.reference/Persist@0|input.analysis|output.receipt
 consume|bhcp.reference/Persist@0|resource.repository|output.receipt
-consume|bhcp.reference/review@0|input.patch|output.patch
 call|bhcp.reference/WalkTree@0|children.*|bhcp.reference/WalkTree@0|node|copy|quantifier.child
+call|bhcp.reference/WalkTree@0|children.*|bhcp.reference/WalkTree@0|remaining|copy|expression.remaining - 1
 call|bhcp.reference/DeliverChange@0|tree_checked|bhcp.reference/WalkTree@0|node|copy|input.tree
+call|bhcp.reference/DeliverChange@0|tree_checked|bhcp.reference/WalkTree@0|remaining|copy|input.tree_depth
+call|bhcp.reference/DeliverChange@0|review_checkpoint|bhcp.reference/review@0|risk|copy|input.risk
 call|bhcp.reference/DeliverChange@0|approval.accepted|bhcp.reference/Approve@0|risk|copy|input.risk
-call|bhcp.reference/DeliverChange@0|delivery.1.reviewed|bhcp.reference/review@0|patch|move|input.patch
-call|bhcp.reference/DeliverChange@0|delivery.2.analyzed|bhcp.reference/AnalyzePatch@0|patch|move|step.delivery.1.reviewed
-call|bhcp.reference/DeliverChange@0|delivery.3.receipt|bhcp.reference/Persist@0|analysis|move|step.delivery.2.analyzed
-call|bhcp.reference/DeliverChange@0|delivery.3.receipt|bhcp.reference/Persist@0|repository|move|resource.repository
+call|bhcp.reference/DeliverChange@0|delivery.1.analyzed|bhcp.reference/AnalyzePatch@0|patch|move|input.patch
+call|bhcp.reference/DeliverChange@0|delivery.2.receipt|bhcp.reference/Persist@0|analysis|move|step.delivery.1.analyzed
+call|bhcp.reference/DeliverChange@0|delivery.2.receipt|bhcp.reference/Persist@0|repository|move|resource.repository
+type|bhcp.reference/AnalyzePatch@0|input|patch|owned affine bhcp.reference/Patch@0
+type|bhcp.reference/AnalyzePatch@0|output|analysis|owned affine bhcp.reference/Analysis@0
+type|bhcp.reference/Approve@0|input|risk|bhcp.reference/Risk@0
+type|bhcp.reference/Approve@0|output|approval|Text
+type|bhcp.reference/Persist@0|input|analysis|owned affine bhcp.reference/Analysis@0
+type|bhcp.reference/Persist@0|resource|repository|owned linear Repository
+type|bhcp.reference/Persist@0|output|receipt|Result<bhcp.reference/Receipt@0,bhcp.reference/DeliveryError@0>
+type|bhcp.reference/WalkTree@0|input|node|bhcp.reference/Node@0
+type|bhcp.reference/WalkTree@0|input|remaining|Integer
+type|bhcp.reference/WalkTree@0|output|result|Unit
+type|bhcp.reference/DeliverChange@0|input|patch|owned affine bhcp.reference/Patch@0
+type|bhcp.reference/DeliverChange@0|input|risk|bhcp.reference/Risk@0
+type|bhcp.reference/DeliverChange@0|input|tree|bhcp.reference/Node@0
+type|bhcp.reference/DeliverChange@0|input|tree_depth|Integer
+type|bhcp.reference/DeliverChange@0|resource|repository|owned linear Repository
+type|bhcp.reference/DeliverChange@0|state|attempts|Integer
+type|bhcp.reference/DeliverChange@0|output|outcome|bhcp.reference/Delivery@0
+type|bhcp.reference/review@0|input|risk|bhcp.reference/Risk@0
+type|bhcp.reference/review@0|output|result|Unit
+clause|bhcp.reference/WalkTree@0|non-negative-depth|requires|Bool|0 <= remaining
+clause|bhcp.reference/WalkTree@0|leaf-at-zero|requires|Bool|remaining != 0 || node.children == []
+clause|bhcp.reference/DeliverChange@0|non-empty-digest|requires|Bool|bhcp.reference/nonEmpty@0(patch.digest)
+clause|bhcp.reference/DeliverChange@0|tree-depth-matches|requires|Bool|tree.depth == tree_depth
+limit|bhcp.reference/WalkTree@0|depth|bhcp.reference/limit.depth@0|remaining|64|Bool
+limit|bhcp.reference/DeliverChange@0|attempts|bhcp.reference/limit.attempts@0|attempts|3|Bool
+effect|bhcp.reference/Persist@0|allow|bhcp-effect/fs.read@0|resource.repository
+effect|bhcp.reference/Persist@0|allow|bhcp-effect/fs.write@0|resource.repository
+effect|bhcp.reference/Persist@0|forbid|bhcp-effect/network@0|-
+effect|bhcp.reference/DeliverChange@0|allow|bhcp-effect/fs.read@0|resource.repository
+effect|bhcp.reference/DeliverChange@0|allow|bhcp-effect/fs.write@0|resource.repository
+effect|bhcp.reference/DeliverChange@0|allow|bhcp-effect/process@0|literal.cargo
+effect|bhcp.reference/DeliverChange@0|forbid|bhcp-effect/network@0|-
+recursion|bhcp.reference/WalkTree@0|children.*|well-founded|remaining|remaining - 1|0 <= remaining|remaining != 0 || node.children == []
+reducer|bhcp.reference/reviewReducer@0|bhcp.reference/Risk@0|{}|Reduction<Unit>|pending-or-concluded
+lowerer|bhcp.reference/lowerReview@0|Meta<DerivedForm,bhcp.reference/Risk@0,Unit>|Meta<NetworkShape,bhcp.reference/Risk@0,Unit>|bhcp/meta.network-shape@0
+extension-shape|bhcp.reference/review@0|bhcp.reference/Risk@0|Unit|no-children

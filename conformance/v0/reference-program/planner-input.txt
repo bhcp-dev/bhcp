@@ -10,6 +10,7 @@ waiver-decision-at = 2026-01-01T00:30:00Z
 extension = extension.diag
 input = execution-input.txt
 expected-obligations = expected-obligations.txt
+policy-evidence-registry = policy-evidence-registry.txt
 outcomes = outcome-matrix.txt
 budget = { attempts: 3, wall-time: duration "PT10M", processes: 4 }
 executor = bhcp.executor/coding-agent@0

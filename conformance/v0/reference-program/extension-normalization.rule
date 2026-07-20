@@ -1,0 +1,3 @@
+extension: bhcp.reference/review@0
+normalization: lower-completely-to-kernel-network
+reducer: bhcp.reference/reviewReducer@0

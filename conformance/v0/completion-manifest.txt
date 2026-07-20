@@ -185,6 +185,12 @@ artifact|profile|conformance/v0/reference-program/profile.bhcp
 artifact|profile-projection|conformance/v0/reference-program/profile.diag
 artifact|extension|conformance/v0/reference-program/extension.bhcp
 artifact|extension-projection|conformance/v0/reference-program/extension.diag
+artifact|extension-type-rule|conformance/v0/reference-program/extension-type.rule
+artifact|extension-effect-rule|conformance/v0/reference-program/extension-effect.rule
+artifact|extension-policy-rule|conformance/v0/reference-program/extension-policy.rule
+artifact|extension-normalization-rule|conformance/v0/reference-program/extension-normalization.rule
+artifact|extension-evidence-rule|conformance/v0/reference-program/extension-evidence.rule
+artifact|policy-evidence-registry|conformance/v0/reference-program/policy-evidence-registry.txt
 artifact|planner-input|conformance/v0/reference-program/planner-input.txt
 artifact|execution-input|conformance/v0/reference-program/execution-input.txt
 artifact|expected-obligations|conformance/v0/reference-program/expected-obligations.txt
@@ -198,7 +204,7 @@ feature|custom-profile|program-profiled|governance-source-parser,profile-source-
 feature|derived-extension|extension-projection|governance-source-parser,extension-lowering|extension-descriptor,derived,lowering
 feature|planning|planner-input|planner-boundary,conflict-scheduler,budget-retry-planner,execution-graph-builder|budget,executor,explained-refusal
 feature|execution|outcome-matrix|capability-executor-runtime,state-cas-runtime,execution-lifecycle-runtime,coding-agent-backend|policy-denied,budget-refused,cancelled,operational-fault
-feature|per-obligation-evidence|expected-obligations|obligation-graph-builder,obligation-proof-checker,evidence-graph-assembly|contract,evidence-demand,requirement,open
+feature|per-obligation-evidence|policy-evidence-registry|obligation-graph-builder,obligation-proof-checker,evidence-graph-assembly|bhcp.reference/obligation.static-analysis@0,bhcp.verifier/static-analysis@0
 
 non-goal|full-theorem-proving
 non-goal|unrestricted-macros-or-grammar-plugins

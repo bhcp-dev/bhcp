@@ -19,11 +19,14 @@ The source inventory deliberately crosses every practical v0 boundary:
 - `syntax.bhcp` and `profile.bhcp` select a closed custom presentation with a
   infer-strict type and two-layer policy boundary; their typed diagnostic projections
   validate against the existing syntax/profile models.
-- `extension.bhcp` is invoked by the program, names a defined reducer and lowerer,
-  and must disappear completely into checked core IR.
+- `extension.bhcp` is invoked by the program, names a kernel-signature reducer and
+  a `bhcp/meta.network-shape@0` lowerer, and must disappear completely into checked
+  core IR. Its five descriptor rule references bind reviewed, hashed rule files.
 - `registry.txt` and the planner/execution inputs connect every source and projection,
   fix budgets, capabilities, waiver decision time, cancellation, and output shape.
-  `expected-obligations.txt` contains only valid obligation states; the separate
+  `policy-evidence-registry.txt` explicitly binds both policy evidence demands to
+  their registered verifier producers. `expected-obligations.txt` contains only
+  valid obligation states; the separate
   `outcome-matrix.txt` preserves planning refusal, completed verdict, cancellation,
   stale-evidence, and operational-fault distinctions.
 
