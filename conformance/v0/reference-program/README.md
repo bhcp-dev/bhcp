@@ -8,8 +8,9 @@ the first unsupported definition instead of emitting a partial AST or IR.
 The source inventory deliberately crosses every practical v0 boundary:
 
 - `program.bhcp` uses named/refined types, a total function, a verifier-backed
-  predicate, affine/linear ownership and moves, effects, nested `all`/`chain`/`gate`
-  goals, a finite recursive walk, budgets, preferences, and exact evidence labels.
+  predicate, affine/linear ownership and moves, effects, nested `all`/`gate` goals,
+  an input-free-first predecessor-only `chain`, a bounded decreasing recursive walk,
+  budgets, preferences, and exact evidence labels.
 - `program.words.bhcp` is the same source structure under the checked-in
   `goal` → `intent` profile mapping. `program-contract.txt` is the reviewed typed
   projection that closes definitions, facts, calls, transfer modes, and consumption.

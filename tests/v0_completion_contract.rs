@@ -151,8 +151,8 @@ const OBLIGATIONS: &[&str] = &[
     "source|bhcp.reference/DeliverChange@0:attempts|limit|formal|open",
     "source|bhcp.reference/DeliverChange@0:non-empty-digest|contract|formal|open",
     "source|bhcp.reference/DeliverChange@0:tree-depth-matches|contract|formal|open",
-    "source|bhcp.reference/AnalyzePatch@0:safe-result|contract|static|open",
     "source|bhcp.reference/Approve@0:high-risk|contract|human-approved|open",
+    "source|bhcp.reference/Persist@0:safe-result|contract|static|open",
     "source|bhcp.reference/Persist@0:stored|contract|formal|open",
     "source|bhcp.reference/WalkTree@0:depth|limit|formal|open",
     "source|bhcp.reference/WalkTree@0:leaf-at-zero|contract|formal|open",
@@ -175,7 +175,7 @@ const OUTCOMES: &[&str] = &[
 
 const POLICY_EVIDENCE_BINDINGS: &[&str] = &[
     "bhcp.reference/obligation.human-approval@0|bhcp.verifier/human-approval@0|bhcp.reference/Approve@0:high-risk",
-    "bhcp.reference/obligation.static-analysis@0|bhcp.verifier/static-analysis@0|bhcp.reference/AnalyzePatch@0:safe-result",
+    "bhcp.reference/obligation.static-analysis@0|bhcp.verifier/static-analysis@0|bhcp.reference/Persist@0:safe-result",
 ];
 
 const EXTENSION_RULES: &[(&str, &str, &str)] = &[
@@ -207,12 +207,13 @@ const EXTENSION_RULES: &[(&str, &str, &str)] = &[
 ];
 
 const PROGRAM_SEMANTICS: &[&str] = &[
-    "type|bhcp.reference/AnalyzePatch@0|input|patch|owned affine bhcp.reference/Patch@0",
-    "type|bhcp.reference/AnalyzePatch@0|output|analysis|owned affine bhcp.reference/Analysis@0",
+    "type|bhcp.reference/StartDelivery@0|output|token|Text",
+    "type|bhcp.reference/ConfirmDelivery@0|input|token|Text",
+    "type|bhcp.reference/ConfirmDelivery@0|output|confirmation|Text",
     "type|bhcp.reference/Approve@0|input|risk|bhcp.reference/Risk@0",
     "type|bhcp.reference/Approve@0|output|approval|Text",
-    "type|bhcp.reference/Persist@0|input|analysis|owned affine bhcp.reference/Analysis@0",
-    "type|bhcp.reference/Persist@0|resource|repository|owned linear Repository",
+    "type|bhcp.reference/Persist@0|input|patch|owned affine bhcp.reference/Patch@0",
+    "type|bhcp.reference/Persist@0|resource|repository|owned linear bhcp.reference/Repository@0",
     "type|bhcp.reference/Persist@0|output|receipt|Result<bhcp.reference/Receipt@0,bhcp.reference/DeliveryError@0>",
     "type|bhcp.reference/WalkTree@0|input|node|bhcp.reference/Node@0",
     "type|bhcp.reference/WalkTree@0|input|remaining|Integer",
@@ -221,7 +222,7 @@ const PROGRAM_SEMANTICS: &[&str] = &[
     "type|bhcp.reference/DeliverChange@0|input|risk|bhcp.reference/Risk@0",
     "type|bhcp.reference/DeliverChange@0|input|tree|bhcp.reference/Node@0",
     "type|bhcp.reference/DeliverChange@0|input|tree_depth|Integer",
-    "type|bhcp.reference/DeliverChange@0|resource|repository|owned linear Repository",
+    "type|bhcp.reference/DeliverChange@0|resource|repository|owned linear bhcp.reference/Repository@0",
     "type|bhcp.reference/DeliverChange@0|state|attempts|Integer",
     "type|bhcp.reference/DeliverChange@0|output|outcome|bhcp.reference/Delivery@0",
     "type|bhcp.reference/review@0|input|risk|bhcp.reference/Risk@0",
@@ -230,6 +231,7 @@ const PROGRAM_SEMANTICS: &[&str] = &[
     "clause|bhcp.reference/WalkTree@0|leaf-at-zero|requires|Bool|remaining != 0 || node.children == []",
     "clause|bhcp.reference/DeliverChange@0|non-empty-digest|requires|Bool|bhcp.reference/nonEmpty@0(patch.digest)",
     "clause|bhcp.reference/DeliverChange@0|tree-depth-matches|requires|Bool|tree.depth == tree_depth",
+    "clause|bhcp.reference/Persist@0|safe-result|ensures|Bool|match receipt",
     "limit|bhcp.reference/WalkTree@0|depth|bhcp.reference/limit.depth@0|remaining|64|Bool",
     "limit|bhcp.reference/DeliverChange@0|attempts|bhcp.reference/limit.attempts@0|attempts|3|Bool",
     "effect|bhcp.reference/Persist@0|allow|bhcp-effect/fs.read@0|resource.repository",
@@ -240,6 +242,8 @@ const PROGRAM_SEMANTICS: &[&str] = &[
     "effect|bhcp.reference/DeliverChange@0|allow|bhcp-effect/process@0|literal.cargo",
     "effect|bhcp.reference/DeliverChange@0|forbid|bhcp-effect/network@0|-",
     "recursion|bhcp.reference/WalkTree@0|children.*|well-founded|remaining|remaining - 1|0 <= remaining|remaining != 0 || node.children == []",
+    "chain|bhcp.reference/DeliverChange@0|sequence|sequence.1.started|bhcp.reference/StartDelivery@0|input-free|-",
+    "chain|bhcp.reference/DeliverChange@0|sequence|sequence.2.confirmed|bhcp.reference/ConfirmDelivery@0|predecessor-whole|step.sequence.1.started",
     "reducer|bhcp.reference/reviewReducer@0|bhcp.reference/Risk@0|{}|Reduction<Unit>|pending-or-concluded",
     "lowerer|bhcp.reference/lowerReview@0|Meta<DerivedForm,bhcp.reference/Risk@0,Unit>|Meta<NetworkShape,bhcp.reference/Risk@0,Unit>|bhcp/meta.network-shape@0",
     "extension-shape|bhcp.reference/review@0|bhcp.reference/Risk@0|Unit|no-children",
@@ -249,7 +253,7 @@ const PROGRAM_DEFINITIONS: &[(&str, &str)] = &[
     ("type", "bhcp.reference/NonEmptyText@0"),
     ("type", "bhcp.reference/Risk@0"),
     ("type", "bhcp.reference/Patch@0"),
-    ("type", "bhcp.reference/Analysis@0"),
+    ("type", "bhcp.reference/Repository@0"),
     ("type", "bhcp.reference/Receipt@0"),
     ("type", "bhcp.reference/DeliveryError@0"),
     ("type", "bhcp.reference/Node@0"),
@@ -257,7 +261,8 @@ const PROGRAM_DEFINITIONS: &[(&str, &str)] = &[
     ("type", "bhcp.reference/Delivery@0"),
     ("function", "bhcp.reference/isHighRisk@0"),
     ("predicate", "bhcp.reference/nonEmpty@0"),
-    ("goal", "bhcp.reference/AnalyzePatch@0"),
+    ("goal", "bhcp.reference/StartDelivery@0"),
+    ("goal", "bhcp.reference/ConfirmDelivery@0"),
     ("goal", "bhcp.reference/Approve@0"),
     ("goal", "bhcp.reference/Persist@0"),
     ("goal", "bhcp.reference/WalkTree@0"),
@@ -461,6 +466,7 @@ struct ProgramContract {
     facts: BTreeMap<(String, String, String), String>,
     consumes: BTreeSet<(String, String, String)>,
     calls: Vec<DataCall>,
+    calls0: Vec<(String, String, String)>,
     semantics: BTreeSet<String>,
 }
 
@@ -505,6 +511,11 @@ fn parse_program_contract(text: &str) -> Result<ProgramContract, String> {
                     source: (*source).to_owned(),
                 });
             }
+            ["call0", parent, step, callee] => contract.calls0.push((
+                (*parent).to_owned(),
+                (*step).to_owned(),
+                (*callee).to_owned(),
+            )),
             [kind, ..]
                 if matches!(
                     *kind,
@@ -513,6 +524,7 @@ fn parse_program_contract(text: &str) -> Result<ProgramContract, String> {
                         | "limit"
                         | "effect"
                         | "recursion"
+                        | "chain"
                         | "reducer"
                         | "lowerer"
                         | "extension-shape"
@@ -543,9 +555,30 @@ fn fact_mode<'a>(
         .ok_or_else(|| format!("unknown {kind} {owner}:{name}"))
 }
 
-fn validate_program_projection(root: &Path, text: &str) -> Result<(), String> {
-    let canonical = read_reference(root, "program.bhcp")?;
-    let extension_source = read_reference(root, "extension.bhcp")?;
+fn definition_block<'a>(source: &'a str, kind: &str, symbol: &str) -> Result<&'a str, String> {
+    let marker = format!("§{kind} {symbol}");
+    let start = source
+        .find(&marker)
+        .ok_or_else(|| format!("source omits {marker}"))?;
+    let tail = &source[start..];
+    let end = tail[marker.len()..]
+        .find("\n§")
+        .map(|offset| marker.len() + offset)
+        .unwrap_or(tail.len());
+    Ok(&tail[..end])
+}
+
+fn compact(text: &str) -> String {
+    text.chars()
+        .filter(|character| !character.is_whitespace())
+        .collect()
+}
+
+fn validate_program_projection_sources(
+    text: &str,
+    canonical: &str,
+    extension_source: &str,
+) -> Result<(), String> {
     let projection = parse_program_contract(text)?;
     if projection.semantics != expected_set(PROGRAM_SEMANTICS) {
         return Err("program semantic projection mismatch".to_owned());
@@ -580,8 +613,101 @@ fn validate_program_projection(root: &Path, text: &str) -> Result<(), String> {
         }
     }
 
+    for row in projection
+        .semantics
+        .iter()
+        .filter(|row| row.starts_with("type|"))
+    {
+        let fields = row.splitn(6, '|').collect::<Vec<_>>();
+        let [_, owner, kind, name, value_type] = fields.as_slice() else {
+            return Err("typed projection row is malformed".to_owned());
+        };
+        if *owner == "bhcp.reference/review@0"
+            || (*owner == "bhcp.reference/WalkTree@0" && *kind == "output")
+        {
+            continue;
+        }
+        let block = definition_block(canonical, "goal", owner)?;
+        let marker = format!("§{kind} {name}: {value_type};");
+        if !compact(block).contains(&compact(&marker)) {
+            return Err(format!("{owner} omits owner-scoped typed fact {marker}"));
+        }
+    }
+
+    for row in projection
+        .semantics
+        .iter()
+        .filter(|row| row.starts_with("clause|"))
+    {
+        let fields = row.splitn(6, '|').collect::<Vec<_>>();
+        let [_, owner, label, contract, _, expression] = fields.as_slice() else {
+            return Err("clause projection row is malformed".to_owned());
+        };
+        let block = definition_block(canonical, "goal", owner)?;
+        let marker = format!("§{contract} \"{label}\": {expression}");
+        if !compact(block).contains(&compact(&marker)) {
+            return Err(format!("{owner} omits owner-scoped clause {marker}"));
+        }
+    }
+
+    let deliver = definition_block(canonical, "goal", "bhcp.reference/DeliverChange@0")?;
+    let persist = definition_block(canonical, "goal", "bhcp.reference/Persist@0")?;
+    let walk = definition_block(canonical, "goal", "bhcp.reference/WalkTree@0")?;
+    for (block, marker) in [
+        (
+            walk,
+            "§limit \"depth\": bhcp.reference/limit.depth@0: remaining <= 64;",
+        ),
+        (walk, "remaining = remaining - 1"),
+        (
+            persist,
+            "§allows bhcp-effect/fs.read@0(repository), bhcp-effect/fs.write@0(repository);",
+        ),
+        (persist, "§forbids bhcp-effect/network@0;"),
+        (
+            deliver,
+            "§limit \"attempts\": bhcp.reference/limit.attempts@0: attempts <= 3;",
+        ),
+        (
+            deliver,
+            "§allows bhcp-effect/fs.read@0(repository), bhcp-effect/fs.write@0(repository), bhcp-effect/process@0(\"cargo\");",
+        ),
+        (deliver, "§forbids bhcp-effect/network@0;"),
+        (deliver, "started = bhcp.reference/StartDelivery@0();"),
+        (
+            deliver,
+            "confirmed = bhcp.reference/ConfirmDelivery@0(token = started);",
+        ),
+    ] {
+        if !compact(block).contains(&compact(marker)) {
+            return Err(format!("owner-scoped source omits {marker}"));
+        }
+    }
+
     let mut steps = BTreeMap::<(String, String), String>::new();
     let mut uses = BTreeMap::<(String, String), usize>::new();
+    for (parent, step, callee) in &projection.calls0 {
+        if !definition_symbols.contains(parent.as_str())
+            || !definition_symbols.contains(callee.as_str())
+        {
+            return Err("input-free call has an unknown definition".to_owned());
+        }
+        if projection.facts.keys().any(|(owner, kind, _)| {
+            owner == callee && matches!(kind.as_str(), "input" | "resource")
+        }) {
+            return Err(format!("first chain child {callee} is not input-free"));
+        }
+        if steps
+            .insert((parent.clone(), step.clone()), callee.clone())
+            .is_some()
+        {
+            return Err(format!("duplicate input-free step {step}"));
+        }
+        let block = definition_block(canonical, "goal", parent)?;
+        if !compact(block).contains(&compact(&format!("{callee}();"))) {
+            return Err(format!("source omits input-free call {callee}"));
+        }
+    }
     for call in &projection.calls {
         if !definition_symbols.contains(call.parent.as_str()) {
             return Err(format!("call has unknown parent {}", call.parent));
@@ -666,11 +792,12 @@ fn validate_program_projection(root: &Path, text: &str) -> Result<(), String> {
     for marker in [
         "§type bhcp.reference/Risk@0 = variant { Low, High };",
         "§type bhcp.reference/Patch@0 = { bytes: Bytes, digest: Text };",
+        "§type bhcp.reference/Repository@0 = { root: Text };",
         "§type bhcp.reference/WalkInput@0 = { node: bhcp.reference/Node@0, remaining: Integer };",
         "§input patch: owned affine bhcp.reference/Patch@0;",
-        "§output analysis: owned affine bhcp.reference/Analysis@0;",
-        "§input analysis: owned affine bhcp.reference/Analysis@0;",
-        "§resource repository: owned linear Repository;",
+        "§output token: Text;",
+        "§input token: Text;",
+        "§resource repository: owned linear bhcp.reference/Repository@0;",
         "§input remaining: Integer;",
         "§input tree_depth: Integer;",
         "§state attempts: Integer;",
@@ -753,6 +880,14 @@ fn validate_program_projection(root: &Path, text: &str) -> Result<(), String> {
         }
     }
     Ok(())
+}
+
+fn validate_program_projection(root: &Path, text: &str) -> Result<(), String> {
+    validate_program_projection_sources(
+        text,
+        &read_reference(root, "program.bhcp")?,
+        &read_reference(root, "extension.bhcp")?,
+    )
 }
 
 fn validate_program_contract(root: &Path) -> Result<(), String> {
@@ -1081,8 +1216,8 @@ fn validate_reference_semantics(root: &Path) -> Result<(), String> {
     }
     let execution_input = read_reference(root, "execution-input.txt")?;
     for marker in [
-        "workspace = ",
-        "patch = ",
+        "patch = { bytes: h'00', digest: \"reference-patch\" }",
+        "repository = { root: \"reference-workspace\" }",
         "risk = High",
         "tree = { name: \"repository\", depth: 0, children: [] }",
         "tree_depth = 0",
@@ -1358,6 +1493,7 @@ fn reference_validators_reject_invalid_policy_shapes_and_ownership() {
         ("|remaining|remaining - 1|", "|remaining|remaining + 1|"),
         ("|bhcp-effect/fs.read@0|", "|fs.read|"),
         ("|{}|Reduction<Unit>|", "|{}|Unit|"),
+        ("|input-free|-", "|parent-input|input.patch"),
     ] {
         let mutation = typed_projection.replacen(from, to, 1);
         assert_eq!(
@@ -1365,6 +1501,35 @@ fn reference_validators_reject_invalid_policy_shapes_and_ownership() {
             "program semantic projection mismatch"
         );
     }
+
+    let canonical = read_reference(&root, "program.bhcp").unwrap();
+    let owner_type_drift = canonical.replacen(
+        "§input risk: bhcp.reference/Risk@0;\n    §input tree: bhcp.reference/Node@0;",
+        "§input risk: Text;\n    §input tree: bhcp.reference/Node@0;",
+        1,
+    );
+    let owner_error = validate_program_projection_sources(
+        &typed_projection,
+        &owner_type_drift,
+        &read_reference(&root, "extension.bhcp").unwrap(),
+    )
+    .unwrap_err();
+    assert!(owner_error.contains("owner-scoped typed fact"));
+
+    let undefined_repository = canonical.replacen(
+        "§type bhcp.reference/Repository@0 = { root: Text };\n",
+        "",
+        1,
+    );
+    assert!(
+        validate_program_projection_sources(
+            &typed_projection,
+            &undefined_repository,
+            &read_reference(&root, "extension.bhcp").unwrap(),
+        )
+        .unwrap_err()
+        .contains("occurs 0 times")
+    );
 
     let bindings = read_reference(&root, "policy-evidence-registry.txt")
         .unwrap()

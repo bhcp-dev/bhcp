@@ -1,2 +1,2 @@
 bhcp.reference/obligation.human-approval@0|bhcp.verifier/human-approval@0|bhcp.reference/Approve@0:high-risk
-bhcp.reference/obligation.static-analysis@0|bhcp.verifier/static-analysis@0|bhcp.reference/AnalyzePatch@0:safe-result
+bhcp.reference/obligation.static-analysis@0|bhcp.verifier/static-analysis@0|bhcp.reference/Persist@0:safe-result

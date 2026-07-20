@@ -1,7 +1,7 @@
 §type bhcp.reference/NonEmptyText@0 = Text where value => value != "";
 §type bhcp.reference/Risk@0 = variant { Low, High };
 §type bhcp.reference/Patch@0 = { bytes: Bytes, digest: Text };
-§type bhcp.reference/Analysis@0 = { patch: owned affine bhcp.reference/Patch@0, safe: Bool };
+§type bhcp.reference/Repository@0 = { root: Text };
 §type bhcp.reference/Receipt@0 = { digest: Text, revision: Integer };
 §type bhcp.reference/DeliveryError@0 = variant { Invalid(Text), Storage(Text) };
 §type bhcp.reference/Node@0 = { name: Text, depth: Integer, children: [bhcp.reference/Node@0] };
@@ -10,6 +10,7 @@
     tree_checked: Unit,
     review_checkpoint: Unit,
     approval: variant { Excluded, Included(Text) },
+    sequence: Text,
     delivery: Result<bhcp.reference/Receipt@0, bhcp.reference/DeliveryError@0>
 };
 
@@ -19,11 +20,13 @@
 §predicate bhcp.reference/nonEmpty@0(value: Text): Bool
     = value != "" with bhcp.verifier/expression@0;
 
-§goal bhcp.reference/AnalyzePatch@0 {
-    §input patch: owned affine bhcp.reference/Patch@0;
-    §output analysis: owned affine bhcp.reference/Analysis@0;
-    §ensures "safe-result": analysis.safe == true;
-    §verify "scanner": with bhcp.verifier/static-analysis@0 for "safe-result";
+§goal bhcp.reference/StartDelivery@0 {
+    §output token: Text;
+}
+
+§goal bhcp.reference/ConfirmDelivery@0 {
+    §input token: Text;
+    §output confirmation: Text;
 }
 
 §goal bhcp.reference/Approve@0 {
@@ -34,15 +37,20 @@
 }
 
 §goal bhcp.reference/Persist@0 {
-    §input analysis: owned affine bhcp.reference/Analysis@0;
-    §resource repository: owned linear Repository;
+    §input patch: owned affine bhcp.reference/Patch@0;
+    §resource repository: owned linear bhcp.reference/Repository@0;
     §output receipt: Result<bhcp.reference/Receipt@0, bhcp.reference/DeliveryError@0>;
     §allows bhcp-effect/fs.read@0(repository), bhcp-effect/fs.write@0(repository);
     §forbids bhcp-effect/network@0;
+    §ensures "safe-result": match receipt {
+        Ok(_) => true;
+        Err(_) => false;
+    };
     §ensures "stored": match receipt {
         Ok(value) => bhcp.reference/nonEmpty@0(value.digest);
         Err(_) => false;
     };
+    §verify "scanner": with bhcp.verifier/static-analysis@0 for "safe-result";
 }
 
 §goal bhcp.reference/WalkTree@0 §refines Goal<bhcp.reference/WalkInput@0, Unit> {
@@ -64,7 +72,7 @@
     §input risk: bhcp.reference/Risk@0;
     §input tree: bhcp.reference/Node@0;
     §input tree_depth: Integer;
-    §resource repository: owned linear Repository;
+    §resource repository: owned linear bhcp.reference/Repository@0;
     §state attempts: Integer;
     §output outcome: bhcp.reference/Delivery@0;
     §requires "non-empty-digest": bhcp.reference/nonEmpty@0(patch.digest);
@@ -82,13 +90,14 @@
         approval = §gate when bhcp.reference/isHighRisk@0(risk) {
             accepted = bhcp.reference/Approve@0(risk = risk);
         };
-        delivery = §chain {
-            analyzed = bhcp.reference/AnalyzePatch@0(patch = move patch);
-            receipt = bhcp.reference/Persist@0(
-                analysis = move analyzed,
-                repository = move repository
-            );
+        sequence = §chain {
+            started = bhcp.reference/StartDelivery@0();
+            confirmed = bhcp.reference/ConfirmDelivery@0(token = started);
         };
+        delivery = bhcp.reference/Persist@0(
+            patch = move patch,
+            repository = move repository
+        );
     };
     §verify "delivery": with bhcp.verifier/reference-delivery@0
         for "non-empty-digest";

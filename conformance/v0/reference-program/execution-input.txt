@@ -1,5 +1,5 @@
-workspace = content:bhcp.hash/sha3-512@0:reference-workspace
-patch = content:bhcp.hash/sha3-512@0:reference-patch
+patch = { bytes: h'00', digest: "reference-patch" }
+repository = { root: "reference-workspace" }
 risk = High
 tree = { name: "repository", depth: 0, children: [] }
 tree_depth = 0
