@@ -1,0 +1,9 @@
+task=atomic-batch
+seed=seed-01
+position=1
+arm=prose-control
+accepted=false
+claimed-success=false
+calibrated=true
+excluded=false
+failure-category=verification:oracle

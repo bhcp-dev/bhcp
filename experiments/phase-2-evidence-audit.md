@@ -91,11 +91,17 @@ The residual empirical gaps are explicit roadmap work. The preregistered
 across twelve completed sessions it observed 0/12 positive registry use and 0/12
 in-session acceptance, no infrastructure exclusions, and twelve calibrated negative
 claims. Its [full record](evidence-generalization/positive-use-results/README.md)
-does not reinterpret the Phase 2 evidence. [#93](https://github.com/bhcp-dev/bhcp/issues/93)
-separately tracks the symmetric BHCP-versus-prose and claim-calibration comparison
-under the frozen protocol and resource decision in
-[#91](https://github.com/bhcp-dev/bhcp/issues/91). This keeps the completed Phase 2
-implementation boundary finite without presenting unmeasured claims as complete.
+does not reinterpret the Phase 2 evidence. The separate
+[#93](https://github.com/bhcp-dev/bhcp/issues/93) comparison completed all 24
+sessions and twelve pairs with no exclusions: every prose and BHCP arm left its
+starter unchanged, failed only the withheld oracle, and made a calibrated negative
+claim. Both acceptance and calibration have paired risk difference +0.0000, zero
+discordants, and two-sided exact McNemar p=1.000000. Its
+[full record](evidence-generalization/comparative-results/README.md) is a retained
+failure of either representation to induce a repair, not evidence of equivalence.
+Together the studies close the frozen protocol and resource decision in
+[#91](https://github.com/bhcp-dev/bhcp/issues/91) without changing the completed
+Phase 2 implementation boundary or presenting population claims as complete.
 
 ## Delivery and consistency
 

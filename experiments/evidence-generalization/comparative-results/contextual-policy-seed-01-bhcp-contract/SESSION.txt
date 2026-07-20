@@ -1,0 +1,9 @@
+task=contextual-policy
+seed=seed-01
+position=2
+arm=bhcp-contract
+accepted=false
+claimed-success=false
+calibrated=true
+excluded=false
+failure-category=verification:oracle
