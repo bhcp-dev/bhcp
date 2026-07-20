@@ -1,3 +1,4 @@
+use std::collections::BTreeMap;
 use std::fs;
 use std::path::PathBuf;
 
@@ -25,6 +26,28 @@ fn workflow() -> String {
 fn mise_config() -> String {
     let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(".mise.toml");
     fs::read_to_string(path).expect("the pinned mise contract must exist")
+}
+
+fn cargo_manifest() -> String {
+    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("Cargo.toml");
+    fs::read_to_string(path).expect("the Cargo manifest must exist")
+}
+
+fn integration_targets() -> Vec<String> {
+    let tests = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests");
+    let mut targets = fs::read_dir(tests)
+        .expect("the integration-test directory must exist")
+        .map(|entry| entry.expect("integration-test entry must be readable").path())
+        .filter(|path| path.extension().is_some_and(|extension| extension == "rs"))
+        .map(|path| {
+            path.file_stem()
+                .and_then(|stem| stem.to_str())
+                .expect("integration-test filenames must be UTF-8")
+                .to_owned()
+        })
+        .collect::<Vec<_>>();
+    targets.sort();
+    targets
 }
 
 #[test]
@@ -62,6 +85,63 @@ fn long_test_gate_has_time_to_finish_without_weakening_other_job_limits() {
             .find("          - id:")
             .map_or(entry.len(), |index| index + 1);
         assert!(entry[..end].contains("timeout: 30"), "{id} timeout drifted");
+    }
+}
+
+#[test]
+fn hosted_test_partitions_cover_every_target_once_and_keep_the_required_context() {
+    let workflow = workflow();
+    assert!(
+        !workflow.contains("command: cargo test --all-targets"),
+        "the hosted gate still serializes every test target"
+    );
+    assert!(workflow.contains("name: Rust quality / Test plan"));
+    assert!(workflow.contains("name: Rust quality / Test shard / ${{ matrix.name }}"));
+    assert!(workflow.contains("needs: [test-plan, test-shards]"));
+    assert!(workflow.contains("name: Rust quality / Tests\n"));
+    assert!(workflow.contains("PLAN_RESULT: ${{ needs.test-plan.result }}"));
+    assert!(workflow.contains("SHARD_RESULT: ${{ needs.test-shards.result }}"));
+    assert!(workflow.matches("- id: shard-").count() >= 4);
+    assert!(
+        workflow
+            .lines()
+            .any(|line| line.trim() == "command: cargo test --lib --bins"),
+        "library and binary test targets are not scheduled"
+    );
+
+    let mut scheduled = BTreeMap::<String, usize>::new();
+    for line in workflow.lines().map(str::trim) {
+        let Some(command) = line.strip_prefix("command: cargo test ") else {
+            continue;
+        };
+        let fields = command.split_ascii_whitespace().collect::<Vec<_>>();
+        for pair in fields.windows(2) {
+            if pair[0] == "--test" {
+                *scheduled.entry(pair[1].to_owned()).or_default() += 1;
+            }
+        }
+    }
+    let expected = integration_targets();
+    assert_eq!(
+        scheduled.keys().cloned().collect::<Vec<_>>(),
+        expected,
+        "hosted integration-test coverage drifted"
+    );
+    assert!(
+        scheduled.values().all(|count| *count == 1),
+        "an integration-test target is scheduled more than once: {scheduled:?}"
+    );
+}
+
+#[test]
+fn test_only_sha3_hot_path_is_optimised() {
+    let manifest = cargo_manifest();
+    for package in ["sha3", "keccak"] {
+        let profile = format!("[profile.test.package.{package}]\nopt-level = 3");
+        assert!(
+            manifest.contains(&profile),
+            "the test profile does not optimise {package}"
+        );
     }
 }
 
