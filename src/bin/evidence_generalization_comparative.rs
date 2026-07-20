@@ -642,10 +642,15 @@ fn run_study(
     let mut results = Vec::with_capacity(STUDY_SESSION_LIMIT);
     let mut usage = Usage::default();
     for (index, session) in sessions.iter().enumerate() {
-        prelaunch(index, &usage)?;
+        if let Err(error) = prelaunch(index, &usage) {
+            write_results(output, &results, &usage)?;
+            write_stopped(output, &error)?;
+            return Err(error);
+        }
         let report = match ExperimentController::new().run(&session.plan) {
             Ok(report) => report,
             Err(error) => {
+                write_results(output, &results, &usage)?;
                 write_stopped(
                     output,
                     &format!(
