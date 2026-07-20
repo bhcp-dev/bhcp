@@ -109,10 +109,16 @@ with a stable diagnostic rather than erased. Parsing separately accepts complete
 including generic bounds, structural and algebraic types, handles, refinement
 predicates, verifier arguments, and exact source spans. Their closed deterministic
 AST is the boundary for the later checker and elaboration roadmap issues.
+The same parser boundary now accepts complete S7 goal headers and clause ordering:
+generic/refinement declarations, all four fact kinds and initializers, invariants,
+limits, authority, preferences, verifier arguments, executable cases, standalone
+goal calls, quantified composition, and recursively nested finite composition.
+These additional goal forms retain deterministic AST structure and fail closed
+before executable IR until their checker, ownership/effect, and recursion stages land.
 
 | Canonical definition | Implemented source slice | Explicitly deferred |
 | --- | --- | --- |
-| `§goal` / `§function` | Goals, complete general function parsing/AST construction, and the checked prelude-function executable boundary described above | General project-function checking/lowering and the remaining S7 goal grammar |
+| `§goal` / `§function` | Complete goal and general-function parsing/AST construction plus the checked executable goal/prelude-function slice described above | General checking/lowering, finite-domain proof, ownership/effects, cases, and recursion semantics |
 | `§type` / `§predicate` / `§refines` | Complete definition, parameter, type, refinement, and verifier-binding parsing into schema-valid canonical AST | Name/type checking and semantic-IR elaboration |
 | `§policy` | Layer, `§extends`, six closed typed rules, scopes/parameters, waivability, issuers, composition, inspection, policy-aware elaboration, and no-waiver conformance fixtures | Expression-valued policy clauses, waiver/profile shorthand, and enforcement beyond the compile-time/evidence boundary |
 | `§syntax` / `§profile` | Fixed byte-level selection, typed deterministic artifacts, exact one-parent syntax/profile resolution, monotonic attached overlays, resolved-profile inspection, span-aware custom-source compilation, and deterministic profile-aware formatting | Syntax/profile source definitions |

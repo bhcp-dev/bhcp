@@ -218,6 +218,13 @@ forms MUST lower to the same meaning.
 | PLN-04 | Children consume an unallocated shared budget including retries. | Total accounting remains within parent limit or planning refuses. |
 | PLN-05 | Requirements lack parent facts, invariants, or prior guarantees. | Explicit obligations are emitted; never assumed discharged. |
 
+The complete goal parser fixture covers the authored prerequisites for KRN-11,
+REC-01..03, and PLN-03..05: quantifier domains, recursive goal references, typed
+argument modes, limits, invariants, and nested composition all retain ordered source
+spans in canonical AST. This is syntax evidence only. Static finiteness, decreasing
+measures, chain compatibility, shared-budget accounting, and obligation construction
+remain assigned to their checker, recursion, planner, and graph roadmap owners.
+
 ## Policy, waivers, and extensions
 
 | ID | Scenario | Expected result |

@@ -777,6 +777,18 @@ fn elaborate(
             1,
         ));
     }
+    if let Some(unsupported) = program
+        .goals
+        .iter()
+        .find_map(|goal| goal.unsupported.as_ref())
+    {
+        return Err(error(
+            "BHCP1004",
+            &unsupported.message,
+            source_name,
+            &unsupported.at,
+        ));
+    }
     let mut symbols = HashSet::new();
     for goal in &program.goals {
         if !symbols.insert(&goal.symbol) {
@@ -1206,6 +1218,14 @@ fn lower_goal(
                     obligations,
                 }
             }
+            SurfaceClauseKind::SyntaxOnly { kind } => {
+                return Err(error(
+                    "BHCP1004",
+                    format!("goal syntax {kind} is outside the implemented executable slice"),
+                    source_name,
+                    &surface.at,
+                ));
+            }
         };
         clauses.push(Clause {
             id: clause_ids[clause_index].clone(),
@@ -1380,6 +1400,14 @@ fn lower_composition(
             children,
             reducer: reducer.clone(),
         },
+        SurfaceComposition::SyntaxOnly { .. } => {
+            return Err(error(
+                "BHCP1004",
+                "goal syntax is outside the implemented executable slice",
+                source_name,
+                composition.at(),
+            ));
+        }
     };
     if shape.output != parent.output {
         return Err(error(
