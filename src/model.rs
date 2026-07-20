@@ -73,7 +73,7 @@ impl ContentReference {
     pub fn to_value(&self) -> Value {
         Value::map([
             ("media_type", Value::Text(self.media_type.clone())),
-            ("size", Value::Integer(self.size as i64)),
+            ("size", Value::Integer(self.size as i128)),
             (
                 "digests",
                 Value::Array(self.digests.iter().map(HashId::to_value).collect()),
@@ -112,12 +112,12 @@ impl TokenSpan {
     fn to_value(&self) -> Value {
         Value::map([
             ("source", self.source.to_value()),
-            ("start_byte", Value::Integer(self.start.byte as i64)),
-            ("end_byte", Value::Integer(self.end.byte as i64)),
-            ("start_line", Value::Integer(self.start.line as i64)),
-            ("start_column", Value::Integer(self.start.column as i64)),
-            ("end_line", Value::Integer(self.end.line as i64)),
-            ("end_column", Value::Integer(self.end.column as i64)),
+            ("start_byte", Value::Integer(self.start.byte as i128)),
+            ("end_byte", Value::Integer(self.end.byte as i128)),
+            ("start_line", Value::Integer(self.start.line as i128)),
+            ("start_column", Value::Integer(self.start.column as i128)),
+            ("end_line", Value::Integer(self.end.line as i128)),
+            ("end_column", Value::Integer(self.end.column as i128)),
         ])
     }
 }
@@ -579,7 +579,7 @@ impl Clause {
                 objective,
             } => {
                 entries.push(("kind".to_owned(), Value::Text("prefer".to_owned())));
-                entries.push(("priority".to_owned(), Value::Integer(*priority)));
+                entries.push(("priority".to_owned(), Value::Integer(i128::from(*priority))));
                 entries.push(("objective".to_owned(), objective.to_value()));
             }
             ClauseKind::Verify {
@@ -679,7 +679,7 @@ fn policy_indices(indices: &[usize]) -> Value {
     Value::Array(
         indices
             .iter()
-            .map(|index| Value::Integer(*index as i64))
+            .map(|index| Value::Integer(*index as i128))
             .collect(),
     )
 }

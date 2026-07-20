@@ -78,7 +78,7 @@ fn limit(id: &str, maximum: i64, unit: &str, goals: Option<&[&str]>) -> Value {
         ("unit".to_owned(), text(unit)),
         (
             "maximum".to_owned(),
-            array([text("integer"), Value::Integer(maximum)]),
+            array([text("integer"), Value::Integer(i128::from(maximum))]),
         ),
     ];
     if let Some(goals) = goals {

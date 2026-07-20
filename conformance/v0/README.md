@@ -147,9 +147,11 @@ represented only by WAV-01/WAV-02 acceptance requirements.
 
 `tests/type_checker.rs` makes TYP-01 through TYP-08 and NUM-01 executable at the
 v0 type boundary. It covers inference without implicit `Dynamic`, explicit runtime
-check descriptors, nominal distinction, open-record width subtyping, proof-gated
-refinement introduction, explicit `Option`/`Result` tags, exact numeric components,
-machine overflow, and unchanged float bits. It also exercises all wire type forms,
+check descriptors recursively through composite types, nominal distinction,
+open-record width subtyping, candidate-bound refinement evidence, exact closed
+resource references, explicit `Option`/`Result` tags, the complete deterministic-CBOR
+integer domain, exact numeric components, machine overflow, and unchanged float bits.
+It also exercises all wire type forms,
 generic arity/bounds, goal variance, canonical normalization, stable `BHCP4101`–
 `BHCP4106` failures, semantic-IR schema validation, and type-sensitive identity.
 The later expression, ownership, effect, and runtime issues consume this checked

@@ -34,7 +34,7 @@ pub enum RuntimeTypeCheckFailure {
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct RefinementEvidence {
-    predicates: BTreeSet<String>,
+    proofs: BTreeSet<(Vec<u8>, Vec<u8>)>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -77,7 +77,14 @@ impl CheckedType {
     }
 
     pub fn from_canonical_value(value: &Value) -> Result<Self> {
-        let checked = Self::from_value(value)?;
+        Self::from_canonical_value_with_relations(value, &TypeRelations::default())
+    }
+
+    pub fn from_canonical_value_with_relations(
+        value: &Value,
+        relations: &TypeRelations,
+    ) -> Result<Self> {
+        let checked = Self::from_value(value)?.normalize(relations)?;
         if checked.value != *value {
             return Err(Diagnostic::plain(
                 NONCANONICAL_TYPE,
@@ -104,7 +111,10 @@ impl CheckedType {
     pub fn can_cross_dynamic_boundary(&self, other: &Self, boundary: DynamicBoundary) -> bool {
         self == other
             || (boundary == DynamicBoundary::Checked
-                && (is_special(&self.value, "Dynamic") || is_special(&other.value, "Dynamic")))
+                && matches!(
+                    dynamic_boundary_shape(&self.value, &other.value),
+                    Some(true)
+                ))
     }
 
     pub fn boundary_check_to(
@@ -117,7 +127,10 @@ impl CheckedType {
             return Ok(None);
         }
         if boundary == DynamicBoundary::Checked
-            && (is_special(&self.value, "Dynamic") || is_special(&expected.value, "Dynamic"))
+            && matches!(
+                dynamic_boundary_shape(&self.value, &expected.value),
+                Some(true)
+            )
         {
             return Ok(Some(RuntimeTypeCheck {
                 expected: expected.clone(),
@@ -211,27 +224,52 @@ impl CheckedType {
 }
 
 impl RefinementEvidence {
-    pub fn witness(predicate: impl Into<String>) -> Result<Self> {
-        let predicate = predicate.into();
-        if predicate.is_empty() {
-            return Err(invalid("refinement evidence predicate must be non-empty"));
+    pub fn prove(&mut self, refinement: &CheckedType, value: &Value) -> Result<()> {
+        let Value::Array(parts) = &refinement.value else {
+            return Err(invalid(
+                "refinement evidence requires a checked refinement type",
+            ));
+        };
+        let [
+            Value::Text(tag),
+            Value::Text(predicate),
+            base,
+            binding,
+            expression,
+        ] = parts.as_slice()
+        else {
+            return Err(invalid(
+                "refinement evidence requires a checked refinement type",
+            ));
+        };
+        if tag != "refinement" {
+            return Err(invalid(
+                "refinement evidence requires a checked refinement type",
+            ));
         }
-        Ok(Self {
-            predicates: BTreeSet::from([predicate]),
-        })
-    }
-
-    pub fn add_witness(&mut self, predicate: impl Into<String>) -> Result<()> {
-        let predicate = predicate.into();
-        if predicate.is_empty() {
-            return Err(invalid("refinement evidence predicate must be non-empty"));
+        validate_value_against(value, base, self)?;
+        let binding_id = binding
+            .get("id")
+            .and_then(value_text)
+            .ok_or_else(|| invalid("checked refinement binding has no identity"))?;
+        if evaluate_refinement_expression(expression, binding_id, value)? != Value::Bool(true) {
+            return Err(Diagnostic::plain(
+                REFINEMENT_EVIDENCE_REQUIRED,
+                format!("value does not satisfy refinement {predicate:?}"),
+            ));
         }
-        self.predicates.insert(predicate);
+        self.proofs.insert((
+            encode_deterministic(&refinement.value)?,
+            encode_deterministic(value)?,
+        ));
         Ok(())
     }
 
-    fn proves(&self, predicate: &str) -> bool {
-        self.predicates.contains(predicate)
+    fn proves(&self, refinement: &Value, value: &Value) -> Result<bool> {
+        Ok(self.proofs.contains(&(
+            encode_deterministic(refinement)?,
+            encode_deterministic(value)?,
+        )))
     }
 }
 
@@ -500,7 +538,7 @@ fn surface_type(value: &SurfaceType, parameters: &[String]) -> Result<CheckedTyp
                 .iter()
                 .position(|candidate| candidate == name)
                 .ok_or_else(|| invalid("type parameter does not resolve"))?;
-            array([text("parameter"), Value::Integer(index as i64)])
+            array([text("parameter"), Value::Integer(index as i128)])
         }
         SurfaceType::Dynamic => dynamic_type().to_value(),
         SurfaceType::Never => array([text("special"), text("Never")]),
@@ -698,7 +736,7 @@ fn surface_expression_shape(expression: &SurfaceExpression, binder: &str) -> Val
             text("literal"),
             match value {
                 SurfaceLiteral::Bool(value) => Value::Bool(*value),
-                SurfaceLiteral::Integer(value) => Value::Integer(*value),
+                SurfaceLiteral::Integer(value) => Value::Integer(i128::from(*value)),
                 SurfaceLiteral::Text(value) => text(value),
             },
         ]),
@@ -770,7 +808,7 @@ fn lower_refinement_expression(
             SurfaceLiteral::Integer(value) => (
                 Value::Array(vec![
                     text("literal"),
-                    Value::Array(vec![text("integer"), Value::Integer(*value)]),
+                    Value::Array(vec![text("integer"), Value::Integer(i128::from(*value))]),
                 ]),
                 exact_type("Integer"),
             ),
@@ -824,16 +862,8 @@ fn lower_refinement_expression(
             }
             let result = match operator.as_str() {
                 "==" | "!=" => primitive_type("Bool"),
-                "<" | "<=" | ">" | ">="
-                    if matches!(
-                        left_type.to_value().as_array(),
-                        Ok([Value::Text(tag), _]) if tag == "exact-number" || tag == "primitive"
-                    ) =>
-                {
+                "<" | "<=" | ">" | ">=" if is_ordered_refinement_type(&left_type.to_value()) => {
                     primitive_type("Bool")
-                }
-                "+" | "-" | "*" | "/" if left_type == exact_type("Integer") => {
-                    exact_type("Integer")
                 }
                 "&&" | "||" if left_type == primitive_type("Bool") => primitive_type("Bool"),
                 _ => return Err(invalid("refinement binary operator is not total and typed")),
@@ -1332,7 +1362,10 @@ fn normalize_refinement_binding(value: &Value, base: &Value) -> Result<Value> {
     if normalize_type(binding_type)? != *base {
         return Err(invalid("refinement binding type must equal its base type"));
     }
-    Ok(value.clone())
+    Ok(Value::map([
+        ("id", value.get("id").unwrap().clone()),
+        ("type", base.clone()),
+    ]))
 }
 
 fn validate_refinement_expression(
@@ -1393,7 +1426,7 @@ fn validate_refinement_expression(
             if tag == "binary"
                 && matches!(
                     operator.as_str(),
-                    "==" | "!=" | "<" | "<=" | ">" | ">=" | "+" | "-" | "*" | "/" | "&&" | "||"
+                    "==" | "!=" | "<" | "<=" | ">" | ">=" | "&&" | "||"
                 ) =>
         {
             let left_type = validate_refinement_expression(left, binding_id, binding_type)?;
@@ -1403,16 +1436,8 @@ fn validate_refinement_expression(
             }
             match operator.as_str() {
                 "==" | "!=" => primitive_type("Bool").to_value(),
-                "<" | "<=" | ">" | ">="
-                    if matches!(
-                        left_type.as_array(),
-                        Ok([Value::Text(tag), _]) if tag == "exact-number" || tag == "primitive"
-                    ) =>
-                {
+                "<" | "<=" | ">" | ">=" if is_ordered_refinement_type(&left_type) => {
                     primitive_type("Bool").to_value()
-                }
-                "+" | "-" | "*" | "/" if left_type == exact_type("Integer").to_value() => {
-                    exact_type("Integer").to_value()
                 }
                 "&&" | "||" if left_type == primitive_type("Bool").to_value() => {
                     primitive_type("Bool").to_value()
@@ -1452,6 +1477,115 @@ fn validate_refinement_expression(
     }
     Ok(expression_type)
 }
+
+fn is_ordered_refinement_type(value_type: &Value) -> bool {
+    value_type == &exact_type("Integer").to_value()
+        || value_type == &primitive_type("Text").to_value()
+}
+
+fn evaluate_refinement_expression(
+    expression: &Value,
+    binding_id: &str,
+    candidate: &Value,
+) -> Result<Value> {
+    let Value::Array(form) = expression
+        .get("form")
+        .ok_or_else(|| invalid("checked refinement expression has no form"))?
+    else {
+        return Err(invalid("checked refinement expression form is invalid"));
+    };
+    match form.as_slice() {
+        [Value::Text(tag), literal] if tag == "literal" => Ok(literal.clone()),
+        [Value::Text(tag), Value::Text(reference)]
+            if tag == "reference" && reference == binding_id =>
+        {
+            Ok(candidate.clone())
+        }
+        [Value::Text(tag), Value::Text(operator), operand] if tag == "unary" => {
+            let operand = evaluate_refinement_expression(operand, binding_id, candidate)?;
+            match (operator.as_str(), operand) {
+                ("!", Value::Bool(value)) => Ok(Value::Bool(!value)),
+                ("-", value) => exact_integer(&value)
+                    .and_then(|value| {
+                        value.checked_neg().ok_or_else(|| {
+                            Diagnostic::plain(
+                                REFINEMENT_EVIDENCE_REQUIRED,
+                                "refinement integer negation exceeds the executable domain",
+                            )
+                        })
+                    })
+                    .map(exact_integer_value),
+                _ => Err(invalid("checked refinement unary expression is invalid")),
+            }
+        }
+        [Value::Text(tag), Value::Text(operator), left, right] if tag == "binary" => {
+            let left = evaluate_refinement_expression(left, binding_id, candidate)?;
+            let right = evaluate_refinement_expression(right, binding_id, candidate)?;
+            match operator.as_str() {
+                "==" => Ok(Value::Bool(left == right)),
+                "!=" => Ok(Value::Bool(left != right)),
+                "<" | "<=" | ">" | ">=" => {
+                    let ordering = refinement_value_cmp(&left, &right)?;
+                    Ok(Value::Bool(match operator.as_str() {
+                        "<" => ordering.is_lt(),
+                        "<=" => ordering.is_le(),
+                        ">" => ordering.is_gt(),
+                        ">=" => ordering.is_ge(),
+                        _ => unreachable!(),
+                    }))
+                }
+                "&&" | "||" => match (left, right) {
+                    (Value::Bool(left), Value::Bool(right)) => {
+                        Ok(Value::Bool(if operator == "&&" {
+                            left && right
+                        } else {
+                            left || right
+                        }))
+                    }
+                    _ => Err(invalid("checked refinement Boolean expression is invalid")),
+                },
+                _ => Err(invalid("checked refinement binary expression is invalid")),
+            }
+        }
+        [Value::Text(tag), condition, consequent, alternative] if tag == "if" => {
+            match evaluate_refinement_expression(condition, binding_id, candidate)? {
+                Value::Bool(true) => {
+                    evaluate_refinement_expression(consequent, binding_id, candidate)
+                }
+                Value::Bool(false) => {
+                    evaluate_refinement_expression(alternative, binding_id, candidate)
+                }
+                _ => Err(invalid("checked refinement condition is not Boolean")),
+            }
+        }
+        _ => Err(invalid("checked refinement expression is not executable")),
+    }
+}
+
+fn exact_integer(value: &Value) -> Result<i128> {
+    match value {
+        Value::Array(parts) if matches!(parts.as_slice(), [Value::Text(tag), Value::Integer(_)] if tag == "integer") =>
+        {
+            let Value::Integer(value) = parts[1] else {
+                unreachable!()
+            };
+            Ok(value)
+        }
+        _ => Err(invalid("checked refinement value is not an exact Integer")),
+    }
+}
+
+fn exact_integer_value(value: i128) -> Value {
+    Value::Array(vec![text("integer"), Value::Integer(value)])
+}
+
+fn refinement_value_cmp(left: &Value, right: &Value) -> Result<std::cmp::Ordering> {
+    match (left, right) {
+        (Value::Text(left), Value::Text(right)) => Ok(left.cmp(right)),
+        _ => Ok(exact_integer(left)?.cmp(&exact_integer(right)?)),
+    }
+}
+
 fn normalize_nominal(parts: &[Value]) -> Result<Value> {
     let [_, Value::Text(symbol), Value::Array(arguments)] = parts else {
         return Err(invalid("nominal type has invalid shape"));
@@ -1745,6 +1879,187 @@ fn record_subtype(
     })
 }
 
+fn dynamic_boundary_shape(actual: &Value, expected: &Value) -> Option<bool> {
+    if actual == expected {
+        return Some(false);
+    }
+    if is_special(actual, "Dynamic") || is_special(expected, "Dynamic") {
+        return Some(true);
+    }
+    let (Value::Array(actual), Value::Array(expected)) = (actual, expected) else {
+        return None;
+    };
+    if actual.first() != expected.first() {
+        return None;
+    }
+    let tag = actual.first().and_then(value_text)?;
+    match tag {
+        "record" => {
+            if actual.get(1) != expected.get(1) {
+                return None;
+            }
+            let (Value::Array(actual_fields), Value::Array(expected_fields)) =
+                (actual.get(2)?, expected.get(2)?)
+            else {
+                return None;
+            };
+            if actual_fields.len() != expected_fields.len() {
+                return None;
+            }
+            combine_dynamic(
+                actual_fields
+                    .iter()
+                    .zip(expected_fields)
+                    .map(|(actual, expected)| {
+                        let (
+                            Ok([actual_name, actual_type, actual_optional]),
+                            Ok([expected_name, expected_type, expected_optional]),
+                        ) = (actual.as_array(), expected.as_array())
+                        else {
+                            return None;
+                        };
+                        if actual_name != expected_name || actual_optional != expected_optional {
+                            None
+                        } else {
+                            dynamic_boundary_shape(actual_type, expected_type)
+                        }
+                    }),
+            )
+        }
+        "tuple" => dynamic_array_shape(actual.get(1)?, expected.get(1)?),
+        "union" | "intersection" => dynamic_set_shape(actual.get(1)?, expected.get(1)?),
+        "variant" => {
+            let (Value::Array(actual_cases), Value::Array(expected_cases)) =
+                (actual.get(1)?, expected.get(1)?)
+            else {
+                return None;
+            };
+            if actual_cases.len() != expected_cases.len() {
+                return None;
+            }
+            combine_dynamic(actual_cases.iter().zip(expected_cases).map(
+                |(actual_case, expected_case)| {
+                    let (Ok([actual_name, actual_payload]), Ok([expected_name, expected_payload])) =
+                        (actual_case.as_array(), expected_case.as_array())
+                    else {
+                        return None;
+                    };
+                    if actual_name != expected_name {
+                        None
+                    } else {
+                        dynamic_array_shape(actual_payload, expected_payload)
+                    }
+                },
+            ))
+        }
+        "list" | "set" | "option" | "structural" | "verdict" | "execution-result" | "reduction" => {
+            dynamic_boundary_shape(actual.get(1)?, expected.get(1)?)
+        }
+        "map" | "result" => combine_dynamic([
+            dynamic_boundary_shape(actual.get(1)?, expected.get(1)?),
+            dynamic_boundary_shape(actual.get(2)?, expected.get(2)?),
+        ]),
+        "application" => combine_dynamic([
+            dynamic_boundary_shape(actual.get(1)?, expected.get(1)?),
+            dynamic_array_shape(actual.get(2)?, expected.get(2)?),
+        ]),
+        "nominal" => {
+            if actual.get(1) != expected.get(1) {
+                None
+            } else {
+                dynamic_array_shape(actual.get(2)?, expected.get(2)?)
+            }
+        }
+        "goal" => {
+            if actual.get(3) != expected.get(3) || actual.get(4) != expected.get(4) {
+                None
+            } else {
+                combine_dynamic([
+                    dynamic_boundary_shape(actual.get(1)?, expected.get(1)?),
+                    dynamic_boundary_shape(actual.get(2)?, expected.get(2)?),
+                ])
+            }
+        }
+        "resource" => {
+            if actual.get(1) != expected.get(1) {
+                None
+            } else {
+                dynamic_boundary_shape(actual.get(2)?, expected.get(2)?)
+            }
+        }
+        "handle" => {
+            if actual.get(1..5) != expected.get(1..5) {
+                None
+            } else {
+                dynamic_boundary_shape(actual.get(5)?, expected.get(5)?)
+            }
+        }
+        _ => None,
+    }
+}
+
+fn dynamic_array_shape(actual: &Value, expected: &Value) -> Option<bool> {
+    let (Value::Array(actual), Value::Array(expected)) = (actual, expected) else {
+        return None;
+    };
+    if actual.len() != expected.len() {
+        return None;
+    }
+    combine_dynamic(
+        actual
+            .iter()
+            .zip(expected)
+            .map(|(actual, expected)| dynamic_boundary_shape(actual, expected)),
+    )
+}
+
+fn dynamic_set_shape(actual: &Value, expected: &Value) -> Option<bool> {
+    let (Value::Array(actual), Value::Array(expected)) = (actual, expected) else {
+        return None;
+    };
+    if actual.len() != expected.len() {
+        return None;
+    }
+    match_dynamic_members(actual, expected, &mut vec![false; expected.len()], 0, false)
+}
+
+fn match_dynamic_members(
+    actual: &[Value],
+    expected: &[Value],
+    used: &mut [bool],
+    index: usize,
+    found_dynamic: bool,
+) -> Option<bool> {
+    if index == actual.len() {
+        return Some(found_dynamic);
+    }
+    let mut candidates = expected
+        .iter()
+        .enumerate()
+        .filter(|(candidate, _)| !used[*candidate])
+        .filter_map(|(candidate, expected)| {
+            dynamic_boundary_shape(&actual[index], expected).map(|dynamic| (candidate, dynamic))
+        })
+        .collect::<Vec<_>>();
+    candidates.sort_by_key(|(_, dynamic)| *dynamic);
+    for (candidate, dynamic) in candidates {
+        used[candidate] = true;
+        if let Some(result) =
+            match_dynamic_members(actual, expected, used, index + 1, found_dynamic || dynamic)
+        {
+            return Some(result);
+        }
+        used[candidate] = false;
+    }
+    None
+}
+
+fn combine_dynamic(values: impl IntoIterator<Item = Option<bool>>) -> Option<bool> {
+    values
+        .into_iter()
+        .try_fold(false, |found, value| value.map(|value| found || value))
+}
+
 fn validate_value_against(
     value: &Value,
     value_type: &Value,
@@ -1780,7 +2095,7 @@ fn validate_value_against(
         "map" => validate_map_value(value, &parts[1], &parts[2], evidence),
         "refinement" => {
             let predicate = value_text(&parts[1]).unwrap();
-            if !evidence.proves(predicate) {
+            if !evidence.proves(value_type, value)? {
                 return Err(Diagnostic::plain(
                     REFINEMENT_EVIDENCE_REQUIRED,
                     format!("refinement {predicate:?} requires explicit predicate evidence"),
@@ -1797,15 +2112,7 @@ fn validate_value_against(
         "verdict" | "execution-result" | "reduction" => {
             validate_tagged_wrapper(value, &parts[1], evidence)
         }
-        "resource" | "handle" => {
-            if matches!(value, Value::Map(_) if value.get("ref").is_some()) {
-                Ok(())
-            } else {
-                Err(mismatch(
-                    "resource and handle values must be explicit references",
-                ))
-            }
-        }
+        "resource" | "handle" => validate_reference_value(value),
         "parameter" | "application" | "nominal" => Err(mismatch(
             "generic and nominal values require a resolved definition environment",
         )),
@@ -1830,6 +2137,20 @@ fn validate_primitive_value(value: &Value, name: &str) -> Result<()> {
     valid
         .then_some(())
         .ok_or_else(|| mismatch(format!("value does not inhabit primitive {name}")))
+}
+
+fn validate_reference_value(value: &Value) -> Result<()> {
+    match value {
+        Value::Map(entries)
+            if entries.len() == 1
+                && matches!(entries.as_slice(), [(key, Value::Text(reference))] if key == "ref" && !reference.is_empty() && reference.len() <= 128) =>
+        {
+            Ok(())
+        }
+        _ => Err(mismatch(
+            "resource and handle values must contain exactly one text ref of 1 to 128 bytes",
+        )),
+    }
 }
 
 fn validate_exact_number_value(value: &Value, name: &str) -> Result<()> {
@@ -1865,18 +2186,18 @@ fn validate_machine_integer_value(value: &Value, value_type: &[Value]) -> Result
         ));
     }
     let fits = if sign == "signed" {
-        if *width >= 64 {
+        if *width >= 65 {
             true
         } else {
             let bound = 1_i128 << (*width as u32 - 1);
-            i128::from(*integer) >= -bound && i128::from(*integer) < bound
+            *integer >= -bound && *integer < bound
         }
     } else if *integer < 0 {
         false
-    } else if *width >= 63 {
+    } else if *width >= 64 {
         true
     } else {
-        i128::from(*integer) < (1_i128 << *width as u32)
+        *integer < (1_i128 << *width as u32)
     };
     if fits {
         Ok(())
@@ -2157,7 +2478,7 @@ fn validate_exact_value(value: &Value) -> Result<()> {
             if *denominator <= 0 {
                 return Err(invalid("rational denominator must be positive"));
             }
-            if greatest_common_divisor(numerator.unsigned_abs(), *denominator as u64) != 1 {
+            if greatest_common_divisor(numerator.unsigned_abs(), *denominator as u128) != 1 {
                 return Err(Diagnostic::plain(
                     NONCANONICAL_TYPE,
                     "rational value must be reduced to coprime components",
@@ -2226,7 +2547,7 @@ fn validate_exact_value(value: &Value) -> Result<()> {
     Ok(())
 }
 
-fn greatest_common_divisor(mut left: u64, mut right: u64) -> u64 {
+fn greatest_common_divisor(mut left: u128, mut right: u128) -> u128 {
     while right != 0 {
         let remainder = left % right;
         left = right;

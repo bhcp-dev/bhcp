@@ -2,7 +2,7 @@
 pub enum Value {
     Null,
     Bool(bool),
-    Integer(i64),
+    Integer(i128),
     Text(String),
     Bytes(Vec<u8>),
     Array(Vec<Value>),

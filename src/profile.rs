@@ -252,8 +252,11 @@ impl FormattingRules {
 
     fn to_value(self) -> Value {
         Value::map([
-            ("indent_width", Value::Integer(i64::from(self.indent_width))),
-            ("line_width", Value::Integer(i64::from(self.line_width))),
+            (
+                "indent_width",
+                Value::Integer(i128::from(self.indent_width)),
+            ),
+            ("line_width", Value::Integer(i128::from(self.line_width))),
             ("final_newline", Value::Bool(self.final_newline)),
         ])
     }
@@ -952,7 +955,8 @@ fn text_value<'a>(value: &'a Value, context: &str) -> Result<&'a str> {
 
 fn integer_value(value: &Value, context: &str) -> Result<i64> {
     match value {
-        Value::Integer(value) => Ok(*value),
+        Value::Integer(value) => i64::try_from(*value)
+            .map_err(|_| invalid(format!("{context} is outside the supported integer range"))),
         _ => Err(invalid(format!("{context} must be an integer"))),
     }
 }

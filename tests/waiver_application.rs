@@ -30,7 +30,10 @@ fn limit_value(maximum: i64) -> Value {
     Value::map([
         ("dimension", text("example/dimension.attempts@0")),
         ("unit", text("example/unit.count@0")),
-        ("maximum", array([text("integer"), Value::Integer(maximum)])),
+        (
+            "maximum",
+            array([text("integer"), Value::Integer(i128::from(maximum))]),
+        ),
         (
             "scope",
             Value::map([("goals", array([text("example/goal.deploy@0")]))]),

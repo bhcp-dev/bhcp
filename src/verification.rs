@@ -390,8 +390,11 @@ impl PolicyEvidenceObligation {
                 "classes",
                 Value::Array(self.classes.iter().cloned().map(Value::Text).collect()),
             ),
-            ("minimum", Value::Integer(self.minimum as i64)),
-            ("effective_rule", Value::Integer(self.effective_rule as i64)),
+            ("minimum", Value::Integer(self.minimum as i128)),
+            (
+                "effective_rule",
+                Value::Integer(self.effective_rule as i128),
+            ),
             (
                 "sources",
                 Value::Array(
@@ -1580,7 +1583,7 @@ fn integer(value: Value) -> Result<i64> {
             let Value::Integer(value) = values[1] else {
                 unreachable!()
             };
-            Ok(value)
+            i64::try_from(value).map_err(|_| invalid("expression integer is out of range"))
         }
         _ => Err(invalid("expression value is not an Integer")),
     }
@@ -1589,7 +1592,7 @@ fn integer(value: Value) -> Result<i64> {
 fn integer_value(value: i64) -> Value {
     Value::Array(vec![
         Value::Text("integer".to_owned()),
-        Value::Integer(value),
+        Value::Integer(i128::from(value)),
     ])
 }
 

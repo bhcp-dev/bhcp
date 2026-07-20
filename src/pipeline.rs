@@ -1688,7 +1688,7 @@ fn surface_expression_identity(expression: &SurfaceExpression) -> Result<Value> 
                 SurfaceLiteral::Text(value) => Value::Text(value.clone()),
                 SurfaceLiteral::Integer(value) => Value::Array(vec![
                     Value::Text("integer".to_owned()),
-                    Value::Integer(*value),
+                    Value::Integer(i128::from(*value)),
                 ]),
             },
         ]),
@@ -1762,7 +1762,7 @@ fn lower_gate_condition(
                 BhcpType::ExactNumber("Integer"),
                 ExpressionForm::Literal(Value::Array(vec![
                     Value::Text("integer".to_owned()),
-                    Value::Integer(*value),
+                    Value::Integer(i128::from(*value)),
                 ])),
             ),
         },
@@ -2006,7 +2006,7 @@ fn lower_reducer_expression(
                 BhcpType::ExactNumber("Integer"),
                 ExpressionForm::Literal(Value::Array(vec![
                     Value::Text("integer".to_owned()),
-                    Value::Integer(*value),
+                    Value::Integer(i128::from(*value)),
                 ])),
             ),
         },
@@ -2407,7 +2407,7 @@ fn lower_expression(
                 BhcpType::ExactNumber("Integer"),
                 ExpressionForm::Literal(Value::Array(vec![
                     Value::Text("integer".to_owned()),
-                    Value::Integer(*value),
+                    Value::Integer(i128::from(*value)),
                 ])),
             ),
         },
@@ -2551,7 +2551,7 @@ fn lower_effect(
                 SurfaceLiteral::Text(value) => Value::Text(value.clone()),
                 SurfaceLiteral::Integer(value) => Value::Array(vec![
                     Value::Text("integer".to_owned()),
-                    Value::Integer(*value),
+                    Value::Integer(i128::from(*value)),
                 ]),
             }),
             _ => {

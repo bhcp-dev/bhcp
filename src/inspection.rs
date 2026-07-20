@@ -647,7 +647,7 @@ fn text_field<'a>(value: &'a Value, field: &str) -> Option<&'a str> {
 
 fn integer_field(value: &Value, field: &str) -> Option<i64> {
     match value.get(field) {
-        Some(Value::Integer(value)) => Some(*value),
+        Some(Value::Integer(value)) => i64::try_from(*value).ok(),
         _ => None,
     }
 }

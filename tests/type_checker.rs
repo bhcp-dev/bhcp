@@ -244,6 +244,85 @@ fn typ_02_03_dynamic_boundaries_require_and_materialize_runtime_checks() {
         .unwrap();
     assert_eq!(gradual.expected, text);
     assert_eq!(gradual.failure, RuntimeTypeCheckFailure::Fault);
+
+    let dynamic_field = checked(r#"["record", false, [["value", ["special", "Dynamic"], false]]]"#);
+    let text_field = checked(r#"["record", false, [["value", ["primitive", "Text"], false]]]"#);
+    assert!(
+        dynamic_field
+            .boundary_check_to(
+                &text_field,
+                DynamicBoundary::Checked,
+                RuntimeTypeCheckFailure::TypeMismatch,
+            )
+            .unwrap()
+            .is_some()
+    );
+    let different_field =
+        checked(r#"["record", false, [["other", ["primitive", "Text"], false]]]"#);
+    assert_eq!(
+        dynamic_field
+            .boundary_check_to(
+                &different_field,
+                DynamicBoundary::Checked,
+                RuntimeTypeCheckFailure::TypeMismatch,
+            )
+            .unwrap_err()
+            .code,
+        "BHCP4104"
+    );
+
+    for (actual, expected) in [
+        (
+            r#"["tuple", [["special", "Dynamic"], ["primitive", "Text"]]]"#,
+            r#"["tuple", [["primitive", "Bytes"], ["primitive", "Text"]]]"#,
+        ),
+        (
+            r#"["variant", [["Some", [["special", "Dynamic"]]]]]"#,
+            r#"["variant", [["Some", [["primitive", "Text"]]]]]"#,
+        ),
+        (
+            r#"["list", ["special", "Dynamic"]]"#,
+            r#"["list", ["primitive", "Text"]]"#,
+        ),
+        (
+            r#"["map", ["primitive", "Text"], ["special", "Dynamic"]]"#,
+            r#"["map", ["primitive", "Text"], ["exact-number", "Integer"]]"#,
+        ),
+        (
+            r#"["option", ["special", "Dynamic"]]"#,
+            r#"["option", ["primitive", "Text"]]"#,
+        ),
+        (
+            r#"["result", ["special", "Dynamic"], ["primitive", "Text"]]"#,
+            r#"["result", ["primitive", "Bytes"], ["primitive", "Text"]]"#,
+        ),
+        (
+            r#"["union", [["special", "Dynamic"], ["primitive", "Text"]]]"#,
+            r#"["union", [["primitive", "Bytes"], ["primitive", "Text"]]]"#,
+        ),
+        (
+            r#"["resource", "example/Repository@0", ["special", "Dynamic"]]"#,
+            r#"["resource", "example/Repository@0", ["primitive", "Text"]]"#,
+        ),
+        (
+            r#"["handle", "owned", "write", "affine", "goal", ["special", "Dynamic"]]"#,
+            r#"["handle", "owned", "write", "affine", "goal", ["primitive", "Text"]]"#,
+        ),
+    ] {
+        let actual = checked(actual);
+        let expected = checked(expected);
+        assert!(actual.can_cross_dynamic_boundary(&expected, DynamicBoundary::Checked));
+        assert!(
+            actual
+                .boundary_check_to(
+                    &expected,
+                    DynamicBoundary::Checked,
+                    RuntimeTypeCheckFailure::TypeMismatch,
+                )
+                .unwrap()
+                .is_some()
+        );
+    }
 }
 
 #[test]
@@ -291,12 +370,6 @@ fn typ_06_refinement_introduction_requires_predicate_evidence() {
     let parsed = parse_canonical(source, "typ-06.bhcp", source_ref).unwrap();
     let program = check_type_definitions(&parsed).unwrap();
     let refined = &program.definitions[0].definition;
-    let Value::Array(parts) = refined.to_value() else {
-        unreachable!()
-    };
-    let Value::Text(predicate) = &parts[1] else {
-        unreachable!()
-    };
     let value = parse_diagnostic(r#"["integer", 1]"#).unwrap();
 
     assert_eq!(
@@ -306,12 +379,44 @@ fn typ_06_refinement_introduction_requires_predicate_evidence() {
             .code,
         "BHCP4103"
     );
-    refined
-        .validate_value(
-            &value,
-            &RefinementEvidence::witness(predicate.clone()).unwrap(),
-        )
+    let mut evidence = RefinementEvidence::default();
+    evidence.prove(refined, &value).unwrap();
+    refined.validate_value(&value, &evidence).unwrap();
+
+    let negative = parse_diagnostic(r#"["integer", -1]"#).unwrap();
+    assert_eq!(
+        evidence.prove(refined, &negative).unwrap_err().code,
+        "BHCP4103"
+    );
+    assert_eq!(
+        refined
+            .validate_value(&negative, &evidence)
+            .unwrap_err()
+            .code,
+        "BHCP4103"
+    );
+
+    let opposite_source = "§type example/Negative@0 = Integer where value => value < 0;";
+    let opposite_ref = ContentReference::from_bytes(
+        "text/bhcp",
+        opposite_source.as_bytes(),
+        HashAlgorithm::default(),
+    );
+    let opposite_program = check_type_definitions(
+        &parse_canonical(opposite_source, "typ-06-opposite.bhcp", opposite_ref).unwrap(),
+    )
+    .unwrap();
+    let mut opposite_evidence = RefinementEvidence::default();
+    opposite_evidence
+        .prove(&opposite_program.definitions[0].definition, &negative)
         .unwrap();
+    assert_eq!(
+        refined
+            .validate_value(&negative, &opposite_evidence)
+            .unwrap_err()
+            .code,
+        "BHCP4103"
+    );
 
     let renamed = "§type example/Positive@0 = Integer where candidate => candidate > 0;";
     assert_eq!(
@@ -321,6 +426,66 @@ fn typ_06_refinement_introduction_requires_predicate_evidence() {
         compile_source(renamed, "typ-06-b.bhcp")
             .unwrap()
             .semantic_hash
+    );
+
+    let partial = "§type example/Unsafe@0 = Integer where value => value / 0 > 1;";
+    let partial_ref =
+        ContentReference::from_bytes("text/bhcp", partial.as_bytes(), HashAlgorithm::default());
+    let parsed = parse_canonical(partial, "typ-06-partial.bhcp", partial_ref).unwrap();
+    assert_eq!(
+        check_type_definitions(&parsed).unwrap_err().code,
+        "BHCP4101"
+    );
+}
+
+#[test]
+fn refinement_binding_names_are_alpha_metadata_not_semantic_identity() {
+    let with_name = parse_diagnostic(
+        r#"["refinement", "positive", ["exact-number", "Integer"], {"id": "bound", "name": "value", "type": ["exact-number", "Integer"]}, {"id": "predicate", "type": ["primitive", "Bool"], "form": ["binary", ">", {"id": "left", "type": ["exact-number", "Integer"], "form": ["reference", "bound"]}, {"id": "right", "type": ["exact-number", "Integer"], "form": ["literal", ["integer", 0]]}]}]"#,
+    )
+    .unwrap();
+    let renamed = parse_diagnostic(
+        r#"["refinement", "positive", ["exact-number", "Integer"], {"id": "bound", "name": "candidate", "type": ["exact-number", "Integer"]}, {"id": "predicate", "type": ["primitive", "Bool"], "form": ["binary", ">", {"id": "left", "type": ["exact-number", "Integer"], "form": ["reference", "bound"]}, {"id": "right", "type": ["exact-number", "Integer"], "form": ["literal", ["integer", 0]]}]}]"#,
+    )
+    .unwrap();
+    assert_eq!(
+        CheckedType::from_value(&with_name).unwrap(),
+        CheckedType::from_value(&renamed).unwrap()
+    );
+}
+
+#[test]
+fn resource_and_handle_references_have_one_exact_text_field() {
+    let evidence = RefinementEvidence::default();
+    let resource = checked(r#"["resource", "example/Repository@0", ["primitive", "Text"]]"#);
+    resource
+        .validate_value(
+            &parse_diagnostic(r#"{"ref": "repository-1"}"#).unwrap(),
+            &evidence,
+        )
+        .unwrap();
+    for invalid in [
+        r#"{"ref": true}"#,
+        r#"{"ref": "repository-1", "extra": ["unit"]}"#,
+        r#"{"ref": ""}"#,
+    ] {
+        assert_eq!(
+            resource
+                .validate_value(&parse_diagnostic(invalid).unwrap(), &evidence)
+                .unwrap_err()
+                .code,
+            "BHCP4102"
+        );
+    }
+    assert_eq!(
+        resource
+            .validate_value(
+                &Value::map([("ref", Value::Text("x".repeat(129)))]),
+                &evidence,
+            )
+            .unwrap_err()
+            .code,
+        "BHCP4102"
     );
 }
 
@@ -423,4 +588,60 @@ fn canonical_type_validation_rejects_normalizable_but_noncanonical_input() {
         CheckedType::from_canonical_value(&value).unwrap_err().code,
         "BHCP4106"
     );
+}
+
+#[test]
+fn canonical_validation_rejects_relationally_subsumed_union_members() {
+    let value = parse_diagnostic(
+        r#"["union", [["record", true, [["name", ["primitive", "Text"], false]]], ["record", false, [["name", ["primitive", "Text"], false], ["note", ["primitive", "Text"], false]]]]]"#,
+    )
+    .unwrap();
+    assert_eq!(
+        CheckedType::from_canonical_value(&value).unwrap_err().code,
+        "BHCP4106"
+    );
+
+    let mut relations = TypeRelations::default();
+    relations
+        .add_refinement("example/Child@0", "example/Parent@0")
+        .unwrap();
+    let nominal = parse_diagnostic(
+        r#"["union", [["nominal", "example/Child@0", []], ["nominal", "example/Parent@0", []]]]"#,
+    )
+    .unwrap();
+    assert_eq!(
+        CheckedType::from_canonical_value_with_relations(&nominal, &relations)
+            .unwrap_err()
+            .code,
+        "BHCP4106"
+    );
+}
+
+#[test]
+fn exact_integer_above_i64_max_round_trips_and_type_checks() {
+    let value = parse_diagnostic(r#"["integer", 9223372036854775808]"#).unwrap();
+    assert_eq!(
+        decode_deterministic(&encode_deterministic(&value).unwrap()).unwrap(),
+        value
+    );
+    checked(r#"["exact-number", "Integer"]"#)
+        .validate_value(&value, &RefinementEvidence::default())
+        .unwrap();
+    assert_eq!(
+        checked(r#"["machine-integer", "signed", 64]"#)
+            .validate_value(&value, &RefinementEvidence::default())
+            .unwrap_err()
+            .code,
+        "BHCP4105"
+    );
+    assert_eq!(
+        checked(r#"["machine-integer", "unsigned", 63]"#)
+            .validate_value(&value, &RefinementEvidence::default())
+            .unwrap_err()
+            .code,
+        "BHCP4105"
+    );
+    checked(r#"["machine-integer", "unsigned", 64]"#)
+        .validate_value(&value, &RefinementEvidence::default())
+        .unwrap();
 }

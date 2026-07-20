@@ -648,12 +648,12 @@ impl Parser<'_> {
         while self.peek().is_some_and(|byte| byte.is_ascii_digit()) {
             self.cursor += 1;
         }
-        let number: i64 = std::str::from_utf8(&self.bytes[start..self.cursor])
+        let number: i128 = std::str::from_utf8(&self.bytes[start..self.cursor])
             .unwrap()
             .parse()
-            .map_err(|_| self.error("diagnostic integer exceeds i64"))?;
+            .map_err(|_| self.error("diagnostic integer exceeds i128"))?;
         self.whitespace();
-        if number >= 0 && self.peek() == Some(b'(') {
+        if (0..=i128::from(u64::MAX)).contains(&number) && self.peek() == Some(b'(') {
             self.cursor += 1;
             let value = self.value()?;
             self.whitespace();

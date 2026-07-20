@@ -16,6 +16,20 @@ fn rejects_host_floats_indefinite_lengths_and_non_shortest_integers() {
     assert!(decode_deterministic(&[0x18, 0x01]).is_err());
 }
 
+#[test]
+fn deterministic_cbor_covers_the_full_integer_major_type_domain() {
+    for value in [
+        Value::Integer(i128::from(i64::MAX) + 1),
+        Value::Integer(i128::from(u64::MAX)),
+        Value::Integer(-1 - i128::from(u64::MAX)),
+    ] {
+        let bytes = encode_deterministic(&value).unwrap();
+        assert_eq!(decode_deterministic(&bytes).unwrap(), value);
+    }
+    assert!(encode_deterministic(&Value::Integer(i128::from(u64::MAX) + 1)).is_err());
+    assert!(encode_deterministic(&Value::Integer(-2 - i128::from(u64::MAX))).is_err());
+}
+
 fn hex(bytes: &[u8]) -> String {
     bytes.iter().map(|byte| format!("{byte:02x}")).collect()
 }
