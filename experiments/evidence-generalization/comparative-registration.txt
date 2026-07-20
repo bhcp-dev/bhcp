@@ -5,7 +5,8 @@ pins|codex-cli=0.142.4|model=gpt-5.4-mini|reasoning=medium|rust=1.97.1|sandbox=w
 analysis|acceptance=paired-risk-difference+exact-mcnemar|calibration=paired-risk-difference+exact-mcnemar|resources=median+iqr|alpha=descriptive-only
 exclusion|pair-if-either-arm|retain-completed|stop-later-launches|no-replacement
 usage-monitor|prior-input=1961148|prior-output=40755|prior-reasoning=31916|aggregate-input-stop-after=12000000|aggregate-output-stop-after=500000|aggregate-reasoning-stop-after=500000
-artifact|src/bin/evidence_generalization_comparative.rs|gitblob=21f30b2451433385572d75f427b503e9a7f83f6b
+read-boundary|prepared-and-scratch-under-sandbox-denied-temporary-root|workspace-and-target-explicitly-allowed|original-oracle-probe-denied
+artifact|src/bin/evidence_generalization_comparative.rs|gitblob=c312e06348e4714058cb1175ca51931dd8409a10
 artifact|src/bin/evidence_generalization_comparative_policy.rs|gitblob=6f81227623f0481624955c8cdf857d83c024f96f
 artifact|src/bin/bhcp_codex_experiment_driver.rs|gitblob=1e47cec1250d63bbe1dd6f2a2951d928eb5bc9e6
 artifact|experiments/evidence-generalization/COMPARATIVE_BHCP_PROMPT.md|gitblob=16cf0022368dbfc4a4dc1043ed684db90e3f0314

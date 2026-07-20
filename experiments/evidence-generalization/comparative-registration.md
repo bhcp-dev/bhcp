@@ -11,7 +11,9 @@ six blocks. `prose-control` receives only its equal-information prose treatment;
 Neither arm receives a BHCP skill, project registry, verifier adapter, evidence
 bundle, or withheld oracle. Both arms may change only `subject/src/lib.rs` and face
 the identical format, Clippy, public-test, withheld-oracle, and safe-Rust
-change-policy judges.
+change-policy judges. Prepared fixtures and scratch state must remain beneath the
+sandbox-denied temporary root; only the controller-created arm workspace and build
+target receive explicit sandbox access.
 
 The exact source artifacts, prepared-fixture digests, controller plans, run order,
 executable identities, model/toolchain pins, timeout, and resource boundaries are

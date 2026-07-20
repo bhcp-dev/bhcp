@@ -217,6 +217,8 @@ fn runtime(arguments: &[std::ffi::OsString]) -> Result<Runtime, String> {
     let policy = canonical_file(&arguments[10], "change-policy judge")?;
     let prepared = absolute_path(&arguments[11], "prepared root")?;
     let scratch = absolute_path(&arguments[12], "scratch root")?;
+    require_denied_temporary_parent(&prepared, "prepared root")?;
+    require_denied_temporary_parent(&scratch, "scratch root")?;
     let rust_tools = [
         "cargo",
         "rustc",
@@ -1138,6 +1140,22 @@ fn absolute_path(value: &OsStr, name: &str) -> Result<PathBuf, String> {
         return Err(format!("{name} must be absolute"));
     }
     Ok(path)
+}
+
+fn require_denied_temporary_parent(path: &Path, name: &str) -> Result<(), String> {
+    let temporary = fs::canonicalize("/tmp")
+        .map_err(|error| format!("cannot resolve denied temporary root: {error}"))?;
+    let parent = path
+        .parent()
+        .ok_or_else(|| format!("{name} has no parent directory"))?;
+    let parent = fs::canonicalize(parent)
+        .map_err(|error| format!("cannot resolve {name} parent: {error}"))?;
+    if !parent.starts_with(&temporary) {
+        return Err(format!(
+            "{name} must be beneath the sandbox-denied temporary root"
+        ));
+    }
+    Ok(())
 }
 
 fn create_file(path: &Path, bytes: &[u8]) -> Result<(), String> {
