@@ -479,10 +479,11 @@ resource budget for issues #92 and #93. The completed
 retains all twelve registered sessions with no exclusions: positive registry use
 was 0/12 and in-session acceptance was 0/12 (two-sided 95% Clopper–Pearson
 0.0000–0.2646), while all twelve negative claims were calibrated. This null result
-is unaffected by the report's disclosed frozen-classifier limitation because no
-session retained any evidence bundle. It does not upgrade the Phase 2 record or
-establish model, developer, or language-wide generalization; the preregistered
-prose-versus-contract study remains separate.
+is unaffected by the report's disclosed frozen-classifier limitation because every
+controller recorded zero completed commands and no session retained any evidence
+bundle. It does not upgrade the Phase 2 record or establish model, developer, or
+language-wide generalization; the preregistered prose-versus-contract study remains
+separate.
 
 The v0 policy wire and restriction algebra are now specified in
 [`SEMANTICS.md`](SEMANTICS.md#s92-monotonic-policy) and the CDDL bundle. Six closed

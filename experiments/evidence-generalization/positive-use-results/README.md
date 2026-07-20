@@ -49,10 +49,12 @@ The preregistered runner treated a subject-bound bundle containing at least thre
 provenance-bearing items as evidence of the three registered producers. It did not
 also compare those items' verifier symbols with the exact registered symbol set, so
 a hypothetical schema-valid forged or duplicate-producer bundle could have been
-overclassified as positive use. This limitation does not change the observed 0/12:
-every session retained no `evidence.cbor`, and the checked-in result validator
-independently requires that absence for all twelve records. The frozen runner and
-registration must not be reused as a validated positive-use classifier; changing
-the endpoint after observing these turns would violate the preregistration.
+overclassified as positive use. The classifier also did not independently verify
+that the canonical registry command was invoked. These limitations do not change
+the observed 0/12: every controller records `Completed commands: 0`, every session
+retained no `evidence.cbor`, and the checked-in result validator independently
+requires both facts for all twelve records. The frozen runner and registration must
+not be reused as a validated positive-use classifier; changing the endpoint after
+observing these turns would violate the preregistration.
 
 These are descriptive estimates for the four frozen repository fixtures under one pinned model. They do not establish a population rate, model-wide effect, developer-productivity effect, or general BHCP advantage. Null, unfavorable, and incomplete outcomes remain part of the result.

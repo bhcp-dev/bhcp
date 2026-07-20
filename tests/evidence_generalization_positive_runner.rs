@@ -338,8 +338,10 @@ fn checked_in_null_result_preserves_and_replays_every_registered_session() {
         "In-session acceptance: **0/12** (two-sided 95% Clopper–Pearson `0.0000..0.2646`)",
         "Incremental pay-as-you-go spend authority and observed spend: **USD 0**",
         "hypothetical schema-valid forged or duplicate-producer bundle could have been",
-        "every session retained no `evidence.cbor`",
-        "must not be reused as a validated positive-use classifier",
+        "did not independently verify\nthat the canonical registry command was invoked",
+        "every controller records `Completed commands: 0`",
+        "every session\nretained no `evidence.cbor`",
+        "must\nnot be reused as a validated positive-use classifier",
     ] {
         assert!(report.contains(exact), "missing result claim: {exact}");
     }
