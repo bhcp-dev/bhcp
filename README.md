@@ -482,8 +482,16 @@ was 0/12 and in-session acceptance was 0/12 (two-sided 95% Clopper–Pearson
 is unaffected by the report's disclosed frozen-classifier limitation because every
 controller recorded zero completed commands and no session retained any evidence
 bundle. It does not upgrade the Phase 2 record or establish model, developer, or
-language-wide generalization; the preregistered prose-versus-contract study remains
-separate.
+language-wide generalization. The separate completed
+[prose-versus-contract study](experiments/evidence-generalization/comparative-results/README.md)
+retains all 24 sessions and twelve pairs with no exclusions. Neither arm repaired
+any starter: every candidate remained byte-unchanged, every controller recorded
+zero completed commands, every arm passed the public boundary and failed only the
+withheld oracle, and all 24 negative claims were calibrated. Consequently both the
+acceptance and calibration paired risk differences are +0.0000, with zero
+discordants and two-sided exact McNemar p=1.000000. This retained null is a failure
+of both representations to induce a repair in these fixtures, not evidence of
+equivalence or a general BHCP-versus-prose effect.
 
 The v0 policy wire and restriction algebra are now specified in
 [`SEMANTICS.md`](SEMANTICS.md#s92-monotonic-policy) and the CDDL bundle. Six closed

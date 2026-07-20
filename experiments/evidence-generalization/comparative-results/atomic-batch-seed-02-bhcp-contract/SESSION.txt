@@ -1,0 +1,9 @@
+task=atomic-batch
+seed=seed-02
+position=1
+arm=bhcp-contract
+accepted=false
+claimed-success=false
+calibrated=true
+excluded=false
+failure-category=verification:oracle

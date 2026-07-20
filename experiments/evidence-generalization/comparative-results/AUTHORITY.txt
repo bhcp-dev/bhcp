@@ -1,0 +1,8 @@
+git-head=0f406371db9b47f3d966d609fab8d31ddeb759fe
+owner-attestation-merge=c327d80308dbf6010321ca05ef498493b04350e7
+auth-mode=chatgpt
+incremental-usd=0
+concurrency=1
+prior-input-tokens=1961148
+prior-output-tokens=40755
+prior-reasoning-tokens=31916

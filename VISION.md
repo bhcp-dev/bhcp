@@ -177,9 +177,13 @@ The evidence-generalization program is preregistered over four checked-in Rust
 fixtures for registered use and the three representation-comparable fixtures for
 the symmetric prose-versus-contract study. Its completed positive-use arm found
 0/12 positive registry use and 0/12 in-session acceptance with no exclusions and
-correctly negative claims in every session. The remaining comparative arm stays
-within the pinned-model, zero-incremental-spend budget and descriptive analysis;
-neither result turns this repository frame into a population or model-wide claim.
+correctly negative claims in every session. The comparative arm completed all
+twelve pairs with no exclusions: both representations left every starter unchanged,
+failed only the withheld oracle, and made calibrated negative claims. Acceptance
+and calibration therefore each have paired risk difference +0.0000, zero
+discordants, and two-sided exact McNemar p=1.000000. This is not an equivalence
+result or a BHCP-versus-prose effect claim; neither completed arm turns the frozen
+repository frame into a population or model-wide claim.
 
 ## Version zero
 
