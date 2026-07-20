@@ -39,7 +39,7 @@ fn protocol_freezes_population_arms_schedule_analysis_and_resource_authority() {
     let report = read(repository.join("experiments/evidence-generalization/preregistration.md"));
     assert_eq!(
         manifest.lines().filter(|line| !line.is_empty()).count(),
-        53,
+        55,
         "the closed manifest may not gain unparsed records"
     );
 
@@ -48,8 +48,10 @@ fn protocol_freezes_population_arms_schedule_analysis_and_resource_authority() {
         "base|d5ef5ac29a12dabe2fe2af3f0ec35437204d29c8",
         "model|codex-cli=0.142.4|model=gpt-5.4-mini|reasoning=medium|rust=1.97.1|sandbox=workspace-write/no-network/read-confined",
         "skill|.codex/skills/interpret-bhcp-contract/SKILL.md@2f6ec206a69311548624eaa8a293c51a15467d33",
-        "authorization|decision=approved-on-merge|incremental-usd=0|existing-entitlement-only=true|overage=stop-before-launch",
-        "resource|sessions=36|model-minutes=540|input-tokens=12000000|output-tokens=500000|reasoning-tokens=500000|concurrency=2",
+        "authorization|decision=approved-on-merge|incremental-usd=0|existing-entitlement-only=true|incremental-billing=stop-before-launch",
+        "resource|sessions=36|per-session-minutes=15|model-minutes=540|concurrency=2|incremental-usd=0",
+        "usage-monitor|input-stop-after=12000000|output-stop-after=500000|reasoning-stop-after=500000|not-a-hard-cap|one-completed-session-overshoot-possible",
+        "billing-preflight|forbid-api-key-env|forbid-api-base-override|require-owner-attestation-existing-entitlement|stop-if-attestation-absent",
         "stopping|no-efficacy-stop|no-futility-stop|no-replacement|stop-on-safety-or-identity-failure|retain-completed-records",
         "analysis|positive-use=clopper-pearson-95|comparative=paired-risk-difference+exact-mcnemar|resources=median+iqr|alpha=descriptive-only",
         "inference|repository-fixture-frame-only|single-model|no-population-causal-model-wide-or-general-language-claim",
@@ -166,6 +168,17 @@ fn protocol_freezes_population_arms_schedule_analysis_and_resource_authority() {
                 "prose treatment omits {obligation}: {prose_path}"
             );
         }
+        let expected_patch_preference = match *identifier {
+            "atomic-batch" => Some("keep the patch as small as correctness permits"),
+            "tenant-policy" | "contextual-policy" => Some("keep the patch focused"),
+            _ => None,
+        };
+        if let Some(expected_patch_preference) = expected_patch_preference {
+            assert!(
+                prose_text.contains(expected_patch_preference),
+                "comparative prose treatment omits the shared-task patch preference: {prose_path}"
+            );
+        }
         assert_eq!(
             read(repository.join(semantic_path)).trim(),
             *semantic_id,
@@ -188,13 +201,15 @@ fn protocol_freezes_population_arms_schedule_analysis_and_resource_authority() {
         expected_arms,
     );
 
-    let seeds = BTreeSet::from(["seed-01", "seed-02", "seed-03"]);
-    let task_order = [
+    let positive_seeds = BTreeSet::from(["seed-01", "seed-02", "seed-03"]);
+    let comparative_seeds = BTreeSet::from(["seed-01", "seed-02", "seed-03", "seed-04"]);
+    let positive_tasks = [
         "atomic-batch",
         "tenant-policy",
         "contextual-policy",
         "in-session-evidence",
     ];
+    let comparative_tasks = ["atomic-batch", "tenant-policy", "contextual-policy"];
     let mut sessions = BTreeSet::new();
     let mut comparative_first = BTreeMap::<&str, usize>::new();
     for line in manifest.lines().filter(|line| line.starts_with("session|")) {
@@ -204,7 +219,7 @@ fn protocol_freezes_population_arms_schedule_analysis_and_resource_authority() {
             unreachable!()
         };
         assert!(tasks.contains(task), "unknown task: {line}");
-        assert!(seeds.contains(seed), "unknown seed: {line}");
+        assert!(comparative_seeds.contains(seed), "unknown seed: {line}");
         assert!(sessions.insert((*study, *task, *seed, *arm)), "{line}");
         match (*study, *arm, *position) {
             ("positive-use", "bhcp-registered", "1") => {}
@@ -217,12 +232,30 @@ fn protocol_freezes_population_arms_schedule_analysis_and_resource_authority() {
         }
     }
     assert_eq!(sessions.len(), 36);
-    for task in task_order {
-        for seed in &seeds {
+    for task in positive_tasks {
+        for seed in &positive_seeds {
             assert!(sessions.contains(&("positive-use", task, *seed, "bhcp-registered")));
+        }
+    }
+    for task in comparative_tasks {
+        for seed in &comparative_seeds {
             assert!(sessions.contains(&("comparative", task, *seed, "prose-control")));
             assert!(sessions.contains(&("comparative", task, *seed, "bhcp-contract")));
         }
+    }
+    for seed in &comparative_seeds {
+        assert!(!sessions.contains(&(
+            "comparative",
+            "in-session-evidence",
+            *seed,
+            "prose-control"
+        )));
+        assert!(!sessions.contains(&(
+            "comparative",
+            "in-session-evidence",
+            *seed,
+            "bhcp-contract"
+        )));
     }
     assert_eq!(comparative_first.get("prose-control"), Some(&6));
     assert_eq!(comparative_first.get("bhcp-contract"), Some(&6));
@@ -234,6 +267,9 @@ fn protocol_freezes_population_arms_schedule_analysis_and_resource_authority() {
         "does not authorize pay-as-you-go spend",
         "twelve paired comparative blocks",
         "twelve registered-evidence sessions",
+        "one completed session can overshoot",
+        "owner billing attestation",
+        "claimed success exactly equals all-judge acceptance",
     ] {
         assert!(report.contains(required), "report omits: {required}");
     }

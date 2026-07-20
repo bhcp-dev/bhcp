@@ -17,20 +17,24 @@ external software or developer population. A task is eligible only when that bas
 contains all of the following before registration: a dependency-free safe-Rust
 subject, a checked-in implementation task, canonical BHCP contract and semantic ID,
 deterministic public checks, a withheld deterministic oracle, and a one-file change
-boundary. The selection is a census of the four eligible fixtures, stratified by the
-failure shape each fixture exercises:
+boundary. The positive-use selection is a census of the four eligible fixtures,
+stratified by the failure shape each fixture exercises. The comparative selection is
+the three fixtures whose obligations can be represented without the registry:
 
-| Task | Stratum | Shared BHCP-arm task | Equal-information prose treatment |
-| --- | --- | --- | --- |
-| Atomic batch | State transaction | [task](../minimal-coding-agent/TASK.md) | [prose](tasks/atomic-batch-prose.md) |
-| Tenant policy | Authorization specificity | [task](../policy-resolution-agent/TASK.md) | [prose](tasks/tenant-policy-prose.md) |
-| Contextual policy | Ordered context | [task](../contextual-policy-agent/TASK.md) | [prose](tasks/contextual-policy-prose.md) |
-| Evidence readiness | Evidence-gated repair | [task](../in-session-evidence-agent/TASK.md) | [prose](tasks/in-session-evidence-prose.md) |
+| Task | Stratum | Study frame | Shared BHCP-arm task | Prose treatment |
+| --- | --- | --- | --- | --- |
+| Atomic batch | State transaction | Positive use + comparative | [task](../minimal-coding-agent/TASK.md) | [equal-information prose](tasks/atomic-batch-prose.md) |
+| Tenant policy | Authorization specificity | Positive use + comparative | [task](../policy-resolution-agent/TASK.md) | [equal-information prose](tasks/tenant-policy-prose.md) |
+| Contextual policy | Ordered context | Positive use + comparative | [task](../contextual-policy-agent/TASK.md) | [equal-information prose](tasks/contextual-policy-prose.md) |
+| Evidence readiness | Evidence-gated repair | Positive use only | [task](../in-session-evidence-agent/TASK.md) | [descriptive prose](tasks/in-session-evidence-prose.md) |
 
 The machine record pins each starter, shared task, prose treatment, contract,
 semantic ID, and oracle. The prose treatments enumerate the same required outcome
-boundary as the associated contracts; semantic equivalence remains a reviewed study
-design claim rather than something a substring test can prove.
+boundary as the associated contracts. For the three comparative fixtures, the prose
+also states the contract's minimal-change preference; equal information remains a
+reviewed study-design claim rather than something a substring test can prove. The
+evidence-readiness task is not comparative because its required registry observation
+would contradict the comparative arms' registry-forbidden boundary.
 
 ## Model, sessions, and arms
 
@@ -40,7 +44,9 @@ uses the exact checked-in `interpret-bhcp-contract` skill pinned in the machine
 record. A seed label denotes a fresh isolated model session; it does not claim the
 hosted model exposes or honors a deterministic random seed.
 
-There are three fixed seed labels per task and no replacement:
+The positive-use study has three fixed seed labels for each of its four tasks. The
+comparative study has four fixed seed labels for each of its three tasks. There is no
+replacement:
 
 - #92 runs twelve registered-evidence sessions: one `bhcp-registered` arm for every
   task × seed block. The model receives the shared task, canonical contract, pinned
@@ -48,8 +54,9 @@ There are three fixed seed labels per task and no replacement:
 - #93 runs twelve paired comparative blocks: `prose-control` receives only the
   equal-information prose treatment, while `bhcp-contract` receives the shared task
   and canonical contract. Both comparative arms are forbidden from receiving the
-  skill or project registry. Position 1 alternates across tasks and seeds, with each
-  arm first in six blocks.
+  skill or project registry. Evidence readiness is excluded because requiring its
+  registry evidence would contradict that rule. Position 1 alternates across tasks
+  and seeds, with each arm first in six blocks.
 
 The studies are separate: #92 measures registry uptake; #93 estimates a bounded
 prose-versus-contract representation contrast. Results are not substituted across
@@ -72,7 +79,8 @@ For #93, the primary outcome is independent all-judge acceptance. The primary po
 estimate is the paired risk difference (`bhcp-contract` minus `prose-control`) across
 the twelve task × seed blocks. Report the two discordant counts and the two-sided
 exact McNemar result as uncertainty evidence. Claim calibration uses the same paired
-analysis with calibrated success/non-success as the positive category. Input,
+analysis with calibrated success/non-success as the positive category. For this
+endpoint, claimed success exactly equals all-judge acceptance. Input,
 cached-input, output, reasoning-token, command, and wall-time distributions are
 secondary and reported by median and interquartile range. `alpha=descriptive-only`
 means no result is promoted to a confirmatory population claim by a threshold.
@@ -91,35 +99,45 @@ an infrastructure exclusion. Exclusions are never replaced.
 For a comparative block, an infrastructure exclusion in either arm removes that
 block from the paired estimate, while every completed arm remains in the descriptive
 ledger. Counts and reasons are always reported. There is no efficacy or futility
-stopping. A safety, identity, sandbox, or resource-ceiling failure stops subsequent
-launches and retains all completed records; it cannot trigger a changed task, arm,
-seed, or replacement.
+stopping. A safety, identity, sandbox, or enforceable-resource failure stops
+subsequent launches and retains all completed records; it cannot trigger a changed
+task, arm, seed, or replacement. Monitored usage thresholds are checked after each
+completed session, so one completed session can overshoot a threshold before later
+launches stop.
 
 ## Resource and authorization decision
 
-Merging the reviewed #91 preregistration authorizes at most 36 model sessions, 540
-aggregate model-minutes, 12,000,000 reported input tokens, 500,000 output tokens,
-500,000 reasoning tokens, and two concurrent experiment slots. The authorization
-uses only the repository owner's existing Codex entitlement and sets incremental
-pay-as-you-go spend to **USD 0**. It does not authorize pay-as-you-go spend: if a
-launch requires an incremental charge or would exceed any ceiling, stop before that
-launch and request a new reviewed authorization. Unused capacity does not justify
-extra or replacement sessions.
+Merging the reviewed #91 preregistration authorizes the enforceable resource budget:
+at most 36 model sessions, 15 minutes per session, 540 aggregate model-minutes, two
+concurrent experiment slots, and **USD 0** incremental pay-as-you-go spend. Before
+the first launch, the runner must reject API-key environment variables and API-base
+overrides and require a recorded owner billing attestation that the existing Codex
+entitlement is being used; absent attestation stops execution.
+It does not authorize pay-as-you-go spend.
+
+Reported usage has monitoring stop thresholds of 12,000,000 input tokens, 500,000
+output tokens, and 500,000 reasoning tokens. These are not hard caps because the
+controller observes usage only after completion: one completed session can
+overshoot. Crossing a threshold stops later launches and requires new reviewed
+authorization. A launch that requires incremental billing also stops before the
+model turn. Unused capacity does not justify extra or replacement sessions.
 
 ## Preflight closure before execution
 
 Issues #92 and #93 must each freeze their exact runner, project manifests, adapters,
-prompts, controller plan, executables, toolchain files, and judge order in a Git
-commit before the first model turn. Infrastructure-only smoke checks may prove that
-the staged prompt is readable, the original oracle is unreadable, and the sandbox
-and registry launch. A smoke cannot edit a study candidate or produce a research
-observation. After the first model turn, infrastructure repairs require a new run ID
-and registration; earlier records retain their original classification.
+prompts, controller plan, executables, toolchain files, judge order, per-session
+timeout, post-session usage monitor, and billing preflight in a Git commit before the
+first model turn. Infrastructure-only smoke checks may prove that the staged prompt
+is readable, the original oracle is unreadable, and the sandbox and registry launch.
+A smoke cannot edit a study candidate or produce a research observation. After the
+first model turn, infrastructure repairs require a new run ID and registration;
+earlier records retain their original classification.
 
 ## Inference boundary
 
-The design measures four repository-owned Rust fixtures under one model and three
-fresh sessions per task. It cannot establish a population rate, causal language
-effect, model-wide effect, developer-productivity effect, or general BHCP advantage.
-A null, unfavorable, incomplete, or invalid result is a conforming deliverable when
-reported under this frozen protocol.
+The design measures four repository-owned Rust fixtures in positive use and three in
+the representation comparison, under one model and the frozen seed schedules. It
+cannot establish a population rate, causal language effect, model-wide effect,
+developer-productivity effect, or general BHCP advantage. A null, unfavorable,
+incomplete, or invalid result is a conforming deliverable when reported under this
+frozen protocol.

@@ -3,6 +3,7 @@
 Repair `Ledger::apply_batch` in the dependency-free `batch-ledger` crate. Edit only
 `src/lib.rs`, preserve the public API and existing errors, add no dependency or
 unsafe code, and do not use the network.
+Also keep the patch as small as correctness permits.
 
 The implementation must satisfy this complete ordered obligation inventory:
 

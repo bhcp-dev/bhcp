@@ -2,7 +2,7 @@
 
 Repair `Policy::decide` in the dependency-free `tenant-policy` crate. Edit only
 `src/lib.rs`, preserve the public API, add no dependency or unsafe code, and do not
-use the network.
+use the network. Also keep the patch focused.
 
 The implementation must satisfy this complete decision rule and obligation inventory:
 

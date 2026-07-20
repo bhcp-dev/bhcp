@@ -471,11 +471,12 @@ and audit, not the complete parser, checker, planner, runtime, proof system, SDK
 or CLI.
 
 The separate [evidence-generalization preregistration](experiments/evidence-generalization/preregistration.md)
-freezes the repository-fixture population, equal-information prose treatments,
-single-model arms, 36-session schedule, descriptive analysis, exclusions, stopping
-rules, and zero-incremental-spend resource ceiling for issues #92 and #93. It records
-future research authority without upgrading the Phase 2 negatives or claiming model,
-developer, or language-wide generalization.
+freezes a four-task registered-use frame and a three-task equal-information
+prose-versus-contract comparison, single-model arms, a 36-session schedule,
+descriptive analysis, exclusions, stopping rules, and a zero-incremental-spend
+resource budget for issues #92 and #93. It records future research authority without
+upgrading the Phase 2 negatives or claiming model, developer, or language-wide
+generalization.
 
 The v0 policy wire and restriction algebra are now specified in
 [`SEMANTICS.md`](SEMANTICS.md#s92-monotonic-policy) and the CDDL bundle. Six closed
