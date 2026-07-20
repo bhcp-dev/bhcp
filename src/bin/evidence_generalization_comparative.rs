@@ -188,7 +188,7 @@ fn run() -> Result<(), String> {
             frozen.run_order.join(",")
         ));
     }
-    if should_run {
+    if matches!(mode, "freeze" | "run") {
         validate_registration(&records)?;
     }
     for record in &records {

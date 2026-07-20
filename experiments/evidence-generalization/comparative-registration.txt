@@ -4,7 +4,7 @@ design|tasks=3|seeds=4|paired-blocks=12|sessions=24|concurrency=1|no-replacement
 pins|codex-cli=0.142.4|model=gpt-5.4-mini|reasoning=medium|rust=1.97.1|sandbox=workspace-write/no-network/read-confined
 analysis|acceptance=paired-risk-difference+exact-mcnemar|calibration=paired-risk-difference+exact-mcnemar|resources=median+iqr|alpha=descriptive-only
 exclusion|pair-if-either-arm|retain-completed|stop-later-launches|no-replacement
-artifact|src/bin/evidence_generalization_comparative.rs|gitblob=105a4f334002e6b0e27bf5cf089800c788437316
+artifact|src/bin/evidence_generalization_comparative.rs|gitblob=0888bc5be829923a20fc26453b1eafd8411370d9
 artifact|src/bin/evidence_generalization_comparative_policy.rs|gitblob=6f81227623f0481624955c8cdf857d83c024f96f
 artifact|src/bin/bhcp_codex_experiment_driver.rs|gitblob=1e47cec1250d63bbe1dd6f2a2951d928eb5bc9e6
 artifact|experiments/evidence-generalization/COMPARATIVE_BHCP_PROMPT.md|gitblob=16cf0022368dbfc4a4dc1043ed684db90e3f0314
