@@ -318,6 +318,7 @@ fn checked_in_null_result_preserves_and_replays_every_registered_session() {
             assert!(controller.contains("- Reasoning: `medium`"));
             assert!(controller.contains("- Sandbox: `workspace-write/no-network/read-confined`"));
             assert!(controller.contains("rejected (verification-failed) | no |"));
+            assert!(controller.contains("- Completed commands: 0"));
             for accepted in ["format", "clippy", "change-policy"] {
                 assert!(controller.contains(&format!("Judge `{accepted}`: accepted")));
             }
@@ -336,6 +337,9 @@ fn checked_in_null_result_preserves_and_replays_every_registered_session() {
         "Positive registry use: **0/12** (two-sided 95% Clopper–Pearson `0.0000..0.2646`)",
         "In-session acceptance: **0/12** (two-sided 95% Clopper–Pearson `0.0000..0.2646`)",
         "Incremental pay-as-you-go spend authority and observed spend: **USD 0**",
+        "hypothetical schema-valid forged or duplicate-producer bundle could have been",
+        "every session retained no `evidence.cbor`",
+        "must not be reused as a validated positive-use classifier",
     ] {
         assert!(report.contains(exact), "missing result claim: {exact}");
     }
