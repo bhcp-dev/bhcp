@@ -109,6 +109,12 @@ results. The create-once Markdown summary lists those commands and identities; t
 controller has no JSON event artifact path. Raw model service logs remain external
 to Git.
 
+The machine-checked [Phase 2 evidence audit](phase-2-evidence-audit.md) pins every
+recorded source, task, contract, semantic ID, evaluated skill, model request, oracle,
+result, executable evidence function, and reviewed delivery. It preserves historical
+and infrastructure-invalid records without promoting them to hardened registered
+observations.
+
 The fake-agent integration tests exercise every rejection category and judge the
 unmodified starters of the earlier Rust fixtures symmetrically: public tests pass,
 the unchanged withheld oracles reject them, and neither agent sees an oracle before

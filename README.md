@@ -460,6 +460,16 @@ edit, invoked no registered adapter, claimed no success, and all three semantic 
 rejected the unchanged starter. The result is retained without an adaptive replacement;
 the post-run latest skill now documents the canonical registry workflow.
 
+The machine-checked [Phase 2 evidence audit](experiments/phase-2-evidence-audit.md)
+classifies all six pilots, four multi-seed attempts, and forward 001 without
+retroactive promotion. Early pilots remain historical artifact replays; multi-seed
+runs 001/002 are invalid, run 003 is excluded, and the hardened registered results
+are valid negatives of 0/5 and 0/1. Positive in-session acceptance remains unproven,
+and the small fixture-bound record supports no BHCP-versus-prose advantage.
+BHCP v0 is not complete; Phase 2 closes a bounded evidence-loop implementation
+and audit, not the complete parser, checker, planner, runtime, proof system, SDK,
+or CLI.
+
 The v0 policy wire and restriction algebra are now specified in
 [`SEMANTICS.md`](SEMANTICS.md#s92-monotonic-policy) and the CDDL bundle. Six closed
 category/operation/value shapes replace the former unrestricted policy value, and a
