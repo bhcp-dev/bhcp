@@ -17,7 +17,7 @@ jobs:
   quality:
     name: Rust quality / ${{ matrix.name }}
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: ${{ matrix.timeout }}
     strategy:
       fail-fast: false
       matrix:
@@ -25,18 +25,23 @@ jobs:
           - id: format
             name: Format
             command: cargo fmt --check
+            timeout: 30
           - id: clippy
             name: Clippy
             command: cargo clippy --all-targets -- -D warnings
+            timeout: 30
           - id: tests
             name: Tests
             command: cargo test --all-targets
+            timeout: 60
           - id: release
             name: Release build
             command: cargo build --release
+            timeout: 30
           - id: schema
             name: 17-root CDDL fixtures
             command: cargo test --test schema_fixtures all_seventeen_root_fixtures_parse_validate_and_round_trip -- --exact
+            timeout: 30
     steps:
       - name: Check out repository
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
