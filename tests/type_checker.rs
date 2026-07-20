@@ -644,4 +644,29 @@ fn exact_integer_above_i64_max_round_trips_and_type_checks() {
     checked(r#"["machine-integer", "unsigned", 64]"#)
         .validate_value(&value, &RefinementEvidence::default())
         .unwrap();
+
+    let outside_wire = parse_diagnostic(r#"["integer", 18446744073709551616]"#).unwrap();
+    assert!(CheckedType::validate_untyped_value(&outside_wire).is_err());
+    assert!(
+        checked(r#"["exact-number", "Integer"]"#)
+            .validate_value(&outside_wire, &RefinementEvidence::default())
+            .is_err()
+    );
+    assert!(CheckedType::infer_value(&outside_wire).is_err());
+    for outside_component in [
+        r#"["rational", 18446744073709551616, 1]"#,
+        r#"["decimal", 1, 18446744073709551616]"#,
+    ] {
+        assert!(
+            CheckedType::validate_untyped_value(&parse_diagnostic(outside_component).unwrap(),)
+                .is_err()
+        );
+    }
+
+    let outside_type =
+        parse_diagnostic(r#"["machine-integer", "signed", 18446744073709551616]"#).unwrap();
+    assert_eq!(
+        CheckedType::from_value(&outside_type).unwrap_err().code,
+        "BHCP4101"
+    );
 }

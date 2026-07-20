@@ -71,9 +71,11 @@ pub struct CheckedTypeProgram {
 
 impl CheckedType {
     pub fn from_value(value: &Value) -> Result<Self> {
-        Ok(Self {
-            value: normalize_type(value)?,
-        })
+        let value = normalize_type(value)?;
+        encode_deterministic(&value).map_err(|_| {
+            invalid("checked type contains a value outside the deterministic wire domain")
+        })?;
+        Ok(Self { value })
     }
 
     pub fn from_canonical_value(value: &Value) -> Result<Self> {
@@ -157,7 +159,9 @@ impl CheckedType {
             Value::Text(_) => primitive_type("Text").value,
             Value::Bytes(_) => primitive_type("Bytes").value,
             Value::Array(parts) if parts == &[text("unit")] => primitive_type("Unit").value,
-            Value::Array(parts) if matches!(parts.as_slice(), [Value::Text(tag), Value::Integer(_)] if tag == "integer") => {
+            Value::Array(parts) if matches!(parts.as_slice(), [Value::Text(tag), Value::Integer(_)] if tag == "integer") =>
+            {
+                validate_exact_value(value)?;
                 exact_type("Integer").value
             }
             Value::Array(parts) if matches!(parts.as_slice(), [Value::Text(tag), Value::Integer(_), Value::Integer(_)] if tag == "rational") =>
@@ -2167,6 +2171,7 @@ fn validate_exact_number_value(value: &Value, name: &str) -> Result<()> {
 }
 
 fn validate_machine_integer_value(value: &Value, value_type: &[Value]) -> Result<()> {
+    validate_exact_value(value)?;
     let [_, Value::Text(sign), Value::Integer(width)] = value_type else {
         return Err(invalid("machine integer type lost its normalized shape"));
     };
@@ -2463,10 +2468,15 @@ fn validate_exact_value(value: &Value) -> Result<()> {
                 return Err(invalid("unit value has invalid shape"));
             }
         }
-        Value::Array(parts) if matches!(parts.first(), Some(Value::Text(tag)) if tag == "integer") => {
-            if !matches!(parts.as_slice(), [Value::Text(tag), Value::Integer(_)] if tag == "integer")
-            {
+        Value::Array(parts) if matches!(parts.first(), Some(Value::Text(tag)) if tag == "integer") =>
+        {
+            let [Value::Text(tag), Value::Integer(integer)] = parts.as_slice() else {
                 return Err(invalid("integer value has invalid shape"));
+            };
+            if tag != "integer" || !is_cbor_integer(*integer) {
+                return Err(invalid(
+                    "integer value is outside the deterministic CBOR int domain",
+                ));
             }
         }
         Value::Array(parts) if matches!(parts.first(), Some(Value::Text(tag)) if tag == "rational") =>
@@ -2478,6 +2488,11 @@ fn validate_exact_value(value: &Value) -> Result<()> {
             if *denominator <= 0 {
                 return Err(invalid("rational denominator must be positive"));
             }
+            if !is_cbor_integer(*numerator) || !is_cbor_integer(*denominator) {
+                return Err(invalid(
+                    "rational component is outside the deterministic CBOR int domain",
+                ));
+            }
             if greatest_common_divisor(numerator.unsigned_abs(), *denominator as u128) != 1 {
                 return Err(Diagnostic::plain(
                     NONCANONICAL_TYPE,
@@ -2485,9 +2500,16 @@ fn validate_exact_value(value: &Value) -> Result<()> {
                 ));
             }
         }
-        Value::Array(parts) if matches!(parts.first(), Some(Value::Text(tag)) if tag == "decimal") => {
-            if !matches!(parts.as_slice(), [_, Value::Integer(_), Value::Integer(_)]) {
+        Value::Array(parts) if matches!(parts.first(), Some(Value::Text(tag)) if tag == "decimal") =>
+        {
+            let [_, Value::Integer(coefficient), Value::Integer(exponent)] = parts.as_slice()
+            else {
                 return Err(invalid("decimal components are invalid"));
+            };
+            if !is_cbor_integer(*coefficient) || !is_cbor_integer(*exponent) {
+                return Err(invalid(
+                    "decimal component is outside the deterministic CBOR int domain",
+                ));
             }
         }
         Value::Array(parts) if matches!(parts.first(), Some(Value::Text(tag)) if tag == "machine-float") =>
@@ -2545,6 +2567,10 @@ fn validate_exact_value(value: &Value) -> Result<()> {
         _ => {}
     }
     Ok(())
+}
+
+fn is_cbor_integer(value: i128) -> bool {
+    (-1 - i128::from(u64::MAX)..=i128::from(u64::MAX)).contains(&value)
 }
 
 fn greatest_common_divisor(mut left: u128, mut right: u128) -> u128 {
