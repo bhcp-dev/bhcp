@@ -236,3 +236,18 @@ fn duplicate_symbols_and_noncanonical_rule_order_are_rejected_at_the_source_span
         "source policy rules must be sorted by unique rule ID"
     );
 }
+
+#[test]
+fn unrestricted_policy_parameters_do_not_inherit_governance_record_ordering() {
+    let source = r#"
+§policy example/p@0 {
+    layer repository;
+    rule a: requirement add {
+        requirement: example/r@0,
+        parameters: { effect: true, custom: false }
+    } nonwaivable;
+}
+"#;
+    let parsed = parse_policy_source(source, "parameters.bhcp").unwrap();
+    assert_eq!(parsed.documents.len(), 1);
+}

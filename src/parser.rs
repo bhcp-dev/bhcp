@@ -2763,7 +2763,7 @@ impl Parser<'_> {
             } else {
                 None
             };
-            let value = self.meta_value()?;
+            let value = self.meta_value_with_order(true)?;
             let end = self.expect(";")?.end;
             let mut attributes = vec![
                 ("name".to_owned(), Value::Text(name.text.clone())),
@@ -2844,6 +2844,10 @@ impl Parser<'_> {
     }
 
     fn meta_value(&mut self) -> Result<Value> {
+        self.meta_value_with_order(false)
+    }
+
+    fn meta_value_with_order(&mut self, enforce_record_order: bool) -> Result<Value> {
         if self.matches("time") {
             let at = self.consume().start;
             let value = self.consume();
@@ -2875,7 +2879,7 @@ impl Parser<'_> {
             let mut values = Vec::new();
             if !self.matches("]") {
                 loop {
-                    values.push(self.meta_value()?);
+                    values.push(self.meta_value_with_order(enforce_record_order)?);
                     if !self.matches(",") {
                         break;
                     }
@@ -2903,7 +2907,7 @@ impl Parser<'_> {
                         ));
                     }
                     self.expect(":")?;
-                    entries.push((key.text, self.meta_value()?));
+                    entries.push((key.text, self.meta_value_with_order(enforce_record_order)?));
                     if !self.matches(",") {
                         break;
                     }
@@ -2911,8 +2915,10 @@ impl Parser<'_> {
                 }
             }
             self.expect("}")?;
-            validate_meta_map_order(&entries)
-                .map_err(|message| at("BHCP1003", message, self.source_name, &start))?;
+            if enforce_record_order {
+                validate_meta_map_order(&entries)
+                    .map_err(|message| at("BHCP1003", message, self.source_name, &start))?;
+            }
             return Ok(Value::owned_map(entries));
         }
         let token = self.current().clone();
