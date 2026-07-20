@@ -53,7 +53,7 @@ pub struct TraceEvent {
 impl TraceEvent {
     fn to_value(&self) -> Value {
         let mut entries = vec![
-            ("sequence".to_owned(), Value::Integer(self.sequence as i64)),
+            ("sequence".to_owned(), Value::Integer(self.sequence as i128)),
             ("node".to_owned(), Value::Text(self.node.clone())),
             ("at".to_owned(), Value::Text(self.at.clone())),
             ("kind".to_owned(), Value::Text(self.kind.clone())),

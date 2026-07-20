@@ -1361,22 +1361,19 @@ fn plan_digest(plan: &ExperimentPlan, fixture_digest: &str) -> Result<String> {
         ("toolchain", Value::Text(plan.pins.toolchain.clone())),
         (
             "timeout_millis",
-            Value::Integer(
-                i64::try_from(plan.limits.timeout_millis)
-                    .map_err(|_| invalid("experiment timeout does not fit the canonical form"))?,
-            ),
+            Value::Integer(i128::from(plan.limits.timeout_millis)),
         ),
         (
             "max_agent_output_bytes",
             Value::Integer(
-                i64::try_from(plan.limits.max_agent_output_bytes)
+                i128::try_from(plan.limits.max_agent_output_bytes)
                     .map_err(|_| invalid("agent output limit does not fit the canonical form"))?,
             ),
         ),
         (
             "max_judge_output_bytes",
             Value::Integer(
-                i64::try_from(plan.limits.max_judge_output_bytes)
+                i128::try_from(plan.limits.max_judge_output_bytes)
                     .map_err(|_| invalid("judge output limit does not fit the canonical form"))?,
             ),
         ),

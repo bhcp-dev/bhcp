@@ -378,9 +378,9 @@ impl PolicyScope {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ExactNumber {
-    Integer(i64),
-    Rational { numerator: i64, denominator: i64 },
-    Decimal { coefficient: i64, exponent: i64 },
+    Integer(i128),
+    Rational { numerator: i128, denominator: i128 },
+    Decimal { coefficient: i128, exponent: i128 },
 }
 
 impl ExactNumber {
@@ -545,7 +545,10 @@ impl EvidencePolicyValue {
                 "classes".to_owned(),
                 Value::Array(self.classes.iter().cloned().map(Value::Text).collect()),
             ),
-            ("minimum".to_owned(), Value::Integer(self.minimum as i64)),
+            (
+                "minimum".to_owned(),
+                Value::Integer(i128::from(self.minimum)),
+            ),
         ];
         push_scope_and_parameters(&mut entries, &self.scope, &self.parameters);
         Value::owned_map(entries)
@@ -1256,7 +1259,7 @@ impl ArtifactReference {
     pub(crate) fn to_value(&self) -> Value {
         let mut entries = vec![
             ("media_type".to_owned(), text(&self.media_type)),
-            ("size".to_owned(), Value::Integer(self.size as i64)),
+            ("size".to_owned(), Value::Integer(i128::from(self.size))),
             (
                 "digests".to_owned(),
                 Value::Array(self.digests.iter().map(HashId::to_value).collect()),
@@ -1468,7 +1471,10 @@ impl RuleProvenance {
     fn to_value(&self) -> Value {
         Value::map([
             ("category", text(self.category.as_str())),
-            ("effective_rule", Value::Integer(self.effective_rule as i64)),
+            (
+                "effective_rule",
+                Value::Integer(self.effective_rule as i128),
+            ),
             (
                 "sources",
                 Value::Array(
@@ -3189,7 +3195,7 @@ fn exact_number_encoding(value: &ExactNumber) -> Vec<u8> {
     encode_deterministic(&value.to_value()).expect("validated exact number encodes")
 }
 
-fn exact_parts(value: &ExactNumber) -> (u128, u128, i64) {
+fn exact_parts(value: &ExactNumber) -> (u128, u128, i128) {
     match value {
         ExactNumber::Integer(value) => (*value as u128, 1, 0),
         ExactNumber::Rational {
@@ -3203,14 +3209,14 @@ fn exact_parts(value: &ExactNumber) -> (u128, u128, i64) {
     }
 }
 
-fn scaled_integer_cmp(left: u128, left_exp: i64, right: u128, right_exp: i64) -> Ordering {
+fn scaled_integer_cmp(left: u128, left_exp: i128, right: u128, right_exp: i128) -> Ordering {
     if left == 0 || right == 0 {
         return left.cmp(&right);
     }
     let left_text = left.to_string();
     let right_text = right.to_string();
-    let left_magnitude = left_text.len() as i128 + left_exp as i128;
-    let right_magnitude = right_text.len() as i128 + right_exp as i128;
+    let left_magnitude = left_text.len() as i128 + left_exp;
+    let right_magnitude = right_text.len() as i128 + right_exp;
     match left_magnitude.cmp(&right_magnitude) {
         Ordering::Equal => {
             let width = left_text.len().max(right_text.len());
@@ -3666,14 +3672,14 @@ fn required_bool(entries: &[(String, Value)], key: &str, context: &str) -> Resul
 
 fn positive_u64(value: &Value, message: &str) -> Result<u64> {
     match value {
-        Value::Integer(value) if *value > 0 => Ok(*value as u64),
+        Value::Integer(value) if *value > 0 => u64::try_from(*value).map_err(|_| invalid(message)),
         _ => Err(invalid(message)),
     }
 }
 
 fn non_negative_u64(value: &Value, message: &str) -> Result<u64> {
     match value {
-        Value::Integer(value) if *value >= 0 => Ok(*value as u64),
+        Value::Integer(value) if *value >= 0 => u64::try_from(*value).map_err(|_| invalid(message)),
         _ => Err(invalid(message)),
     }
 }

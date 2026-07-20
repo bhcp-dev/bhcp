@@ -14,8 +14,18 @@ fn encode(value: &Value, output: &mut Vec<u8>) -> Result<()> {
         Value::Null => output.push(0xf6),
         Value::Bool(false) => output.push(0xf4),
         Value::Bool(true) => output.push(0xf5),
-        Value::Integer(value) if *value >= 0 => write_head(0, *value as u64, output),
-        Value::Integer(value) => write_head(1, (-1i128 - i128::from(*value)) as u64, output),
+        Value::Integer(value) if *value >= 0 && *value <= i128::from(u64::MAX) => {
+            write_head(0, *value as u64, output)
+        }
+        Value::Integer(value) if *value < 0 && *value >= -1 - i128::from(u64::MAX) => {
+            write_head(1, (-1 - *value) as u64, output)
+        }
+        Value::Integer(_) => {
+            return Err(Diagnostic::plain(
+                "BHCP3005",
+                "integer exceeds the canonical CBOR int domain",
+            ));
+        }
         Value::Text(value) => {
             validate_text(value)?;
             write_head(3, value.len() as u64, output);
@@ -134,23 +144,11 @@ impl Decoder<'_> {
             ));
         }
         match major {
-            0 => Ok(Value::Integer(
-                i64::try_from(self.argument(additional)?).map_err(|_| {
-                    Diagnostic::plain(
-                        "BHCP3005",
-                        "unsigned integer exceeds supported artifact range",
-                    )
-                })?,
-            )),
+            0 => Ok(Value::Integer(i128::from(self.argument(additional)?))),
             1 => {
                 let value = self.argument(additional)?;
                 let signed = -1i128 - i128::from(value);
-                Ok(Value::Integer(i64::try_from(signed).map_err(|_| {
-                    Diagnostic::plain(
-                        "BHCP3005",
-                        "negative integer exceeds supported artifact range",
-                    )
-                })?))
+                Ok(Value::Integer(signed))
             }
             2 => {
                 let length = self.length(additional)?;

@@ -778,7 +778,10 @@ fn declaration_value(declaration: &VerifierAdapterDeclaration) -> Value {
             "output_media_type",
             Value::Text(declaration.output_media_type.clone()),
         ),
-        ("timeout_ms", Value::Integer(declaration.timeout_ms as i64)),
+        (
+            "timeout_ms",
+            Value::Integer(i128::from(declaration.timeout_ms)),
+        ),
         (
             "allowed_effects",
             Value::Array(

@@ -15,5 +15,6 @@ pub mod policy;
 pub mod prelude;
 pub mod profile;
 pub mod schema;
+pub mod typecheck;
 pub mod value;
 pub mod verification;

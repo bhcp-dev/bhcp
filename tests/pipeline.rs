@@ -201,15 +201,46 @@ fn complete_type_grammar_and_verifier_arguments_retain_structure() {
 }
 
 #[test]
-fn parsed_definition_forms_stop_before_executable_ir_emission() {
-    for source in [
-        "§type example/Only@0 = Text;",
-        "§predicate example/only@0(): Bool;",
+fn checked_types_materialize_while_later_definition_stages_remain_deferred() {
+    let compiled = compile_source("§type example/Only@0 = Text;", "type-only.bhcp").unwrap();
+    assert_eq!(compiled.ir.types.len(), 1);
+    assert_eq!(compiled.ir.types[0].symbol, "example/Only@0");
+    compiled.ir.validate().unwrap();
+    validate_root(&compiled.ir.to_value(true), "semantic-ir").unwrap();
+
+    let same = compile_source(
+        "// presentation\n§type example/Only@0=Text;",
+        "type-only-formatted.bhcp",
+    )
+    .unwrap();
+    let changed =
+        compile_source("§type example/Only@0 = Bytes;", "type-only-changed.bhcp").unwrap();
+    assert_eq!(compiled.semantic_hash, same.semantic_hash);
+    assert_ne!(compiled.ast_hash, same.ast_hash);
+    assert_ne!(compiled.semantic_hash, changed.semantic_hash);
+
+    let ordered = compile_source(
+        "§type example/A@0 = Text; §type example/B@0 = Bytes;",
+        "types-ordered.bhcp",
+    )
+    .unwrap();
+    let reordered = compile_source(
+        "§type example/B@0 = Bytes; §type example/A@0 = Text;",
+        "types-reordered.bhcp",
+    )
+    .unwrap();
+    assert_eq!(ordered.semantic_hash, reordered.semantic_hash);
+
+    let source = "§predicate example/only@0(): Bool;";
+    let diagnostic = compile_source(source, "definition-only.bhcp").unwrap_err();
+    assert_eq!(diagnostic.code, "BHCP2004", "{source}");
+
+    let diagnostic = compile_source(
         "§refines example/Child@0 example/Parent@0;",
-    ] {
-        let diagnostic = compile_source(source, "definition-only.bhcp").unwrap_err();
-        assert_eq!(diagnostic.code, "BHCP2004", "{source}");
-    }
+        "unresolved-refinement.bhcp",
+    )
+    .unwrap_err();
+    assert_eq!(diagnostic.code, "BHCP4101");
 }
 
 #[test]

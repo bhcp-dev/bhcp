@@ -2872,7 +2872,7 @@ impl Parser<'_> {
                     &start,
                 ));
             };
-            return Ok(Value::Integer(-value));
+            return Ok(Value::Integer(i128::from(-value)));
         }
         if self.matches("[") {
             self.consume();
@@ -2943,7 +2943,7 @@ impl Parser<'_> {
                 let Some(TokenValue::Integer(value)) = token.value else {
                     unreachable!()
                 };
-                Ok(Value::Integer(value))
+                Ok(Value::Integer(i128::from(value)))
             }
             TokenKind::Identifier if token.text == "true" || token.text == "false" => {
                 self.consume();
@@ -3978,7 +3978,7 @@ impl Parser<'_> {
                     "priority".to_owned(),
                     Value::Array(vec![
                         Value::Text("integer".to_owned()),
-                        Value::Integer(priority),
+                        Value::Integer(i128::from(priority)),
                     ]),
                 )];
                 if structured_fact_types {
@@ -5721,7 +5721,7 @@ fn surface_expression_value(expression: &SurfaceExpression) -> Value {
             Value::Text("literal".to_owned()),
             match value {
                 SurfaceLiteral::Bool(value) => Value::Bool(*value),
-                SurfaceLiteral::Integer(value) => Value::Integer(*value),
+                SurfaceLiteral::Integer(value) => Value::Integer(i128::from(*value)),
                 SurfaceLiteral::Text(value) => Value::Text(value.clone()),
             },
         ]),

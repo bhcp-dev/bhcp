@@ -25,6 +25,7 @@ use crate::prelude::{
     NONE_FEATURE, NONE_LOWERER, NONE_REDUCER, NetworkShape, Prelude,
 };
 use crate::profile::{ProfileRegistry, SyntaxDocument};
+use crate::typecheck::check_type_definitions;
 use crate::value::Value;
 
 #[derive(Clone, Debug)]
@@ -350,6 +351,10 @@ fn finish_compilation(
     profile_mode: Option<TypeMode>,
 ) -> Result<Compilation> {
     let mut ir = elaborate(&program, source_name, algorithm)?;
+    ir.type_mode = profile_mode.unwrap_or(TypeMode::InferStrict);
+    for goal in &mut ir.goals {
+        goal.type_mode = ir.type_mode;
+    }
     if let Some(policy) = policy {
         apply_effective_policy(&mut ir, policy, source_name, algorithm, profile_mode)?;
     }
@@ -425,7 +430,9 @@ fn apply_effective_policy(
     }
 
     let decision_mode = profile_mode.map_or(required_mode, |mode| mode.max(required_mode));
+    ir.type_mode = decision_mode;
     for goal in &mut ir.goals {
+        goal.type_mode = decision_mode;
         let requirements =
             applicable_indices(&policy.effective.requirements, &goal.symbol, |rule| {
                 rule.value.scope.as_ref()
@@ -728,14 +735,7 @@ fn elaborate(
     source_name: &str,
     algorithm: HashAlgorithm,
 ) -> Result<SemanticIrDocument> {
-    if !program.types.is_empty() {
-        return Err(error(
-            "BHCP2004",
-            "type definitions are outside the implemented executable slice",
-            source_name,
-            &program.types[0].at,
-        ));
-    }
+    let types = check_type_definitions(program)?.definitions;
     if !program.predicates.is_empty() {
         return Err(error(
             "BHCP2004",
@@ -783,7 +783,7 @@ fn elaborate(
             &program.functions[0].at,
         ));
     }
-    if program.goals.is_empty() {
+    if program.goals.is_empty() && program.types.is_empty() {
         return Err(Diagnostic::new(
             "BHCP1001",
             "an executable source file must contain at least one goal",
@@ -855,6 +855,8 @@ fn elaborate(
     }
     Ok(SemanticIrDocument {
         features,
+        type_mode: TypeMode::InferStrict,
+        types,
         functions,
         goals,
         entrypoints,
@@ -1274,6 +1276,7 @@ fn lower_goal(
     Ok(GoalDefinition {
         id: format!("goal-{}", index + 1),
         symbol: goal.symbol.clone(),
+        type_mode: TypeMode::InferStrict,
         input,
         output,
         evidence: BhcpType::Evidence(vec![evidence.to_owned()]),
@@ -1685,7 +1688,7 @@ fn surface_expression_identity(expression: &SurfaceExpression) -> Result<Value> 
                 SurfaceLiteral::Text(value) => Value::Text(value.clone()),
                 SurfaceLiteral::Integer(value) => Value::Array(vec![
                     Value::Text("integer".to_owned()),
-                    Value::Integer(*value),
+                    Value::Integer(i128::from(*value)),
                 ]),
             },
         ]),
@@ -1759,7 +1762,7 @@ fn lower_gate_condition(
                 BhcpType::ExactNumber("Integer"),
                 ExpressionForm::Literal(Value::Array(vec![
                     Value::Text("integer".to_owned()),
-                    Value::Integer(*value),
+                    Value::Integer(i128::from(*value)),
                 ])),
             ),
         },
@@ -2003,7 +2006,7 @@ fn lower_reducer_expression(
                 BhcpType::ExactNumber("Integer"),
                 ExpressionForm::Literal(Value::Array(vec![
                     Value::Text("integer".to_owned()),
-                    Value::Integer(*value),
+                    Value::Integer(i128::from(*value)),
                 ])),
             ),
         },
@@ -2404,7 +2407,7 @@ fn lower_expression(
                 BhcpType::ExactNumber("Integer"),
                 ExpressionForm::Literal(Value::Array(vec![
                     Value::Text("integer".to_owned()),
-                    Value::Integer(*value),
+                    Value::Integer(i128::from(*value)),
                 ])),
             ),
         },
@@ -2548,7 +2551,7 @@ fn lower_effect(
                 SurfaceLiteral::Text(value) => Value::Text(value.clone()),
                 SurfaceLiteral::Integer(value) => Value::Array(vec![
                     Value::Text("integer".to_owned()),
-                    Value::Integer(*value),
+                    Value::Integer(i128::from(*value)),
                 ]),
             }),
             _ => {

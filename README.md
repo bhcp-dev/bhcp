@@ -8,9 +8,13 @@ This repository defines the normative v0 foundation and focused executable slice
 The Rust implementation accepts canonical clause goals plus self-hosted `all`,
 homogeneous-output `any`, `none`, typed `chain`, and unary `gate`, emits validated
 canonical AST and semantic IR, dispatches registered verifier bindings, and emits
-deterministic evidence bundles. Canonical artifacts use deterministic CBOR and
+deterministic evidence bundles. It also validates and normalizes every v0 wire type,
+checks exact and machine values, generic bounds, refinements, nominal/structural
+subtyping, and explicit `Dynamic` boundaries, and materializes checked `§type`
+definitions in semantic IR. Canonical artifacts use deterministic CBOR and
 algorithm-tagged semantic or artifact identities. It is not yet a complete v0
-parser, checker, planner, runtime, or SDK.
+front end, planner, runtime, or SDK: general expressions, functions, predicates,
+ownership/effects, and graph construction remain roadmap work.
 
 ## Start here
 
@@ -107,8 +111,14 @@ functions, and constructs outside the executable slice are rejected during lower
 with a stable diagnostic rather than erased. Parsing separately accepts complete S7
 `§type`, general `§function`, `§predicate`, and standalone `§refines` definitions,
 including generic bounds, structural and algebraic types, handles, refinement
-predicates, verifier arguments, and exact source spans. Their closed deterministic
-AST is the boundary for the later checker and elaboration roadmap issues.
+predicates, verifier arguments, and exact source spans. `§type` definitions and
+nominal `§refines` edges now pass through the closed v0 value/type checker and enter
+semantic IR with normalized types, deterministic IDs, generic-bound checks, and
+semantic identity sensitivity. Refinement introduction evaluates the checked total
+comparison/Boolean subset and binds its evidence to both the normalized predicate
+and exact candidate value; arithmetic and general function/predicate elaboration
+remain the next definition-stage boundary. Exact integers cover the complete
+deterministic-CBOR `int` domain, including unsigned values above `i64::MAX`.
 The same parser boundary now accepts complete S7 goal headers and clause ordering:
 generic/refinement declarations, all four fact kinds and initializers, invariants,
 limits, authority, preferences, verifier arguments, executable cases, standalone
@@ -119,7 +129,7 @@ before executable IR until their checker, ownership/effect, and recursion stages
 | Canonical definition | Implemented source slice | Explicitly deferred |
 | --- | --- | --- |
 | `§goal` / `§function` | Complete goal and general-function parsing/AST construction plus the checked executable goal/prelude-function slice described above | General checking/lowering, finite-domain proof, ownership/effects, cases, and recursion semantics |
-| `§type` / `§predicate` / `§refines` | Complete definition, parameter, type, refinement, and verifier-binding parsing into schema-valid canonical AST | Name/type checking and semantic-IR elaboration |
+| `§type` / `§predicate` / `§refines` | Complete parsing plus checked `§type`/nominal-refinement lowering: every v0 wire form normalizes, local generic applications enforce arity/bounds, the total comparison/Boolean refinement subset produces candidate-bound evidence, and definitions materialize in semantic IR | Refinement arithmetic and general function/predicate name resolution, expression elaboration, and their executable IR definitions |
 | `§policy` | Complete canonical source parsing for layer, `§extends`, six closed typed rules, scopes/parameters, waivability, and issuers; composition, inspection, policy-aware elaboration, and no-waiver conformance fixtures | Expression-valued policy clauses and enforcement beyond the compile-time/evidence boundary |
 | `§syntax` / `§profile` | Complete closed source-definition parsing into typed deterministic artifacts; fixed byte-level selection, exact one-parent resolution, monotonic attached overlays, resolved-profile inspection, span-aware custom-source compilation, and deterministic profile-aware formatting | Applying newly parsed definitions as source-local registry inputs remains the profile-lowering stage |
 | `§waiver` / `§extension` | Complete closed source-definition parsing for all six typed waiver changes, canonical scopes/targets, authority/time fields, and wire-compatible derived/native descriptors; materialized references round-trip through the v0 wire boundary while frozen exact-symbol references remain deferred | Resolving symbolic artifact references, waiver application, and extension checking/lowering remain governed semantic stages |
