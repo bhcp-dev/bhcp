@@ -610,13 +610,13 @@ fn top_level_definition_inventory(source: &str) -> Result<BTreeSet<(String, Stri
     let mut definitions = BTreeSet::new();
     for line in source.lines().filter(|line| line.starts_with('§')) {
         let Some((kind, remainder)) = line['§'.len_utf8()..].split_once(' ') else {
-            continue;
+            return Err(format!("unprojected top-level construct {line:?}"));
         };
         if !matches!(
             kind,
             "type" | "function" | "predicate" | "goal" | "extension"
         ) {
-            continue;
+            return Err(format!("unprojected top-level construct §{kind}"));
         }
         let symbol = remainder
             .split(|character: char| character.is_whitespace() || character == '(')
@@ -1796,6 +1796,21 @@ fn reference_validators_reject_invalid_policy_shapes_and_ownership() {
         )
         .unwrap_err()
         .contains("typed fact projection")
+    );
+
+    let unprojected_top_level = canonical.replacen(
+        "§type bhcp.reference/Risk@0 = variant { Low, High };",
+        "§type bhcp.reference/Risk@0 = variant { Low, High };\n§waiver bhcp.reference/hidden@0;",
+        1,
+    );
+    assert!(
+        validate_program_projection_sources(
+            &typed_projection,
+            &unprojected_top_level,
+            &read_reference(&root, "extension.bhcp").unwrap(),
+        )
+        .unwrap_err()
+        .contains("unprojected top-level construct")
     );
 
     let bindings = read_reference(&root, "policy-evidence-registry.txt")
