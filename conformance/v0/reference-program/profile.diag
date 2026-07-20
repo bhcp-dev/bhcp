@@ -1,0 +1,12 @@
+{
+  "version": "bhcp/v0",
+  "features": [],
+  "kind": "profile",
+  "symbol": "bhcp.reference/review-profile@0",
+  "syntax": "bhcp.reference/words@0",
+  "policy_overlays": [
+    "bhcp.reference/organization-policy@0",
+    "bhcp.reference/repository-policy@0"
+  ],
+  "type_mode": "infer-strict"
+}

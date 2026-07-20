@@ -1,8 +1,5 @@
 §syntax bhcp.reference/words@0 {
-    mappings [
-        { coordinate: "keyword.goal", surface: "intend" },
-        { coordinate: "keyword.requires", surface: "given" },
-        { coordinate: "keyword.ensures", surface: "prove" }
-    ];
-    punctuation { block_open: "begin", block_close: "end", terminator: "." };
+    preamble "#!bhcp-profile";
+    mappings [{ category: "keyword", canonical: "goal", surface: "intent" }];
+    formatting { indent_width: 4, line_width: 100, final_newline: true };
 }

@@ -14,7 +14,11 @@ root kinds, stable issue keys #99–#134, ten observable pipeline outcomes, and 
 [`reference-program/`](reference-program/) artifact and feature inventory. Missing,
 duplicate, or unknown records fail the focused contract test. The reference program
 is deliberately ahead of the partial front end and currently must fail closed at its
-first unsupported definition; it is not counted as executable conformance yet.
+first unsupported definition; it is not counted as executable conformance yet. Its
+already-implemented policy and typed artifact boundaries validate now, while a
+reviewed data-flow projection, exact alternate-source normalization, closed registry,
+obligation inventory, and separate eight-case outcome matrix prevent disconnected or
+category-collapsing future targets from passing on marker presence alone.
 
 Each positive case must check canonical AST, semantic IR, graph, execution result, and
 deterministic bytes where those stages apply. Each negative case must check a stable

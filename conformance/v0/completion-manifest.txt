@@ -165,7 +165,7 @@ stage|checking|complete-type-checker,expression-calculus,function-predicate-elab
 stage|graphs|graph-core-model,obligation-graph-builder,capability-graph-builder,state-graph-builder,obligation-proof-checker,graph-completion-audit|Deterministic typed obligation capability state and proof graphs agree on identities and provenance
 stage|planning|planner-boundary,conflict-scheduler,budget-retry-planner,execution-graph-builder|A valid request yields one deterministic constrained execution graph or an explained refusal
 stage|execution|capability-executor-runtime,state-cas-runtime,execution-lifecycle-runtime,runtime-policy-enforcement,coding-agent-backend|Capability-bounded work respects state ownership cancellation retries policy and exact result states
-stage|evidence|evidence-graph-assembly|Every structural obligation receives deterministic accepted rejected unresolved or faulted evidence with provenance
+stage|evidence|evidence-graph-assembly|Every structural obligation has deterministic discharge refutation or unresolved evidence while operational faults remain separate gaps
 stage|sdk|rust-sdk|Safe Rust exposes the complete checked pipeline without bypassing authority identity or validation boundaries
 stage|cli|complete-cli|The CLI drives source inspection checking planning execution evidence and deterministic artifact exchange
 stage|conformance|complete-v0-conformance,reference-program-e2e|Every normative scenario and the reference program execute through the public SDK and CLI
@@ -173,24 +173,32 @@ stage|certification|v0-security-audit,v0-completion-audit|Adversarial trust boun
 
 # Reference-program artifacts and feature witnesses.
 artifact|program|conformance/v0/reference-program/program.bhcp
+artifact|program-profiled|conformance/v0/reference-program/program.words.bhcp
+artifact|program-contract|conformance/v0/reference-program/program-contract.txt
+artifact|registry|conformance/v0/reference-program/registry.txt
 artifact|policy|conformance/v0/reference-program/policy.bhcp
 artifact|waiver|conformance/v0/reference-program/waiver.bhcp
+artifact|waiver-projection|conformance/v0/reference-program/waiver.diag
 artifact|syntax|conformance/v0/reference-program/syntax.bhcp
+artifact|syntax-projection|conformance/v0/reference-program/syntax.diag
 artifact|profile|conformance/v0/reference-program/profile.bhcp
+artifact|profile-projection|conformance/v0/reference-program/profile.diag
 artifact|extension|conformance/v0/reference-program/extension.bhcp
+artifact|extension-projection|conformance/v0/reference-program/extension.diag
 artifact|planner-input|conformance/v0/reference-program/planner-input.txt
 artifact|execution-input|conformance/v0/reference-program/execution-input.txt
 artifact|expected-obligations|conformance/v0/reference-program/expected-obligations.txt
+artifact|outcome-matrix|conformance/v0/reference-program/outcome-matrix.txt
 feature|typed-functions-and-predicates|program|definition-source-parser,function-predicate-elaboration|§function,§predicate
 feature|nested-goals-and-recursion|program|goal-source-parser,recursion-retention-lowering|§all,§chain,§gate,WalkTree
-feature|effects-and-ownership|program|ownership-analysis,effect-authority-budget-analysis|owned affine,borrowed write,§allows,§forbids
+feature|effects-and-ownership|program|ownership-analysis,effect-authority-budget-analysis|owned affine,owned linear,move,§allows,§forbids
 feature|policy-boundary|policy|governance-source-parser,policy-waiver-lowering,runtime-policy-enforcement|§policy,layer organization,layer repository,nonwaivable
-feature|waiver-boundary|waiver|governance-source-parser,policy-waiver-lowering,runtime-policy-enforcement|§waiver,targets,expires_at
-feature|custom-profile|profile|governance-source-parser,profile-source-lowering|§profile,§extends,syntax
-feature|derived-extension|extension|governance-source-parser,extension-lowering|§extension,derived,lowering
+feature|waiver-boundary|waiver-projection|governance-source-parser,policy-waiver-lowering,runtime-policy-enforcement|waiver,targets,expires_at
+feature|custom-profile|program-profiled|governance-source-parser,profile-source-lowering|#!bhcp-profile,§intent
+feature|derived-extension|extension-projection|governance-source-parser,extension-lowering|extension-descriptor,derived,lowering
 feature|planning|planner-input|planner-boundary,conflict-scheduler,budget-retry-planner,execution-graph-builder|budget,executor,explained-refusal
-feature|execution|execution-input|capability-executor-runtime,state-cas-runtime,execution-lifecycle-runtime,coding-agent-backend|workspace,expected-output,cancel-on
-feature|per-obligation-evidence|expected-obligations|obligation-graph-builder,obligation-proof-checker,evidence-graph-assembly|obligation,accepted,unresolved,faulted
+feature|execution|outcome-matrix|capability-executor-runtime,state-cas-runtime,execution-lifecycle-runtime,coding-agent-backend|policy-denied,budget-refused,cancelled,operational-fault
+feature|per-obligation-evidence|expected-obligations|obligation-graph-builder,obligation-proof-checker,evidence-graph-assembly|contract,evidence-demand,requirement,open
 
 non-goal|full-theorem-proving
 non-goal|unrestricted-macros-or-grammar-plugins

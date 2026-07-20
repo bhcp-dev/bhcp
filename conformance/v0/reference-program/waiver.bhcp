@@ -1,13 +1,20 @@
 §waiver bhcp.reference/offline-emergency-waiver@0 {
     issuer "security";
     targets [{
-        rule: ["bhcp.reference/repository-policy@0", "attempts"],
-        scope: { goals: ["bhcp.reference/DeliverChange@0"] },
+        rule: ["bhcp.reference/repository-policy@0", "d-attempts"],
         weakening: {
             category: "limit",
             operation: "loosen",
-            from: { dimension: "attempts", unit: "count", maximum: 2 },
-            to: { dimension: "attempts", unit: "count", maximum: 3 }
+            from: {
+                dimension: "bhcp.reference/limit.attempts@0",
+                unit: "bhcp.reference/unit.count@0",
+                maximum: ["integer", 2]
+            },
+            to: {
+                dimension: "bhcp.reference/limit.attempts@0",
+                unit: "bhcp.reference/unit.count@0",
+                maximum: ["integer", 3]
+            }
         }
     }];
     justification "Permit one additional offline retry during the frozen exercise";

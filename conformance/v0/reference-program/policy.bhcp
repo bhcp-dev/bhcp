@@ -1,15 +1,65 @@
 §policy bhcp.reference/organization-policy@0 {
-    layer organization;
-    rule attempts "Retry ceiling": limit tighten { dimension: "attempts", maximum: 3 } waivable by ["security"];
-    rule filesystem "Repository filesystem": capability narrow [fs.read, fs.write] nonwaivable;
-    rule network-deny "No network": prohibition deny network waivable by ["security"];
-    rule signed-commits "Signed commits": requirement add "signed-commits" nonwaivable;
-    rule static-evidence "Static evidence": evidence add "static-analysis>=1" nonwaivable;
-    rule typing "Strict types": type-mode strengthen strict nonwaivable;
+  layer organization;
+  rule a-filesystem-read: capability narrow {
+    effect: bhcp-effect/fs.read@0,
+    scope: { goals: [bhcp.reference/DeliverChange@0] }
+  } nonwaivable;
+  rule b-filesystem-write: capability narrow {
+    effect: bhcp-effect/fs.write@0,
+    scope: { goals: [bhcp.reference/DeliverChange@0] }
+  } nonwaivable;
+  rule c-process: capability narrow {
+    effect: bhcp-effect/process@0,
+    scope: { goals: [bhcp.reference/DeliverChange@0] }
+  } nonwaivable;
+  rule c-static-evidence: evidence add {
+    obligation: bhcp.reference/obligation.static-analysis@0,
+    classes: [static],
+    minimum: 1,
+    scope: { goals: [bhcp.reference/DeliverChange@0] }
+  } nonwaivable;
+  rule d-attempts: limit tighten {
+    dimension: bhcp.reference/limit.attempts@0,
+    unit: bhcp.reference/unit.count@0,
+    maximum: ["integer", 3]
+  } waivable by ["security"];
+  rule e-type-mode: type-mode strengthen infer-strict nonwaivable;
+  rule f-network: prohibition deny {
+    effect: bhcp-effect/network@0
+  } waivable by ["security"];
+  rule g-signed-commits: requirement add {
+    requirement: bhcp.reference/requirement.signed-commits@0,
+    scope: { goals: [bhcp.reference/DeliverChange@0] }
+  } nonwaivable;
 }
 
-§policy bhcp.reference/repository-policy@0 §extends bhcp.reference/organization-policy@0 {
-    layer repository;
-    rule review "Human approval": evidence add "human-approved>=1" nonwaivable;
-    rule attempts "Tighter retry ceiling": limit tighten { dimension: "attempts", maximum: 2 } waivable by ["security"];
+§policy bhcp.reference/repository-policy@0 {
+  layer repository;
+  rule a-filesystem-read: capability narrow {
+    effect: bhcp-effect/fs.read@0,
+    scope: { goals: [bhcp.reference/DeliverChange@0] }
+  } nonwaivable;
+  rule b-filesystem-write: capability narrow {
+    effect: bhcp-effect/fs.write@0,
+    scope: { goals: [bhcp.reference/DeliverChange@0] }
+  } nonwaivable;
+  rule c-human-evidence: evidence add {
+    obligation: bhcp.reference/obligation.human-approval@0,
+    classes: [human-approved],
+    minimum: 1,
+    scope: { goals: [bhcp.reference/DeliverChange@0] }
+  } nonwaivable;
+  rule c-process: capability narrow {
+    effect: bhcp-effect/process@0,
+    scope: { goals: [bhcp.reference/DeliverChange@0] }
+  } nonwaivable;
+  rule d-attempts: limit tighten {
+    dimension: bhcp.reference/limit.attempts@0,
+    unit: bhcp.reference/unit.count@0,
+    maximum: ["integer", 2]
+  } waivable by ["security"];
+  rule e-repository-review: requirement add {
+    requirement: bhcp.reference/requirement.repository-review@0,
+    scope: { goals: [bhcp.reference/DeliverChange@0] }
+  } nonwaivable;
 }

@@ -1,0 +1,14 @@
+{
+  "version": "bhcp/v0",
+  "features": [],
+  "kind": "extension-descriptor",
+  "symbol": "bhcp.reference/review@0",
+  "extension_kind": "derived",
+  "must_understand": false,
+  "lowering": "bhcp.reference/lowerReview@0",
+  "type_rule": {"media_type": "text/bhcp", "size": 0, "digests": [{"algorithm": "bhcp.hash/sha3-512@0", "digest": h'00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000'}]},
+  "effect_rule": {"media_type": "text/bhcp", "size": 0, "digests": [{"algorithm": "bhcp.hash/sha3-512@0", "digest": h'00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000'}]},
+  "policy_rule": {"media_type": "text/bhcp", "size": 0, "digests": [{"algorithm": "bhcp.hash/sha3-512@0", "digest": h'00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000'}]},
+  "normalization_rule": {"media_type": "text/bhcp", "size": 0, "digests": [{"algorithm": "bhcp.hash/sha3-512@0", "digest": h'00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000'}]},
+  "evidence_rule": {"media_type": "text/bhcp", "size": 0, "digests": [{"algorithm": "bhcp.hash/sha3-512@0", "digest": h'00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000'}]}
+}

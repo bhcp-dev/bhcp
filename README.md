@@ -584,7 +584,11 @@ all 99 normative scenario instances (including each standard algebra's
 satisfied/refuted/unresolved/faulted matrix), all 17 wire roots, ten end-to-end
 pipeline outcomes, and the reference-program features to stable issue keys #99–#134.
 The validator rejects missing, duplicate, and unknown records and checks the root
-inventory against both the CDDL and diagnostic fixtures.
+inventory against both the CDDL and diagnostic fixtures. It also runs the existing
+policy parser/composer and typed syntax, profile, waiver, and extension validators;
+checks canonical/alternate source equivalence and cross-artifact registry links;
+and audits the reviewed ownership/data-flow, obligation, and operational-outcome
+projections.
 
 The nontrivial
 [`conformance/v0/reference-program/`](conformance/v0/reference-program/) subject

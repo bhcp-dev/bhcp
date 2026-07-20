@@ -1,0 +1,8 @@
+satisfied|execution|completed|satisfied
+refuted|execution|completed|refuted
+unresolved|execution|completed|unresolved:missing-evidence
+policy-denied|planning|refused|policy-denied
+budget-refused|planning|refused|budget-exhausted
+stale|execution|completed|unresolved:stale-evidence
+cancelled|execution|completed|unresolved:cancelled
+faulted|execution|faulted|operational-fault
