@@ -2505,9 +2505,12 @@ impl Parser<'_> {
         self.expect("{")?;
         let mut clauses = Vec::new();
         let mut body = None;
+        let mut compositions = Vec::new();
         let mut children = Vec::new();
         let mut bindings = Vec::new();
         let mut syntax_bindings = Vec::new();
+        let mut labels = Vec::new();
+        let mut validate_goal_uniqueness = structured_fact_types;
         let mut unsupported =
             (!type_parameters.is_empty() || refines.is_some()).then(|| SurfaceUnsupported {
                 message: "goal syntax is outside the implemented executable slice".to_owned(),
@@ -2531,6 +2534,8 @@ impl Parser<'_> {
             {
                 if self.extended_composition_follows() {
                     let (composition, ast) = self.syntax_composition(true)?;
+                    validate_goal_uniqueness = true;
+                    self.ensure_unique_goal_items(&bindings, &labels, composition.at())?;
                     unsupported.get_or_insert(SurfaceUnsupported {
                         message: "nested composition is outside the implemented vertical slice"
                             .to_owned(),
@@ -2538,12 +2543,15 @@ impl Parser<'_> {
                     });
                     children.push(ast);
                     if body.is_none() {
-                        body = Some(composition);
+                        body = Some(composition.clone());
                     }
+                    compositions.push(composition);
                     continue;
                 }
                 let (composition, ast) = self.composition()?;
                 if body.is_some() {
+                    validate_goal_uniqueness = true;
+                    self.ensure_unique_goal_items(&bindings, &labels, composition.at())?;
                     unsupported.get_or_insert(SurfaceUnsupported {
                         message:
                             "multiple composition bodies are outside the implemented vertical slice"
@@ -2553,21 +2561,32 @@ impl Parser<'_> {
                 }
                 children.push(ast);
                 if body.is_none() {
-                    body = Some(composition);
+                    body = Some(composition.clone());
                 }
+                compositions.push(composition);
             } else if self.starts_goal_call_statement() {
                 let (clause, ast) = self.goal_call_statement()?;
+                validate_goal_uniqueness = true;
+                self.ensure_unique_goal_items(&bindings, &labels, &clause.at)?;
                 unsupported.get_or_insert(SurfaceUnsupported {
                     message: "goal syntax goal-call is outside the implemented executable slice"
                         .to_owned(),
                     at: clause.at.clone(),
                 });
-                self.register_goal_names(&clause, &mut bindings, &mut syntax_bindings)?;
+                self.register_goal_names(
+                    &clause,
+                    &mut bindings,
+                    &mut syntax_bindings,
+                    validate_goal_uniqueness,
+                )?;
+                self.register_goal_label(&clause, &mut labels, validate_goal_uniqueness)?;
                 children.push(ast);
                 clauses.push(clause);
             } else {
                 let clause = self.clause(&type_parameters, structured_fact_types)?;
                 if let SurfaceClauseKind::SyntaxOnly { kind } = &clause.kind {
+                    validate_goal_uniqueness = true;
+                    self.ensure_unique_goal_items(&bindings, &labels, &clause.at)?;
                     unsupported.get_or_insert(SurfaceUnsupported {
                         message: format!(
                             "goal syntax {kind} is outside the implemented executable slice"
@@ -2575,12 +2594,29 @@ impl Parser<'_> {
                         at: clause.at.clone(),
                     });
                 }
-                self.register_goal_names(&clause, &mut bindings, &mut syntax_bindings)?;
+                self.register_goal_names(
+                    &clause,
+                    &mut bindings,
+                    &mut syntax_bindings,
+                    validate_goal_uniqueness,
+                )?;
+                self.register_goal_label(&clause, &mut labels, validate_goal_uniqueness)?;
                 children.push(clause.ast.clone());
                 clauses.push(clause);
             }
         }
         let end = self.consume().end;
+        if unsupported.is_some() {
+            for clause in &mut clauses {
+                self.enrich_goal_clause_ast(clause);
+                if let Some(child) = children.iter_mut().find(|child| child.id == clause.ast.id) {
+                    *child = clause.ast.clone();
+                }
+            }
+            for composition in &compositions {
+                self.enrich_goal_composition_ast(composition, &mut children);
+            }
+        }
         let mut attributes = vec![("symbol".to_owned(), Value::Text(symbol.clone()))];
         if !type_parameters.is_empty() {
             attributes.push((
@@ -2609,11 +2645,62 @@ impl Parser<'_> {
         })
     }
 
+    fn enrich_goal_clause_ast(&self, clause: &mut SurfaceClause) {
+        let additions = match &clause.kind {
+            SurfaceClauseKind::Fact { value_type, .. } => {
+                vec![("type".to_owned(), surface_type_value(value_type))]
+            }
+            SurfaceClauseKind::Contract { condition, .. } => {
+                vec![("condition".to_owned(), surface_expression_value(condition))]
+            }
+            SurfaceClauseKind::Authority { effects, .. } => vec![(
+                "effects".to_owned(),
+                Value::Array(effects.iter().map(surface_effect_value).collect()),
+            )],
+            SurfaceClauseKind::Preference { objective, .. } => {
+                vec![("objective".to_owned(), surface_expression_value(objective))]
+            }
+            SurfaceClauseKind::Verify { .. } | SurfaceClauseKind::SyntaxOnly { .. } => Vec::new(),
+        };
+        for (name, value) in additions {
+            if let Some((_, current)) = clause
+                .ast
+                .attributes
+                .iter_mut()
+                .find(|(candidate, _)| candidate == &name)
+            {
+                *current = value;
+            } else {
+                clause.ast.attributes.push((name, value));
+            }
+        }
+    }
+
+    fn enrich_goal_composition_ast(
+        &self,
+        composition: &SurfaceComposition,
+        children: &mut [AstNode],
+    ) {
+        let SurfaceComposition::DerivedGate { condition, at, .. } = composition else {
+            return;
+        };
+        if let Some(ast) = children.iter_mut().find(|child| {
+            child.kind == "gate"
+                && child.span.start.line == at.line
+                && child.span.start.column == at.column
+                && !child.attributes.iter().any(|(name, _)| name == "condition")
+        }) {
+            ast.attributes
+                .push(("condition".to_owned(), surface_expression_value(condition)));
+        }
+    }
+
     fn register_goal_names(
         &self,
         clause: &SurfaceClause,
         bindings: &mut Vec<String>,
         syntax_bindings: &mut Vec<String>,
+        reject_all_duplicates: bool,
     ) -> Result<()> {
         let binding = clause.ast.attributes.iter().find_map(|(name, value)| {
             ((name == "name" || name == "binding") && matches!(value, Value::Text(_))).then(|| {
@@ -2625,7 +2712,8 @@ impl Parser<'_> {
         });
         if let Some(binding) = binding {
             let syntax_only = matches!(clause.kind, SurfaceClauseKind::SyntaxOnly { .. });
-            if (syntax_only && bindings.contains(&binding))
+            if (reject_all_duplicates && bindings.contains(&binding))
+                || (syntax_only && bindings.contains(&binding))
                 || (!syntax_only && syntax_bindings.contains(&binding))
             {
                 return Err(at(
@@ -2639,6 +2727,55 @@ impl Parser<'_> {
                 syntax_bindings.push(binding.clone());
             }
             bindings.push(binding);
+        }
+        Ok(())
+    }
+
+    fn register_goal_label(
+        &self,
+        clause: &SurfaceClause,
+        labels: &mut Vec<String>,
+        reject_duplicates: bool,
+    ) -> Result<()> {
+        if let Some(label) = &clause.label {
+            if reject_duplicates && labels.contains(label) {
+                return Err(at(
+                    "BHCP1003",
+                    format!("duplicate goal clause label {label:?}"),
+                    self.source_name,
+                    &clause.at,
+                ));
+            }
+            labels.push(label.clone());
+        }
+        Ok(())
+    }
+
+    fn ensure_unique_goal_items(
+        &self,
+        bindings: &[String],
+        labels: &[String],
+        point: &Point,
+    ) -> Result<()> {
+        for (index, binding) in bindings.iter().enumerate() {
+            if bindings[index + 1..].contains(binding) {
+                return Err(at(
+                    "BHCP1003",
+                    format!("duplicate goal binding {binding:?}"),
+                    self.source_name,
+                    point,
+                ));
+            }
+        }
+        for (index, label) in labels.iter().enumerate() {
+            if labels[index + 1..].contains(label) {
+                return Err(at(
+                    "BHCP1003",
+                    format!("duplicate goal clause label {label:?}"),
+                    self.source_name,
+                    point,
+                ));
+            }
         }
         Ok(())
     }
@@ -2698,11 +2835,9 @@ impl Parser<'_> {
     fn legacy_goal_arguments_follow(&self, open: usize) -> bool {
         let mut cursor = open + 1;
         loop {
-            if self
-                .tokens
-                .get(cursor)
-                .is_none_or(|token| token.kind != TokenKind::Identifier)
-            {
+            if self.tokens.get(cursor).is_none_or(|token| {
+                token.kind != TokenKind::Identifier || reserved_goal_binder(&token.text)
+            }) {
                 return false;
             }
             cursor += 1;
@@ -2756,7 +2891,7 @@ impl Parser<'_> {
             && matches!(self.current().text.as_str(), "forall" | "exists")
         {
             let quantifier = self.consume();
-            let binder = self.binder("quantifier binder")?;
+            let binder = self.goal_binder("quantifier binder")?;
             self.expect("in")?;
             let domain = self.expression(0)?;
             Some((quantifier.text, binder.text, domain))
@@ -2768,7 +2903,7 @@ impl Parser<'_> {
         let mut branches = Vec::new();
         let mut tags = Vec::new();
         while !self.matches("}") {
-            let tag = self.binder("branch tag")?;
+            let tag = self.goal_binder("branch tag")?;
             if tags.contains(&tag.text) {
                 return Err(at(
                     "BHCP1003",
@@ -2779,7 +2914,10 @@ impl Parser<'_> {
             }
             tags.push(tag.text.clone());
             self.expect("=")?;
-            if self.current().kind == TokenKind::Keyword {
+            if matches!(
+                self.current().text.as_str(),
+                "§all" | "§any" | "§none" | "§chain" | "§gate" | "§compose"
+            ) {
                 let (_, nested) = self.syntax_composition(false)?;
                 let end = self.expect(";")?.end;
                 branch_nodes.push(self.ast(
@@ -2791,6 +2929,9 @@ impl Parser<'_> {
                     vec![nested],
                 ));
             } else {
+                if self.current().kind == TokenKind::Keyword {
+                    return self.fail("BHCP1004", "unsupported nested composition form");
+                }
                 let (goal, arguments, argument_nodes) = self.goal_call()?;
                 let end = self.expect(";")?.end;
                 let branch_ast = self.ast(
@@ -2866,7 +3007,7 @@ impl Parser<'_> {
         let mut arguments = Vec::new();
         let mut nodes = Vec::new();
         while !self.matches(")") {
-            let name = self.identifier("argument name")?;
+            let name = self.goal_binder("argument name")?;
             if arguments
                 .iter()
                 .any(|argument: &SurfaceGoalArgument| argument.name == name.text)
@@ -2920,6 +3061,9 @@ impl Parser<'_> {
                 break;
             }
             self.consume();
+            if self.matches(")") {
+                return self.fail("BHCP1001", "goal-call arguments cannot end with a comma");
+            }
         }
         self.expect(")")?;
         Ok((goal, arguments, nodes))
@@ -2928,7 +3072,7 @@ impl Parser<'_> {
     fn goal_call_statement(&mut self) -> Result<(SurfaceClause, AstNode)> {
         let start = self.current().start.clone();
         let binding = if self.current().kind == TokenKind::Identifier && self.peek().text == "=" {
-            let binding = self.binder("goal-call binding")?.text;
+            let binding = self.goal_binder("goal-call binding")?.text;
             self.expect("=")?;
             Some(binding)
         } else {
@@ -2974,6 +3118,7 @@ impl Parser<'_> {
             || reducer.as_deref() == Some("bhcp/prelude.chain-reducer@0");
         self.expect("{")?;
         let mut branches = Vec::new();
+        let mut tags = Vec::new();
         while !self.matches("}") {
             if self.current().kind == TokenKind::Eof {
                 return Err(at(
@@ -2983,7 +3128,16 @@ impl Parser<'_> {
                     &keyword.start,
                 ));
             }
-            let tag = self.identifier("branch tag")?;
+            let tag = self.goal_binder("branch tag")?;
+            if tags.contains(&tag.text) {
+                return Err(at(
+                    "BHCP1003",
+                    "duplicate branch tag",
+                    self.source_name,
+                    &tag.start,
+                ));
+            }
+            tags.push(tag.text.clone());
             self.expect("=")?;
             if self.current().kind == TokenKind::Keyword {
                 return self.fail(
@@ -3002,7 +3156,18 @@ impl Parser<'_> {
             let mut arguments = Vec::new();
             if !self.matches(")") {
                 loop {
-                    let name = self.identifier("argument name")?;
+                    let name = self.goal_binder("argument name")?;
+                    if arguments
+                        .iter()
+                        .any(|argument: &SurfaceGoalArgument| argument.name == name.text)
+                    {
+                        return Err(at(
+                            "BHCP1003",
+                            "duplicate argument",
+                            self.source_name,
+                            &name.start,
+                        ));
+                    }
                     self.expect("=")?;
                     let (mode, mode_name) = if self.matches("move") {
                         self.consume();
@@ -3016,7 +3181,7 @@ impl Parser<'_> {
                     } else {
                         (SurfaceArgumentMode::Value, "value")
                     };
-                    let source = self.identifier("argument source")?;
+                    let source = self.goal_binder("argument source")?;
                     let argument_ast = self.ast(
                         "argument",
                         None,
@@ -3150,7 +3315,7 @@ impl Parser<'_> {
         let label = self.label()?;
         let (kind, attributes) = match keyword.text.as_str() {
             "§input" | "§output" | "§resource" | "§state" => {
-                let name = self.identifier("binding name")?.text;
+                let name = self.goal_binder("binding name")?.text;
                 self.expect(":")?;
                 let value_type = self.value_type(type_parameters)?;
                 let initializer = if self.matches("=") {
@@ -3260,8 +3425,37 @@ impl Parser<'_> {
                 (SurfaceClauseKind::Authority { kind, effects }, attributes)
             }
             "§prefer" => {
+                let positive_priority =
+                    self.current().kind == TokenKind::Number && self.peek().text == ":";
+                let negative_priority = self.matches("-")
+                    && self
+                        .tokens
+                        .get(self.cursor + 1)
+                        .is_some_and(|token| token.kind == TokenKind::Number)
+                    && self
+                        .tokens
+                        .get(self.cursor + 2)
+                        .is_some_and(|token| token.text == ":");
+                if label.is_some() && (positive_priority || negative_priority) {
+                    return self.fail(
+                        "BHCP1001",
+                        "preference priority must precede its optional label",
+                    );
+                }
                 let mut priority = 0;
-                if self.current().kind == TokenKind::Number && self.peek().text == ":" {
+                if negative_priority {
+                    self.consume();
+                    priority = match self.consume().value {
+                        Some(TokenValue::Integer(value)) if value > 0 => -value,
+                        _ => {
+                            return self.fail(
+                                "BHCP1001",
+                                "negative preference priority requires a positive integer",
+                            );
+                        }
+                    };
+                    self.consume();
+                } else if positive_priority {
                     priority = match self.consume().value {
                         Some(TokenValue::Integer(value)) => value,
                         _ => unreachable!(),
@@ -3449,7 +3643,7 @@ impl Parser<'_> {
                 }
                 children.push(self.ast("expectation", None, start, end, attributes, vec![]));
             } else {
-                let name = self.binder("case binding")?;
+                let name = self.goal_binder("case binding")?;
                 if bindings.contains(&name.text) {
                     return Err(at(
                         "BHCP1003",
@@ -4238,6 +4432,21 @@ impl Parser<'_> {
         }
         Ok(token)
     }
+    fn goal_binder(&mut self, description: &str) -> Result<Token> {
+        let token = self.identifier(description)?;
+        if reserved_goal_binder(&token.text) {
+            return Err(at(
+                "BHCP1001",
+                format!(
+                    "reserved spelling {:?} cannot be used as {description}",
+                    token.text
+                ),
+                self.source_name,
+                &token.start,
+            ));
+        }
+        Ok(token)
+    }
     fn fail<T>(&self, code: &'static str, message: impl Into<String>) -> Result<T> {
         Err(at(code, message, self.source_name, &self.current().start))
     }
@@ -4269,6 +4478,66 @@ fn reserved_binder(value: &str) -> bool {
                 | "set"
                 | "time"
         )
+}
+fn reserved_goal_binder(value: &str) -> bool {
+    matches!(
+        value,
+        "Bool"
+            | "Bytes"
+            | "Decimal"
+            | "Duration"
+            | "Dynamic"
+            | "Goal"
+            | "Integer"
+            | "List"
+            | "Map"
+            | "Meta"
+            | "NetworkShape"
+            | "Never"
+            | "Option"
+            | "Rational"
+            | "Reduction"
+            | "Result"
+            | "Set"
+            | "Text"
+            | "Timestamp"
+            | "Unit"
+            | "borrow"
+            | "borrowed"
+            | "completed"
+            | "else"
+            | "exists"
+            | "expect"
+            | "false"
+            | "faulted"
+            | "float"
+            | "for"
+            | "forall"
+            | "if"
+            | "in"
+            | "let"
+            | "linear"
+            | "map"
+            | "match"
+            | "move"
+            | "owned"
+            | "read"
+            | "refuted"
+            | "satisfied"
+            | "set"
+            | "share"
+            | "shared"
+            | "then"
+            | "time"
+            | "true"
+            | "unit"
+            | "unrestricted"
+            | "unresolved"
+            | "variant"
+            | "when"
+            | "where"
+            | "write"
+    )
 }
 fn policy_layer_name(layer: PolicyLayer) -> &'static str {
     match layer {

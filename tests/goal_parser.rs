@@ -89,6 +89,10 @@ fn complete_goal_forms_build_a_closed_ordered_schema_valid_ast() {
         attribute(&goal.children[10], "objective"),
         Value::Array(shape) if shape.first() == Some(&Value::Text("reference".to_owned()))
     ));
+    assert_eq!(
+        attribute(&goal.children[10], "priority"),
+        &Value::Array(vec![Value::Text("integer".to_owned()), Value::Integer(-1),])
+    );
     assert_eq!(goal.children[12].children.len(), 2);
     assert!(
         attribute(&goal.children[14], "quantifier")
@@ -127,6 +131,30 @@ fn every_composition_form_accepts_nested_and_expression_arguments() {
         .map(|node| node.kind.as_str())
         .collect::<Vec<_>>();
     assert_eq!(kinds, ["compose", "none", "chain", "gate"]);
+    validate_root(&ast.to_value(true), "canonical-ast").unwrap();
+}
+
+#[test]
+fn any_new_goal_form_closes_earlier_clause_and_gate_payloads() {
+    let source = r#"
+§goal example/Payloads@0 {
+    §requires alpha;
+    §gate when alpha {
+        child = example/Child@0();
+    };
+    §state cache: Text;
+}
+"#;
+    let ast = parse_source(source, "payloads.bhcp").unwrap();
+    let goal = &ast.root.children[0];
+    assert!(matches!(
+        attribute(&goal.children[0], "condition"),
+        Value::Array(shape) if shape.first() == Some(&Value::Text("reference".to_owned()))
+    ));
+    assert!(matches!(
+        attribute(&goal.children[1], "condition"),
+        Value::Array(shape) if shape.first() == Some(&Value::Text("reference".to_owned()))
+    ));
     validate_root(&ast.to_value(true), "canonical-ast").unwrap();
 }
 
@@ -170,9 +198,44 @@ fn malformed_goal_boundaries_fail_stably_without_an_artifact() {
             "duplicate goal binding",
         ),
         (
+            "§goal example/G@0<T> { §input value: Text; §output value: Text; }",
+            "BHCP1003",
+            "duplicate goal binding",
+        ),
+        (
+            "§goal example/G@0<T> { §requires \"same\": true; §ensures \"same\": true; }",
+            "BHCP1003",
+            "duplicate goal clause label",
+        ),
+        (
+            "§goal example/G@0<T> { §input true: Text; }",
+            "BHCP1001",
+            "reserved spelling",
+        ),
+        (
+            "§goal example/G@0 { child = example/C@0(true = false); }",
+            "BHCP1001",
+            "reserved spelling",
+        ),
+        (
+            "§goal example/G@0 { child = example/C@0(value = true,); }",
+            "BHCP1001",
+            "cannot end with a comma",
+        ),
+        (
             "§goal example/G@0 { §all forall item in items { same = example/C@0(); same = example/C@0(); }; }",
             "BHCP1003",
             "duplicate branch tag",
+        ),
+        (
+            "§goal example/G@0 { §all { same = example/C@0(); same = example/C@0(); }; }",
+            "BHCP1003",
+            "duplicate branch tag",
+        ),
+        (
+            "§goal example/G@0 { §chain { child = example/C@0(value = source, value = source); }; }",
+            "BHCP1003",
+            "duplicate argument",
         ),
         (
             "§goal example/G@0 { §all forall item in items { nested = §gate when true { first = example/C@0(); second = example/C@0(); }; }; }",
@@ -185,9 +248,19 @@ fn malformed_goal_boundaries_fail_stably_without_an_artifact() {
             "duplicate verifier obligation label",
         ),
         (
+            "§goal example/G@0 { §prefer \"label\": 1: true; }",
+            "BHCP1001",
+            "priority must precede",
+        ),
+        (
             "§goal example/G@0 { §all forall item source { child = example/C@0(); }; }",
             "BHCP1001",
             "expected \"in\"",
+        ),
+        (
+            "§goal example/G@0 { §all { nested = §foo { child = example/C@0(); }; }; }",
+            "BHCP1004",
+            "unsupported nested composition",
         ),
     ];
 

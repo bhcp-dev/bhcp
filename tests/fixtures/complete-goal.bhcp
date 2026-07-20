@@ -9,7 +9,7 @@
     §limit "attempts": example/limit.attempts@0: attempts <= 3;
     §allows example-effect/read@0(repository);
     §forbids example-effect/network@0;
-    §prefer 1: "small": attempts;
+    §prefer -1: "small": attempts;
     §verify "proof": with example/verifier@0(subject = borrow source) for "ready";
     §case "happy": {
         supplied = source;
