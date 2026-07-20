@@ -77,6 +77,18 @@ fn complete_goal_forms_build_a_closed_ordered_schema_valid_ast() {
         attribute(&goal.children[11], "verifier_arguments"),
         Value::Array(arguments) if arguments.len() == 1
     ));
+    assert!(matches!(
+        attribute(&goal.children[4], "condition"),
+        Value::Array(shape) if shape.first() == Some(&Value::Text("literal".to_owned()))
+    ));
+    assert!(matches!(
+        attribute(&goal.children[8], "effects"),
+        Value::Array(effects) if effects.len() == 1
+    ));
+    assert!(matches!(
+        attribute(&goal.children[10], "objective"),
+        Value::Array(shape) if shape.first() == Some(&Value::Text("reference".to_owned()))
+    ));
     assert_eq!(goal.children[12].children.len(), 2);
     assert!(
         attribute(&goal.children[14], "quantifier")

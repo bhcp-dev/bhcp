@@ -3224,6 +3224,10 @@ impl Parser<'_> {
                         attributes,
                     )
                 } else {
+                    if structured_fact_types {
+                        attributes
+                            .push(("condition".to_owned(), surface_expression_value(&condition)));
+                    }
                     (
                         SurfaceClauseKind::Contract {
                             kind,
@@ -3245,7 +3249,15 @@ impl Parser<'_> {
                     self.consume();
                     effects.push(self.effect()?);
                 }
-                (SurfaceClauseKind::Authority { kind, effects }, vec![])
+                let attributes = if structured_fact_types {
+                    vec![(
+                        "effects".to_owned(),
+                        Value::Array(effects.iter().map(surface_effect_value).collect()),
+                    )]
+                } else {
+                    Vec::new()
+                };
+                (SurfaceClauseKind::Authority { kind, effects }, attributes)
             }
             "§prefer" => {
                 let mut priority = 0;
@@ -3267,6 +3279,9 @@ impl Parser<'_> {
                         Value::Integer(priority),
                     ]),
                 )];
+                if structured_fact_types {
+                    attributes.push(("objective".to_owned(), surface_expression_value(&objective)));
+                }
                 if let Some(label) = &final_label {
                     attributes.push(("label".to_owned(), Value::Text(label.clone())));
                 }
@@ -4454,6 +4469,22 @@ fn effect_row_value(row: &SurfaceEffectRow) -> Value {
             Value::Array(row.effects.iter().cloned().map(Value::Text).collect()),
         ),
         ("tail", row.tail.clone().map_or(Value::Null, Value::Text)),
+    ])
+}
+
+fn surface_effect_value(effect: &SurfaceEffect) -> Value {
+    Value::map([
+        ("symbol", Value::Text(effect.symbol.clone())),
+        (
+            "arguments",
+            Value::Array(
+                effect
+                    .arguments
+                    .iter()
+                    .map(surface_expression_value)
+                    .collect(),
+            ),
+        ),
     ])
 }
 
