@@ -166,6 +166,13 @@ makes no truth claim about the goal. Evidence may be formal, static, empirical,
 statistical, model-judged, human-approved, or unresolved. A plausible output is not
 success.
 
+The completed Phase 2 slice implements and audits the bounded adapter, evidence, and
+coding-agent controller path. Its hardened registered model results are valid
+negatives, so positive in-session acceptance remains unproven and the current record
+supports no BHCP-versus-prose advantage.
+BHCP v0 is not complete; these measured limits are part of the evidence boundary,
+not a claim that the broader runtime or a population effect already exists.
+
 ## Version zero
 
 v0 proves a coherent semantic foundation rather than a universal programming

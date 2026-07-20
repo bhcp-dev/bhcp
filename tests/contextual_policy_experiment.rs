@@ -352,12 +352,16 @@ fn pilot_006_preserves_the_negative_result_and_latest_skill_follow_up() {
             "e6611a4fb13245035f7a9ecf191d48baac49b858",
         ),
         (
-            "results/pilot-006/latest-skill/SKILL.md",
-            "391bdeb2e85e378393561ded1d97d0896047f6de",
+            "results/pilot-006/follow-up-skill/SKILL.md",
+            "7c6b39df7e7682afa59e2d75d1f4cb13276ea2c7",
         ),
         (
-            "results/pilot-006/latest-skill/agents/openai.yaml",
+            "results/pilot-006/follow-up-skill/agents/openai.yaml",
             "e6611a4fb13245035f7a9ecf191d48baac49b858",
+        ),
+        (
+            "results/pilot-006/latest-skill/SKILL.md",
+            "391bdeb2e85e378393561ded1d97d0896047f6de",
         ),
     ] {
         assert_eq!(git_blob(&experiment().join(path)), blob);
