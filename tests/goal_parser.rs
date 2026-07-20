@@ -245,6 +245,11 @@ fn malformed_goal_boundaries_fail_stably_without_an_artifact() {
             "duplicate argument",
         ),
         (
+            "§goal example/G@0 { §chain { child = example/C@0(value = source]; }; }",
+            "BHCP1001",
+            "expected \")\"",
+        ),
+        (
             "§goal example/G@0 { §all forall item in items { nested = §gate when true { first = example/C@0(); second = example/C@0(); }; }; }",
             "BHCP1001",
             "exactly one branch",

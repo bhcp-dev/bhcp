@@ -3205,7 +3205,7 @@ impl Parser<'_> {
                     self.consume();
                 }
             }
-            self.consume();
+            self.expect(")")?;
             let branch_end = self.expect(";")?.end;
             let branch_ast = self.ast(
                 "branch",
