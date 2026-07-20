@@ -72,3 +72,9 @@ nix = { version = "=0.30.1", default-features = false, features = ["fs", "proces
 
 [lints.rust]
 unsafe_code = "forbid"
+
+[profile.test.package.sha3]
+opt-level = 3
+
+[profile.test.package.keccak]
+opt-level = 3

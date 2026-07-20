@@ -30,10 +30,6 @@ jobs:
             name: Clippy
             command: cargo clippy --all-targets -- -D warnings
             timeout: 30
-          - id: tests
-            name: Tests
-            command: cargo test --all-targets
-            timeout: 60
           - id: release
             name: Release build
             command: cargo build --release
@@ -64,3 +60,96 @@ jobs:
 
       - name: Run ${{ matrix.name }}
         run: mise exec -- ${{ matrix.command }}
+
+  test-plan:
+    name: Rust quality / Test plan
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      TEST_COMMAND: cargo test --test ci_workflow
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Install pinned toolchain
+        uses: jdx/mise-action@dad1bfd3df957f44999b559dd69dc1671cb4e9ea # v4.2.1
+        with:
+          cache: true
+          install: true
+
+      - name: Restore Cargo dependency cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: ${{ runner.os }}-cargo-${{ hashFiles('.mise.toml') }}-${{ hashFiles('Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-${{ hashFiles('.mise.toml') }}-
+
+      - name: Validate the complete hosted test plan
+        run: mise exec -- $TEST_COMMAND
+
+  test-shards:
+    name: Rust quality / Test shard / ${{ matrix.name }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - id: shard-unit
+            name: Unit and binaries
+            command: cargo test --lib --bins
+          - id: shard-positive
+            name: Evidence generalization
+            command: cargo test --test evidence_generalization_comparative_results --test evidence_generalization_comparative_runner --test evidence_generalization_positive_runner --test evidence_generalization_preregistration
+          - id: shard-controller
+            name: Experiment controllers
+            command: cargo test --test coding_agent_experiment --test contextual_policy_experiment --test contextual_policy_runner --test experiment_codex --test experiment_controller --test policy_resolution_experiment
+          - id: shard-in-session
+            name: In-session evidence
+            command: cargo test --test in_session_evidence_experiment --test in_session_evidence_runner
+          - id: shard-process
+            name: Process and verification
+            command: cargo test --test adapter_evidence --test process_runner --test verification --test verification_cli
+          - id: shard-fast
+            name: Semantic and conformance
+            command: cargo test --test agent_contract --test cbor --test cli --test goal_algebra_conformance --test kernel --test manifest --test phase_two_evidence_audit --test pipeline --test policy --test policy_cli --test policy_composition --test policy_conformance --test policy_diagnostics --test policy_enforcement --test policy_evidence --test policy_identity --test policy_lattice_contract --test policy_parser --test profile_adversarial --test profile_contract --test profile_formatting --test profile_layout_conformance --test profile_lowering --test profile_models --test profile_phase_audit --test profile_preamble --test profile_resolution --test reducer_evaluator --test schema_fixtures --test self_hosted_all --test self_hosted_any --test self_hosted_chain --test self_hosted_gate --test self_hosted_none --test skill --test waiver_application --test waiver_contract
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Install pinned toolchain
+        uses: jdx/mise-action@dad1bfd3df957f44999b559dd69dc1671cb4e9ea # v4.2.1
+        with:
+          cache: true
+          install: true
+
+      - name: Restore Cargo dependency cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: ${{ runner.os }}-cargo-${{ hashFiles('.mise.toml') }}-${{ hashFiles('Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-${{ hashFiles('.mise.toml') }}-
+
+      - name: Run ${{ matrix.name }} tests
+        run: mise exec -- ${{ matrix.command }}
+
+  tests:
+    if: ${{ always() }}
+    needs: [test-plan, test-shards]
+    name: Rust quality / Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Require the complete test plan and every shard
+        env:
+          PLAN_RESULT: ${{ needs.test-plan.result }}
+          SHARD_RESULT: ${{ needs.test-shards.result }}
+        run: |
+          test "$PLAN_RESULT" = success
+          test "$SHARD_RESULT" = success
