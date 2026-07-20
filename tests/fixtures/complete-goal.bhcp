@@ -1,0 +1,24 @@
+§goal example/Complete@0<T: Dynamic> §refines Goal<T, Unit> {
+    §input "source": source: T;
+    §resource repository: borrowed write 'run example/Repository@0;
+    §state attempts: Integer = 0;
+    §output result: Result<T, example/Error@0>;
+    §requires "ready": true;
+    §ensures "returned": true;
+    §invariant "bounded": attempts >= 0;
+    §limit "attempts": example/limit.attempts@0: attempts <= 3;
+    §allows example-effect/read@0(repository);
+    §forbids example-effect/network@0;
+    §prefer 1: "small": attempts;
+    §verify "proof": with example/verifier@0(subject = borrow source) for "ready";
+    §case "happy": {
+        supplied = source;
+        expect completed satisfied true;
+    };
+    direct = example/Child@0(value = share source);
+    §all forall item in source {
+        nested = §gate when true {
+            leaf = example/Child@0(value = item);
+        };
+    };
+}

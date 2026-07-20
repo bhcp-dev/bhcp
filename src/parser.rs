@@ -45,6 +45,7 @@ const REGISTERED_KEYWORDS: &[&str] = &[
     "all",
     "allows",
     "any",
+    "case",
     "chain",
     "compose",
     "ensures",
@@ -54,6 +55,7 @@ const REGISTERED_KEYWORDS: &[&str] = &[
     "gate",
     "goal",
     "input",
+    "invariant",
     "limit",
     "none",
     "output",
@@ -62,6 +64,8 @@ const REGISTERED_KEYWORDS: &[&str] = &[
     "prefer",
     "refines",
     "requires",
+    "resource",
+    "state",
     "type",
     "verify",
 ];
@@ -128,6 +132,7 @@ const FIXED_BARE_WORDS: &[&str] = &[
     "by",
     "capability",
     "classes",
+    "completed",
     "decimal",
     "deny",
     "dimension",
@@ -136,13 +141,18 @@ const FIXED_BARE_WORDS: &[&str] = &[
     "else",
     "empirical",
     "evidence",
+    "exists",
+    "expect",
     "false",
+    "faulted",
     "for",
     "formal",
+    "forall",
     "goals",
     "gradual",
     "human-approved",
     "if",
+    "in",
     "infer-strict",
     "integer",
     "layer",
@@ -161,11 +171,13 @@ const FIXED_BARE_WORDS: &[&str] = &[
     "prohibition",
     "rational",
     "read",
+    "refuted",
     "repository",
     "requirement",
     "resources",
     "rule",
     "scope",
+    "satisfied",
     "share",
     "shared",
     "static",
@@ -966,6 +978,15 @@ pub enum SurfaceClauseKind {
         verifier: String,
         obligation_labels: Vec<String>,
     },
+    SyntaxOnly {
+        kind: String,
+    },
+}
+
+#[derive(Clone, Debug)]
+pub struct SurfaceUnsupported {
+    pub message: String,
+    pub at: Point,
 }
 
 #[derive(Clone, Debug)]
@@ -973,6 +994,7 @@ pub struct SurfaceGoal {
     pub symbol: String,
     pub clauses: Vec<SurfaceClause>,
     pub body: Option<SurfaceComposition>,
+    pub unsupported: Option<SurfaceUnsupported>,
     pub at: Point,
     pub ast: AstNode,
 }
@@ -1005,6 +1027,10 @@ pub enum SurfaceComposition {
         branches: Vec<SurfaceBranch>,
         at: Point,
     },
+    SyntaxOnly {
+        branches: Vec<SurfaceBranch>,
+        at: Point,
+    },
 }
 
 impl SurfaceComposition {
@@ -1015,7 +1041,8 @@ impl SurfaceComposition {
             | Self::DerivedNone { branches, .. }
             | Self::DerivedChain { branches, .. }
             | Self::DerivedGate { branches, .. }
-            | Self::Compose { branches, .. } => branches,
+            | Self::Compose { branches, .. }
+            | Self::SyntaxOnly { branches, .. } => branches,
         }
     }
 
@@ -1026,7 +1053,8 @@ impl SurfaceComposition {
             | Self::DerivedNone { at, .. }
             | Self::DerivedChain { at, .. }
             | Self::DerivedGate { at, .. }
-            | Self::Compose { at, .. } => at,
+            | Self::Compose { at, .. }
+            | Self::SyntaxOnly { at, .. } => at,
         }
     }
 }
@@ -2466,10 +2494,25 @@ impl Parser<'_> {
     fn goal(&mut self) -> Result<SurfaceGoal> {
         let keyword = self.expect("§goal")?;
         let (symbol, _) = self.qualified_name()?;
+        let (type_parameters, type_parameter_bounds) = self.type_parameters()?;
+        let refines = if self.matches("§refines") {
+            self.consume();
+            Some(self.value_type(&type_parameters)?)
+        } else {
+            None
+        };
+        let structured_fact_types = !type_parameters.is_empty() || refines.is_some();
         self.expect("{")?;
         let mut clauses = Vec::new();
         let mut body = None;
         let mut children = Vec::new();
+        let mut bindings = Vec::new();
+        let mut syntax_bindings = Vec::new();
+        let mut unsupported =
+            (!type_parameters.is_empty() || refines.is_some()).then(|| SurfaceUnsupported {
+                message: "goal syntax is outside the implemented executable slice".to_owned(),
+                at: keyword.start.clone(),
+            });
         while !self.matches("}") {
             if self.current().kind == TokenKind::Eof {
                 return Err(at(
@@ -2486,37 +2529,429 @@ impl Parser<'_> {
                 || self.matches("§gate")
                 || self.matches("§compose")
             {
-                if body.is_some() {
-                    return self.fail(
-                        "BHCP1004",
-                        "multiple composition bodies are outside the implemented vertical slice",
-                    );
+                if self.extended_composition_follows() {
+                    let (composition, ast) = self.syntax_composition(true)?;
+                    unsupported.get_or_insert(SurfaceUnsupported {
+                        message: "nested composition is outside the implemented vertical slice"
+                            .to_owned(),
+                        at: composition.at().clone(),
+                    });
+                    children.push(ast);
+                    if body.is_none() {
+                        body = Some(composition);
+                    }
+                    continue;
                 }
                 let (composition, ast) = self.composition()?;
+                if body.is_some() {
+                    unsupported.get_or_insert(SurfaceUnsupported {
+                        message:
+                            "multiple composition bodies are outside the implemented vertical slice"
+                                .to_owned(),
+                        at: composition.at().clone(),
+                    });
+                }
                 children.push(ast);
-                body = Some(composition);
+                if body.is_none() {
+                    body = Some(composition);
+                }
+            } else if self.starts_goal_call_statement() {
+                let (clause, ast) = self.goal_call_statement()?;
+                unsupported.get_or_insert(SurfaceUnsupported {
+                    message: "goal syntax goal-call is outside the implemented executable slice"
+                        .to_owned(),
+                    at: clause.at.clone(),
+                });
+                self.register_goal_names(&clause, &mut bindings, &mut syntax_bindings)?;
+                children.push(ast);
+                clauses.push(clause);
             } else {
-                let clause = self.clause()?;
+                let clause = self.clause(&type_parameters, structured_fact_types)?;
+                if let SurfaceClauseKind::SyntaxOnly { kind } = &clause.kind {
+                    unsupported.get_or_insert(SurfaceUnsupported {
+                        message: format!(
+                            "goal syntax {kind} is outside the implemented executable slice"
+                        ),
+                        at: clause.at.clone(),
+                    });
+                }
+                self.register_goal_names(&clause, &mut bindings, &mut syntax_bindings)?;
                 children.push(clause.ast.clone());
                 clauses.push(clause);
             }
         }
         let end = self.consume().end;
+        let mut attributes = vec![("symbol".to_owned(), Value::Text(symbol.clone()))];
+        if !type_parameters.is_empty() {
+            attributes.push((
+                "type_parameters".to_owned(),
+                type_parameters_value(&type_parameters, &type_parameter_bounds),
+            ));
+        }
+        if let Some(refines) = &refines {
+            attributes.push(("refines".to_owned(), surface_type_value(refines)));
+        }
         let ast = self.ast(
             "goal",
             Some("§goal"),
             keyword.start.clone(),
             end,
-            vec![("symbol".to_owned(), Value::Text(symbol.clone()))],
+            attributes,
             children,
         );
         Ok(SurfaceGoal {
             symbol,
             clauses,
             body,
+            unsupported,
             at: keyword.start,
             ast,
         })
+    }
+
+    fn register_goal_names(
+        &self,
+        clause: &SurfaceClause,
+        bindings: &mut Vec<String>,
+        syntax_bindings: &mut Vec<String>,
+    ) -> Result<()> {
+        let binding = clause.ast.attributes.iter().find_map(|(name, value)| {
+            ((name == "name" || name == "binding") && matches!(value, Value::Text(_))).then(|| {
+                match value {
+                    Value::Text(value) => value.clone(),
+                    _ => unreachable!(),
+                }
+            })
+        });
+        if let Some(binding) = binding {
+            let syntax_only = matches!(clause.kind, SurfaceClauseKind::SyntaxOnly { .. });
+            if (syntax_only && bindings.contains(&binding))
+                || (!syntax_only && syntax_bindings.contains(&binding))
+            {
+                return Err(at(
+                    "BHCP1003",
+                    format!("duplicate goal binding {binding:?}"),
+                    self.source_name,
+                    &clause.at,
+                ));
+            }
+            if syntax_only {
+                syntax_bindings.push(binding.clone());
+            }
+            bindings.push(binding);
+        }
+        Ok(())
+    }
+
+    fn starts_goal_call_statement(&self) -> bool {
+        self.starts_qualified_name()
+            || (self.current().kind == TokenKind::Identifier && self.peek().text == "=")
+    }
+
+    fn extended_composition_follows(&self) -> bool {
+        let mut cursor = self.cursor;
+        let mut depth = 0usize;
+        let legacy_permits_arguments = match self.current().text.as_str() {
+            "§chain" | "§gate" => true,
+            "§compose" => {
+                let header_end = self.tokens[self.cursor..]
+                    .iter()
+                    .position(|token| token.text == "{")
+                    .map(|offset| self.cursor + offset);
+                header_end.is_some_and(|header_end| {
+                    self.tokens[self.cursor + 2..header_end]
+                        .iter()
+                        .map(|token| token.text.as_str())
+                        .collect::<String>()
+                        == "bhcp/prelude.chain-reducer@0"
+                })
+            }
+            _ => false,
+        };
+        while let Some(token) = self.tokens.get(cursor) {
+            if matches!(token.text.as_str(), "forall" | "exists") && depth == 0 {
+                return true;
+            }
+            if token.text == "{" {
+                depth += 1;
+            } else if token.text == "}" {
+                if depth == 1 {
+                    return false;
+                }
+                depth = depth.saturating_sub(1);
+            } else if (token.kind == TokenKind::Keyword && cursor != self.cursor)
+                || (depth > 0
+                    && token.text == "("
+                    && self
+                        .tokens
+                        .get(cursor + 1)
+                        .is_some_and(|next| next.text != ")")
+                    && (!legacy_permits_arguments || !self.legacy_goal_arguments_follow(cursor)))
+            {
+                return true;
+            }
+            cursor += 1;
+        }
+        false
+    }
+
+    fn legacy_goal_arguments_follow(&self, open: usize) -> bool {
+        let mut cursor = open + 1;
+        loop {
+            if self
+                .tokens
+                .get(cursor)
+                .is_none_or(|token| token.kind != TokenKind::Identifier)
+            {
+                return false;
+            }
+            cursor += 1;
+            if self
+                .tokens
+                .get(cursor)
+                .is_none_or(|token| token.text != "=")
+            {
+                return false;
+            }
+            cursor += 1;
+            if self
+                .tokens
+                .get(cursor)
+                .is_some_and(|token| matches!(token.text.as_str(), "move" | "borrow" | "share"))
+            {
+                cursor += 1;
+            }
+            if self
+                .tokens
+                .get(cursor)
+                .is_none_or(|token| token.kind != TokenKind::Identifier)
+            {
+                return false;
+            }
+            cursor += 1;
+            match self.tokens.get(cursor).map(|token| token.text.as_str()) {
+                Some(")") => return true,
+                Some(",") => cursor += 1,
+                _ => return false,
+            }
+        }
+    }
+
+    fn syntax_composition(&mut self, terminated: bool) -> Result<(SurfaceComposition, AstNode)> {
+        let keyword = self.consume();
+        let kind = keyword.text.trim_start_matches('§').to_owned();
+        let reducer = if keyword.text == "§compose" {
+            self.expect("using")?;
+            Some(self.qualified_name()?.0)
+        } else {
+            None
+        };
+        let condition = if keyword.text == "§gate" {
+            self.expect("when")?;
+            Some(self.expression(0)?)
+        } else {
+            None
+        };
+        let quantifier = if matches!(keyword.text.as_str(), "§all" | "§any" | "§none")
+            && matches!(self.current().text.as_str(), "forall" | "exists")
+        {
+            let quantifier = self.consume();
+            let binder = self.binder("quantifier binder")?;
+            self.expect("in")?;
+            let domain = self.expression(0)?;
+            Some((quantifier.text, binder.text, domain))
+        } else {
+            None
+        };
+        self.expect("{")?;
+        let mut branch_nodes = Vec::new();
+        let mut branches = Vec::new();
+        let mut tags = Vec::new();
+        while !self.matches("}") {
+            let tag = self.binder("branch tag")?;
+            if tags.contains(&tag.text) {
+                return Err(at(
+                    "BHCP1003",
+                    "duplicate branch tag",
+                    self.source_name,
+                    &tag.start,
+                ));
+            }
+            tags.push(tag.text.clone());
+            self.expect("=")?;
+            if self.current().kind == TokenKind::Keyword {
+                let (_, nested) = self.syntax_composition(false)?;
+                let end = self.expect(";")?.end;
+                branch_nodes.push(self.ast(
+                    "branch",
+                    None,
+                    tag.start,
+                    end,
+                    vec![("tag".to_owned(), Value::Text(tag.text))],
+                    vec![nested],
+                ));
+            } else {
+                let (goal, arguments, argument_nodes) = self.goal_call()?;
+                let end = self.expect(";")?.end;
+                let branch_ast = self.ast(
+                    "branch",
+                    None,
+                    tag.start.clone(),
+                    end,
+                    vec![
+                        ("tag".to_owned(), Value::Text(tag.text.clone())),
+                        ("goal".to_owned(), Value::Text(goal.clone())),
+                    ],
+                    argument_nodes,
+                );
+                branches.push(SurfaceBranch {
+                    tag: tag.text,
+                    goal,
+                    arguments,
+                    at: tag.start,
+                    ast: branch_ast.clone(),
+                });
+                branch_nodes.push(branch_ast);
+            }
+        }
+        let mut end = self.expect("}")?.end;
+        if kind == "gate" && branch_nodes.len() != 1 {
+            return Err(at(
+                "BHCP1001",
+                "gate composition requires exactly one branch",
+                self.source_name,
+                &keyword.start,
+            ));
+        }
+        if terminated {
+            end = self.expect(";")?.end;
+        }
+        let mut attributes = Vec::new();
+        if let Some(reducer) = reducer {
+            attributes.push(("reducer".to_owned(), Value::Text(reducer)));
+        }
+        if let Some(condition) = condition {
+            attributes.push(("condition".to_owned(), surface_expression_value(&condition)));
+        }
+        if let Some((kind, binder, domain)) = quantifier {
+            attributes.push((
+                "quantifier".to_owned(),
+                Value::map([
+                    ("kind", Value::Text(kind)),
+                    ("binder", Value::Text(binder)),
+                    ("domain", surface_expression_value(&domain)),
+                ]),
+            ));
+        }
+        let ast = self.ast(
+            &kind,
+            Some(&keyword.text),
+            keyword.start.clone(),
+            end,
+            attributes,
+            branch_nodes,
+        );
+        Ok((
+            SurfaceComposition::SyntaxOnly {
+                branches,
+                at: keyword.start,
+            },
+            ast,
+        ))
+    }
+
+    fn goal_call(&mut self) -> Result<(String, Vec<SurfaceGoalArgument>, Vec<AstNode>)> {
+        let (goal, _) = self.qualified_name()?;
+        self.expect("(")?;
+        let mut arguments = Vec::new();
+        let mut nodes = Vec::new();
+        while !self.matches(")") {
+            let name = self.identifier("argument name")?;
+            if arguments
+                .iter()
+                .any(|argument: &SurfaceGoalArgument| argument.name == name.text)
+            {
+                return Err(at(
+                    "BHCP1003",
+                    "duplicate argument",
+                    self.source_name,
+                    &name.start,
+                ));
+            }
+            self.expect("=")?;
+            let (mode, mode_name) = if self.matches("move") {
+                self.consume();
+                (SurfaceArgumentMode::Move, "move")
+            } else if self.matches("borrow") {
+                self.consume();
+                (SurfaceArgumentMode::Borrow, "borrow")
+            } else if self.matches("share") {
+                self.consume();
+                (SurfaceArgumentMode::Share, "share")
+            } else {
+                (SurfaceArgumentMode::Value, "value")
+            };
+            let value = self.expression(0)?;
+            let source = match &value {
+                SurfaceExpression::Reference { name, .. } => name.clone(),
+                _ => "<expression>".to_owned(),
+            };
+            let end = self.tokens[self.cursor.saturating_sub(1)].end.clone();
+            nodes.push(self.ast(
+                "argument",
+                None,
+                name.start.clone(),
+                end,
+                vec![
+                    ("name".to_owned(), Value::Text(name.text.clone())),
+                    ("mode".to_owned(), Value::Text(mode_name.to_owned())),
+                    ("value".to_owned(), surface_expression_value(&value)),
+                ],
+                vec![],
+            ));
+            arguments.push(SurfaceGoalArgument {
+                name: name.text,
+                mode,
+                source,
+                at: name.start,
+                ast: nodes.last().expect("argument AST was added").clone(),
+            });
+            if !self.matches(",") {
+                break;
+            }
+            self.consume();
+        }
+        self.expect(")")?;
+        Ok((goal, arguments, nodes))
+    }
+
+    fn goal_call_statement(&mut self) -> Result<(SurfaceClause, AstNode)> {
+        let start = self.current().start.clone();
+        let binding = if self.current().kind == TokenKind::Identifier && self.peek().text == "=" {
+            let binding = self.binder("goal-call binding")?.text;
+            self.expect("=")?;
+            Some(binding)
+        } else {
+            None
+        };
+        let (goal, _, arguments) = self.goal_call()?;
+        let end = self.expect(";")?.end;
+        let mut attributes = vec![("goal".to_owned(), Value::Text(goal))];
+        if let Some(binding) = binding {
+            attributes.push(("binding".to_owned(), Value::Text(binding)));
+        }
+        let ast = self.ast("goal-call", None, start.clone(), end, attributes, arguments);
+        Ok((
+            SurfaceClause {
+                label: None,
+                kind: SurfaceClauseKind::SyntaxOnly {
+                    kind: "goal-call".to_owned(),
+                },
+                at: start,
+                ast: ast.clone(),
+            },
+            ast,
+        ))
     }
 
     fn composition(&mut self) -> Result<(SurfaceComposition, AstNode)> {
@@ -2698,7 +3133,11 @@ impl Parser<'_> {
         Ok((composition, ast))
     }
 
-    fn clause(&mut self) -> Result<SurfaceClause> {
+    fn clause(
+        &mut self,
+        type_parameters: &[String],
+        structured_fact_types: bool,
+    ) -> Result<SurfaceClause> {
         let keyword = self.consume();
         if keyword.kind != TokenKind::Keyword {
             return Err(at(
@@ -2710,31 +3149,58 @@ impl Parser<'_> {
         }
         let label = self.label()?;
         let (kind, attributes) = match keyword.text.as_str() {
-            "§input" | "§output" => {
+            "§input" | "§output" | "§resource" | "§state" => {
                 let name = self.identifier("binding name")?.text;
                 self.expect(":")?;
-                let value_type = self.value_type(&[])?;
-                let kind = if keyword.text == "§input" {
-                    "input"
+                let value_type = self.value_type(type_parameters)?;
+                let initializer = if self.matches("=") {
+                    self.consume();
+                    Some(self.expression(0)?)
                 } else {
-                    "output"
+                    None
                 };
-                (
+                let kind = match keyword.text.as_str() {
+                    "§input" => "input",
+                    "§output" => "output",
+                    "§resource" => "resource",
+                    _ => "state",
+                };
+                let clause_kind = if matches!(kind, "input" | "output") && initializer.is_none() {
                     SurfaceClauseKind::Fact {
                         kind,
                         name: name.clone(),
                         value_type: value_type.clone(),
-                    },
-                    vec![
-                        ("name".to_owned(), Value::Text(name)),
-                        ("type".to_owned(), Value::Text(type_name(&value_type))),
-                    ],
-                )
+                    }
+                } else {
+                    SurfaceClauseKind::SyntaxOnly {
+                        kind: kind.to_owned(),
+                    }
+                };
+                let type_attribute = if structured_fact_types
+                    || matches!(kind, "resource" | "state")
+                    || initializer.is_some()
+                {
+                    surface_type_value(&value_type)
+                } else {
+                    Value::Text(type_name(&value_type))
+                };
+                let mut attributes = vec![
+                    ("name".to_owned(), Value::Text(name)),
+                    ("type".to_owned(), type_attribute),
+                ];
+                if let Some(initializer) = &initializer {
+                    attributes.push((
+                        "initializer".to_owned(),
+                        surface_expression_value(initializer),
+                    ));
+                }
+                (clause_kind, attributes)
             }
-            "§requires" | "§ensures" | "§limit" => {
+            "§requires" | "§ensures" | "§invariant" | "§limit" => {
                 let kind = match keyword.text.as_str() {
                     "§requires" => "requires",
                     "§ensures" => "ensures",
+                    "§invariant" => "invariant",
                     _ => "limit",
                 };
                 let dimension = if kind == "limit" && self.starts_qualified_name() {
@@ -2748,14 +3214,25 @@ impl Parser<'_> {
                 if let Some(dimension) = &dimension {
                     attributes.push(("dimension".to_owned(), Value::Text(dimension.clone())));
                 }
-                (
-                    SurfaceClauseKind::Contract {
-                        kind,
-                        dimension,
-                        condition: self.expression(0)?,
-                    },
-                    attributes,
-                )
+                let condition = self.expression(0)?;
+                if kind == "invariant" {
+                    attributes.push(("condition".to_owned(), surface_expression_value(&condition)));
+                    (
+                        SurfaceClauseKind::SyntaxOnly {
+                            kind: kind.to_owned(),
+                        },
+                        attributes,
+                    )
+                } else {
+                    (
+                        SurfaceClauseKind::Contract {
+                            kind,
+                            dimension,
+                            condition,
+                        },
+                        attributes,
+                    )
+                }
             }
             "§allows" | "§forbids" => {
                 let kind = if keyword.text == "§allows" {
@@ -2812,8 +3289,8 @@ impl Parser<'_> {
                 });
             }
             "§verify" => {
-                self.expect("with")?;
-                let (verifier, _) = self.qualified_name()?;
+                let binding = self.verifier_binding()?;
+                let verifier = binding.symbol;
                 let mut obligation_labels = Vec::new();
                 if self.matches("for") {
                     self.consume();
@@ -2835,6 +3312,14 @@ impl Parser<'_> {
                                 &target.start,
                             ));
                         }
+                        if obligation_labels.contains(&label) {
+                            return Err(at(
+                                "BHCP1003",
+                                "duplicate verifier obligation label",
+                                self.source_name,
+                                &target.start,
+                            ));
+                        }
                         obligation_labels.push(label);
                         if !self.matches(",") {
                             break;
@@ -2849,14 +3334,33 @@ impl Parser<'_> {
                         Value::Array(obligation_labels.iter().cloned().map(Value::Text).collect()),
                     ));
                 }
+                if !binding.arguments.is_empty() {
+                    attributes.push((
+                        "verifier_arguments".to_owned(),
+                        Value::Array(
+                            binding
+                                .arguments
+                                .iter()
+                                .map(verifier_argument_value)
+                                .collect(),
+                        ),
+                    ));
+                }
                 (
-                    SurfaceClauseKind::Verify {
-                        verifier: verifier.clone(),
-                        obligation_labels,
+                    if binding.arguments.is_empty() {
+                        SurfaceClauseKind::Verify {
+                            verifier: verifier.clone(),
+                            obligation_labels,
+                        }
+                    } else {
+                        SurfaceClauseKind::SyntaxOnly {
+                            kind: "verify".to_owned(),
+                        }
                     },
                     attributes,
                 )
             }
+            "§case" => return self.case_clause(keyword, label),
             _ => {
                 return Err(at(
                     "BHCP1004",
@@ -2885,6 +3389,96 @@ impl Parser<'_> {
         Ok(SurfaceClause {
             label,
             kind,
+            at: keyword.start,
+            ast,
+        })
+    }
+
+    fn case_clause(&mut self, keyword: Token, label: Option<String>) -> Result<SurfaceClause> {
+        self.expect("{")?;
+        let mut children = Vec::new();
+        let mut bindings = Vec::new();
+        while !self.matches("}") {
+            if self.matches("expect") {
+                let start = self.consume().start;
+                let pattern = if self.matches("completed") {
+                    self.consume();
+                    let verdict = self.identifier("verdict state")?;
+                    if !matches!(
+                        verdict.text.as_str(),
+                        "satisfied" | "refuted" | "unresolved"
+                    ) {
+                        return Err(at(
+                            "BHCP1001",
+                            "expected verdict state satisfied, refuted, or unresolved",
+                            self.source_name,
+                            &verdict.start,
+                        ));
+                    }
+                    format!("completed:{}", verdict.text)
+                } else if self.matches("faulted") {
+                    self.consume();
+                    "faulted".to_owned()
+                } else {
+                    return self.fail("BHCP1001", "expected completed or faulted");
+                };
+                let condition = if self.matches(";") {
+                    None
+                } else {
+                    Some(self.expression(0)?)
+                };
+                let end = self.expect(";")?.end;
+                let mut attributes = vec![("pattern".to_owned(), Value::Text(pattern))];
+                if let Some(condition) = condition {
+                    attributes.push(("condition".to_owned(), surface_expression_value(&condition)));
+                }
+                children.push(self.ast("expectation", None, start, end, attributes, vec![]));
+            } else {
+                let name = self.binder("case binding")?;
+                if bindings.contains(&name.text) {
+                    return Err(at(
+                        "BHCP1003",
+                        "duplicate case binding",
+                        self.source_name,
+                        &name.start,
+                    ));
+                }
+                bindings.push(name.text.clone());
+                self.expect("=")?;
+                let value = self.expression(0)?;
+                let end = self.expect(";")?.end;
+                children.push(self.ast(
+                    "binding",
+                    None,
+                    name.start,
+                    end,
+                    vec![
+                        ("name".to_owned(), Value::Text(name.text)),
+                        ("value".to_owned(), surface_expression_value(&value)),
+                    ],
+                    vec![],
+                ));
+            }
+        }
+        self.expect("}")?;
+        let end = self.expect(";")?.end;
+        let mut attributes = Vec::new();
+        if let Some(label) = &label {
+            attributes.push(("label".to_owned(), Value::Text(label.clone())));
+        }
+        let ast = self.ast(
+            "case",
+            Some("§case"),
+            keyword.start.clone(),
+            end,
+            attributes,
+            children,
+        );
+        Ok(SurfaceClause {
+            label,
+            kind: SurfaceClauseKind::SyntaxOnly {
+                kind: "case".to_owned(),
+            },
             at: keyword.start,
             ast,
         })
