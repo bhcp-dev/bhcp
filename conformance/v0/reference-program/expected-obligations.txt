@@ -1,0 +1,12 @@
+source|bhcp.reference/DeliverChange@0:attempts|limit|formal|open
+source|bhcp.reference/DeliverChange@0:non-empty-digest|contract|formal|open
+source|bhcp.reference/DeliverChange@0:tree-depth-matches|contract|formal|open
+source|bhcp.reference/Approve@0:high-risk|contract|human-approved|open
+source|bhcp.reference/Persist@0:safe-result|contract|static|open
+source|bhcp.reference/Persist@0:stored|contract|formal|open
+source|bhcp.reference/WalkTree@0:depth|limit|formal|open
+source|bhcp.reference/WalkTree@0:leaf-at-zero|contract|formal|open
+source|bhcp.reference/WalkTree@0:non-negative-depth|contract|formal|open
+policy|bhcp.reference/limit.attempts@0|limit|formal|open
+policy|bhcp.reference/obligation.static-analysis@0|evidence-demand|static|open
+policy|bhcp.reference/obligation.human-approval@0|evidence-demand|human-approved|open

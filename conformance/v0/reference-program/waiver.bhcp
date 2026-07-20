@@ -1,0 +1,26 @@
+§waiver bhcp.reference/offline-emergency-waiver@0 {
+    issuer "security";
+    targets [{
+        rule: ["bhcp.reference/repository-policy@0", "d-attempts"],
+        weakening: {
+            category: "limit",
+            operation: "loosen",
+            from: {
+                dimension: "bhcp.reference/limit.attempts@0",
+                unit: "bhcp.reference/unit.count@0",
+                maximum: ["integer", 2]
+            },
+            to: {
+                dimension: "bhcp.reference/limit.attempts@0",
+                unit: "bhcp.reference/unit.count@0",
+                maximum: ["integer", 3]
+            }
+        }
+    }];
+    justification "Permit one additional offline retry during the frozen exercise";
+    issued_at time "2026-01-01T00:00:00Z";
+    not_before time "2026-01-01T00:00:00Z";
+    expires_at time "2026-01-01T01:00:00Z";
+    authorization ["bhcp.authorization/reference-waiver@0"];
+    audit_reference "bhcp.audit/reference-waiver@0";
+}

@@ -1,0 +1,29 @@
+§function bhcp.reference/reviewReducer@0(
+    parent: bhcp.reference/Risk@0,
+    observations: {}
+): Reduction<Unit> =
+    if bhcp/kernel.has-missing@0(observations) then
+        bhcp/kernel.pending@0(bhcp/kernel.missing-tags@0(observations))
+    else
+        bhcp/kernel.conclude@0(
+            bhcp/kernel.satisfied@0(
+                bhcp/kernel.unit@0(),
+                bhcp/kernel.satisfied-evidence@0(observations)
+            )
+        );
+
+§function bhcp.reference/lowerReview@0(
+    form: Meta<DerivedForm, bhcp.reference/Risk@0, Unit>
+): Meta<NetworkShape, bhcp.reference/Risk@0, Unit> =
+    bhcp/meta.network-shape@0(
+        bhcp/meta.unit-type@0(),
+        form,
+        "bhcp.reference/reviewReducer@0"
+    );
+
+§extension bhcp.reference/review@0 derived {
+    lowering bhcp.reference/lowerReview@0;
+    input bhcp.reference/Risk@0;
+    output Unit;
+    children [];
+}

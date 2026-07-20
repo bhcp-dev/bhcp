@@ -1,0 +1,8 @@
+§profile bhcp.reference/review-profile@0 {
+    syntax bhcp.reference/words@0;
+    type_mode infer-strict;
+    policy_overlays [
+        bhcp.reference/organization-policy@0,
+        bhcp.reference/repository-policy@0
+    ];
+}

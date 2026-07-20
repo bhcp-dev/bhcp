@@ -1,0 +1,5 @@
+§syntax bhcp.reference/words@0 {
+    preamble "#!bhcp-profile";
+    mappings [{ category: "keyword", canonical: "goal", surface: "intent" }];
+    formatting { indent_width: 4, line_width: 100, final_newline: true };
+}

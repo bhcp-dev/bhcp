@@ -1309,6 +1309,15 @@ canonical bytes. Until the Rust harness implements general RFC 8610 evaluation, 
 declared validation scope MUST remain explicit and implemented artifacts MUST also
 pass their strongly typed boundary validators.
 
+The repository's machine-readable completion manifest MUST enumerate every scenario
+ID in this catalog, expanding each standard derived behavior into satisfied,
+refuted, unresolved, and faulted instances; enumerate all 17 `root-document`
+alternatives; and bind each entry to one stable implementation owner. Its reference
+program MUST cross source, checking, governance, graph, planning, execution,
+evidence, SDK, and CLI boundaries while unsupported stages continue to reject before
+emitting misleading later artifacts. This manifest is traceability and acceptance
+machinery: it neither adds semantic behavior nor weakens any requirement in S1–S12.
+
 ## Appendix A. Canonical examples
 
 These examples supplement the grammar and rules; they do not weaken them.

@@ -1,0 +1,57 @@
+§policy bhcp.reference/organization-policy@0 {
+  layer organization;
+  rule a-filesystem-read: capability narrow {
+    effect: bhcp-effect/fs.read@0,
+    scope: { goals: [bhcp.reference/DeliverChange@0, bhcp.reference/Persist@0] }
+  } nonwaivable;
+  rule b-filesystem-write: capability narrow {
+    effect: bhcp-effect/fs.write@0,
+    scope: { goals: [bhcp.reference/DeliverChange@0, bhcp.reference/Persist@0] }
+  } nonwaivable;
+  rule c-process: capability narrow {
+    effect: bhcp-effect/process@0,
+    scope: { goals: [bhcp.reference/DeliverChange@0] }
+  } nonwaivable;
+  rule c-static-evidence: evidence add {
+    obligation: bhcp.reference/obligation.static-analysis@0,
+    classes: [static],
+    minimum: 1,
+    scope: { goals: [bhcp.reference/DeliverChange@0] }
+  } nonwaivable;
+  rule d-attempts: limit tighten {
+    dimension: bhcp.reference/limit.attempts@0,
+    unit: bhcp.reference/unit.count@0,
+    maximum: ["integer", 3]
+  } waivable by ["security"];
+  rule e-type-mode: type-mode strengthen infer-strict nonwaivable;
+  rule f-network: prohibition deny {
+    effect: bhcp-effect/network@0
+  } waivable by ["security"];
+}
+
+§policy bhcp.reference/repository-policy@0 {
+  layer repository;
+  rule a-filesystem-read: capability narrow {
+    effect: bhcp-effect/fs.read@0,
+    scope: { goals: [bhcp.reference/DeliverChange@0, bhcp.reference/Persist@0] }
+  } nonwaivable;
+  rule b-filesystem-write: capability narrow {
+    effect: bhcp-effect/fs.write@0,
+    scope: { goals: [bhcp.reference/DeliverChange@0, bhcp.reference/Persist@0] }
+  } nonwaivable;
+  rule c-human-evidence: evidence add {
+    obligation: bhcp.reference/obligation.human-approval@0,
+    classes: [human-approved],
+    minimum: 1,
+    scope: { goals: [bhcp.reference/DeliverChange@0] }
+  } nonwaivable;
+  rule c-process: capability narrow {
+    effect: bhcp-effect/process@0,
+    scope: { goals: [bhcp.reference/DeliverChange@0] }
+  } nonwaivable;
+  rule d-attempts: limit tighten {
+    dimension: bhcp.reference/limit.attempts@0,
+    unit: bhcp.reference/unit.count@0,
+    maximum: ["integer", 2]
+  } waivable by ["security"];
+}

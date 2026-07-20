@@ -1,0 +1,16 @@
+patch = { bytes: h'00', digest: "reference-patch" }
+repository = { root: "reference-workspace" }
+risk = High
+tree = { name: "repository", depth: 0, children: [] }
+tree_depth = 0
+attempts = 0
+expected-output = bhcp.reference/Delivery@0
+cancel-on = parent-cancel,deadline,policy-revocation
+case = satisfied
+case = refuted
+case = unresolved
+case = policy-denied
+case = budget-refused
+case = stale
+case = cancelled
+case = faulted

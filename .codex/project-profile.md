@@ -164,8 +164,11 @@ Post-merge consistency audit: compare merged code and tests, code comments, READ
 VISION, SEMANTICS, CDDL, conformance fixtures, `AGENTS.md`, this profile, every wiki
 page, issue/milestone states, dependencies, readiness labels, and optional research
 artifacts. Fix drift or open correctly blocked follow-ups. Roadmap completion means
-all milestone acceptance outcomes are demonstrable, every issue is closed/done, and
-the final audit reports no hidden contradiction.
+all milestone acceptance outcomes are demonstrable, every issue is closed/done, the
+99-scenario and 17-root inventories in
+`conformance/v0/completion-manifest.txt` validate, the frozen reference program passes
+the complete public SDK and CLI pipeline with per-obligation evidence, and the final
+audit reports no hidden contradiction.
 
 ## Safety boundaries
 

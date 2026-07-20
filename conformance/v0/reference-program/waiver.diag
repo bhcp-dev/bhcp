@@ -1,0 +1,44 @@
+{
+  "version": "bhcp/v0",
+  "features": [],
+  "authorization": [{
+    "scheme": "bhcp.authorization/reference-waiver@0",
+    "issuer": "security",
+    "subject": {
+      "media_type": "application/vnd.bhcp.waiver+cbor",
+      "size": 0,
+      "digests": [{"algorithm": "bhcp.hash/sha3-512@0", "digest": h'00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000'}]
+    },
+    "signature": h'00'
+  }],
+  "kind": "waiver",
+  "symbol": "bhcp.reference/offline-emergency-waiver@0",
+  "targets": [{
+    "rule": ["bhcp.reference/repository-policy@0", "d-attempts"],
+    "weakening": {
+      "category": "limit",
+      "operation": "loosen",
+      "from": {
+        "dimension": "bhcp.reference/limit.attempts@0",
+        "unit": "bhcp.reference/unit.count@0",
+        "maximum": ["integer", 2]
+      },
+      "to": {
+        "dimension": "bhcp.reference/limit.attempts@0",
+        "unit": "bhcp.reference/unit.count@0",
+        "maximum": ["integer", 3]
+      }
+    }
+  }],
+  "justification": "Permit one additional offline retry during the frozen exercise",
+  "issuer": "security",
+  "authority_chain": [],
+  "issued_at": 0("2026-01-01T00:00:00Z"),
+  "not_before": 0("2026-01-01T00:00:00Z"),
+  "expires_at": 0("2026-01-01T01:00:00Z"),
+  "audit_reference": {
+    "media_type": "application/cbor",
+    "size": 0,
+    "digests": [{"algorithm": "bhcp.hash/sha3-512@0", "digest": h'00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000'}]
+  }
+}
