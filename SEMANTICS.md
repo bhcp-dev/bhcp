@@ -943,6 +943,12 @@ this source-policy slice plus closed canonical `§waiver`, `§syntax`, `§profil
 unrestricted macros, semantic overrides, and unsupported native payload behavior fail
 before an AST. Parsing these governance forms does not activate them: waiver
 application, profile attachment, and extension checking/lowering remain later stages.
+Waiver targets are projected through the same six-category typed model as waiver
+documents and must be in unique deterministic order. Inline authorization, audit,
+delegation, payload-schema, and extension-rule references are closed content-reference
+values and materialize deterministic wire documents. Exact symbols are also accepted
+where the frozen v0 sources defer artifact resolution; those definitions remain typed
+source declarations and do not claim a materialized wire document until resolution.
 
 Policy source documents apply in this fixed order: organization, team, repository,
 user. Missing layers contribute the identity policy. Multiple documents in one layer

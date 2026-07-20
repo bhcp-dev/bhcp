@@ -2,6 +2,7 @@ use bhcp::hash::HashAlgorithm;
 use bhcp::model::ContentReference;
 use bhcp::parser::parse_canonical;
 use bhcp::pipeline::{compile_source, parse_source};
+use bhcp::policy::WaiverDocument;
 use bhcp::profile::PresentationDocument;
 use bhcp::schema::validate_root;
 use bhcp::value::Value;
@@ -188,5 +189,67 @@ fn syntax_and_profile_source_projections_round_trip_through_typed_wire_models() 
         document.validate().unwrap();
         let bytes = document.to_cbor(false).unwrap();
         assert_eq!(PresentationDocument::from_cbor(&bytes).unwrap(), document);
+    }
+}
+
+#[test]
+fn waiver_source_rejects_every_reviewed_typed_boundary_violation() {
+    let valid = include_str!("fixtures/governance-forms.bhcp");
+    let cases = [
+        valid.replace(
+            "from: { dimension: example/limit.attempts@0, unit: example/unit.count@0, maximum: [integer, 3] }",
+            "from: true",
+        ),
+        valid.replace(
+            "rule: [example/repository@0, \"e-limit\"],",
+            "rule: [example/repository@0, \"e-limit\"], scope: { bogus: true },",
+        ),
+        valid.replace(
+            "justification \"one emergency retry\";",
+            "justification \"one emergency retry\"; authority_chain [{ authorization: true }];",
+        ),
+        valid.replace(
+            "targets [{",
+            "targets [{ rule: [example/repository@0, \"z-limit\"], weakening: { category: \"limit\", operation: \"loosen\", from: { dimension: example/limit.attempts@0, unit: example/unit.count@0, maximum: [integer, 3] }, to: { dimension: example/limit.attempts@0, unit: example/unit.count@0, maximum: [integer, 4] } } }, {",
+        ),
+        valid.replace(
+            "category: \"limit\",\n            operation: \"loosen\",",
+            "operation: \"loosen\",\n            category: \"limit\",",
+        ),
+    ];
+
+    for source in cases {
+        assert!(
+            parse_source(&source, "invalid-waiver.bhcp").is_err(),
+            "reviewed invalid waiver unexpectedly parsed"
+        );
+    }
+}
+
+#[test]
+fn waiver_and_extension_source_projections_round_trip_through_wire_boundaries() {
+    let source = include_str!("fixtures/governance-forms.bhcp");
+    let source_ref =
+        ContentReference::from_bytes("text/bhcp", source.as_bytes(), HashAlgorithm::default());
+    let parsed = parse_canonical(source, "governance-forms.bhcp", source_ref).unwrap();
+
+    let waiver = parsed.waivers[0]
+        .document
+        .as_ref()
+        .expect("inline waiver references must materialize a wire document");
+    let bytes = waiver.to_cbor(false).unwrap();
+    assert_eq!(WaiverDocument::from_cbor(&bytes).unwrap(), *waiver);
+
+    for extension in &parsed.extensions {
+        let descriptor = extension
+            .descriptor
+            .as_ref()
+            .expect("complete extension source must materialize a descriptor");
+        validate_root(descriptor, "extension-descriptor").unwrap();
+        let bytes = bhcp::cbor::encode_deterministic(descriptor).unwrap();
+        assert_eq!(
+            bhcp::cbor::decode_deterministic(&bytes).unwrap(),
+            *descriptor
+        );
     }
 }

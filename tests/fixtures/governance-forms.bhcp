@@ -42,22 +42,29 @@
     issued_at time "2026-07-20T00:00:00Z";
     not_before time "2026-07-20T00:00:00Z";
     expires_at time "2026-07-21T00:00:00Z";
-    authorization [example/authorization@0];
-    audit_reference example/audit@0;
+    authorization [{
+        scheme: example/signature@0,
+        issuer: "security",
+        subject: { media_type: "application/vnd.bhcp.waiver+cbor", size: 0, digests: [{ algorithm: example/hash@0, digest: h'00' }] },
+        signature: h'00'
+    }];
+    audit_reference { media_type: "application/cbor", size: 0, digests: [{ algorithm: example/hash@0, digest: h'00' }] };
 }
 
 §extension example/derived@0 derived {
     lowering example/lower-derived@0;
-    input example/Input@0;
-    output example/Output@0;
-    children [];
+    type_rule { media_type: "text/plain", size: 1, digests: [{ algorithm: example/hash@0, digest: h'01' }] };
+    effect_rule { media_type: "text/plain", size: 1, digests: [{ algorithm: example/hash@0, digest: h'02' }] };
+    policy_rule { media_type: "text/plain", size: 1, digests: [{ algorithm: example/hash@0, digest: h'03' }] };
+    normalization_rule { media_type: "text/plain", size: 1, digests: [{ algorithm: example/hash@0, digest: h'04' }] };
+    evidence_rule { media_type: "text/plain", size: 1, digests: [{ algorithm: example/hash@0, digest: h'05' }] };
 }
 
 §extension example/native@0 native {
-    payload_schema example/native-payload-schema@0;
-    type_rule example/native-type-rule@0;
-    effect_rule example/native-effect-rule@0;
-    policy_rule example/native-policy-rule@0;
-    normalization_rule example/native-normalization-rule@0;
-    evidence_rule example/native-evidence-rule@0;
+    payload_schema { media_type: "application/cbor", size: 1, digests: [{ algorithm: example/hash@0, digest: h'06' }] };
+    type_rule { media_type: "text/plain", size: 1, digests: [{ algorithm: example/hash@0, digest: h'07' }] };
+    effect_rule { media_type: "text/plain", size: 1, digests: [{ algorithm: example/hash@0, digest: h'08' }] };
+    policy_rule { media_type: "text/plain", size: 1, digests: [{ algorithm: example/hash@0, digest: h'09' }] };
+    normalization_rule { media_type: "text/plain", size: 1, digests: [{ algorithm: example/hash@0, digest: h'0a' }] };
+    evidence_rule { media_type: "text/plain", size: 1, digests: [{ algorithm: example/hash@0, digest: h'0b' }] };
 }

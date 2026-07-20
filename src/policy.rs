@@ -1222,7 +1222,7 @@ pub struct ArtifactReference {
 }
 
 impl ArtifactReference {
-    fn from_value(value: &Value) -> Result<Self> {
+    pub(crate) fn from_value(value: &Value) -> Result<Self> {
         let entries = map_entries(value, "policy artifact reference")?;
         ensure_fields(
             entries,
@@ -1253,7 +1253,7 @@ impl ArtifactReference {
         Ok(reference)
     }
 
-    fn to_value(&self) -> Value {
+    pub(crate) fn to_value(&self) -> Value {
         let mut entries = vec![
             ("media_type".to_owned(), text(&self.media_type)),
             ("size".to_owned(), Value::Integer(self.size as i64)),
@@ -1271,7 +1271,7 @@ impl ArtifactReference {
         Value::owned_map(entries)
     }
 
-    fn validate(&self) -> Result<()> {
+    pub(crate) fn validate(&self) -> Result<()> {
         if self.media_type.is_empty() || self.size > i64::MAX as u64 || self.digests.is_empty() {
             return Err(invalid("invalid policy artifact reference"));
         }
@@ -1628,7 +1628,7 @@ pub struct WaiverTarget {
 }
 
 impl WaiverTarget {
-    fn from_value(value: &Value) -> Result<Self> {
+    pub(crate) fn from_value(value: &Value) -> Result<Self> {
         let entries = map_entries(value, "waiver target")?;
         ensure_fields(entries, &["rule", "scope", "weakening"], "waiver target")?;
         Ok(Self {
@@ -1644,7 +1644,7 @@ impl WaiverTarget {
         })
     }
 
-    fn to_value(&self) -> Value {
+    pub(crate) fn to_value(&self) -> Value {
         let mut entries = vec![
             ("rule".to_owned(), self.rule.to_value()),
             ("weakening".to_owned(), self.weakening.to_value()),
@@ -1841,6 +1841,15 @@ impl WaiverDocument {
             entries.push(("provenance".to_owned(), provenance.clone()));
         }
         Value::owned_map(entries)
+    }
+
+    pub fn from_cbor(bytes: &[u8]) -> Result<Self> {
+        Self::from_value(&decode_deterministic(bytes)?)
+    }
+
+    pub fn to_cbor(&self, include_artifact_id: bool) -> Result<Vec<u8>> {
+        self.validate()?;
+        encode_deterministic(&self.to_value(include_artifact_id))
     }
 
     fn validate(&self) -> Result<()> {
@@ -3370,7 +3379,7 @@ fn validate_effective_rules<T>(
     validate_values_sorted_unique(&values, context)
 }
 
-fn validate_values_sorted_unique(values: &[Value], context: &str) -> Result<()> {
+pub(crate) fn validate_values_sorted_unique(values: &[Value], context: &str) -> Result<()> {
     let encoded = values
         .iter()
         .map(encode_deterministic)

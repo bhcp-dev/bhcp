@@ -247,10 +247,13 @@ remain assigned to their checker, recursion, planner, and graph roadmap owners.
 `tests/governance_parser.rs` now makes the shared source-stage prerequisite for
 POL/WAV/EXT and SYN-06/SYN-07 executable. The frozen policy, waiver, syntax, profile,
 and extension sources parse into deterministic schema-valid canonical AST nodes;
-syntax/profile projections round-trip through their typed wire models; exact field
-sets and ordering reject stably; and parser callbacks, unrestricted macros, semantic
-overrides, expression-valued policy clauses, and invalid derived/native mixtures fail
-before artifacts. This is parsing evidence only: policy/waiver lowering, profile
+syntax/profile projections and fully materialized waiver/extension definitions
+round-trip through their typed wire boundaries; all six waiver changes, nested maps,
+target order, authorization/delegation, content references, and exact field order
+reject stably; and parser callbacks, unrestricted macros, semantic overrides,
+expression-valued policy clauses, and invalid derived/native mixtures fail before
+artifacts. Frozen exact-symbol artifact references remain deferred source bindings.
+This is parsing evidence only: policy/waiver lowering, profile
 activation, and extension execution retain their downstream completion owners.
 
 `tests/waiver_contract.rs` and `tests/waiver_application.rs` make the WAV-01/WAV-02
