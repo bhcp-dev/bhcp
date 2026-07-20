@@ -253,3 +253,36 @@ fn waiver_and_extension_source_projections_round_trip_through_wire_boundaries() 
         );
     }
 }
+
+#[test]
+fn waiver_policy_parameters_remain_unrestricted_inside_closed_records() {
+    let source = r#"
+§waiver example/w@0 {
+    issuer "security";
+    targets [{
+        rule: [example/p@0, "a"],
+        weakening: {
+            category: "requirement",
+            operation: "remove",
+            value: {
+                requirement: example/r@0,
+                parameters: { effect: true, custom: false }
+            }
+        }
+    }];
+    justification "temporary";
+    issued_at time "2026-07-20T00:00:00Z";
+    not_before time "2026-07-20T00:00:00Z";
+    expires_at time "2026-07-21T00:00:00Z";
+    authorization [example/authorization@0];
+    audit_reference example/audit@0;
+}
+"#;
+    let parsed = parse_canonical(
+        source,
+        "waiver-parameters.bhcp",
+        ContentReference::from_bytes("text/bhcp", source.as_bytes(), HashAlgorithm::default()),
+    )
+    .unwrap();
+    assert_eq!(parsed.waivers.len(), 1);
+}

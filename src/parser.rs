@@ -2907,7 +2907,8 @@ impl Parser<'_> {
                         ));
                     }
                     self.expect(":")?;
-                    entries.push((key.text, self.meta_value_with_order(enforce_record_order)?));
+                    let enforce_value_order = enforce_record_order && key.text != "parameters";
+                    entries.push((key.text, self.meta_value_with_order(enforce_value_order)?));
                     if !self.matches(",") {
                         break;
                     }
