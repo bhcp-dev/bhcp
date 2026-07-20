@@ -47,6 +47,25 @@ fn workflow_exposes_independent_required_gates() {
 }
 
 #[test]
+fn long_test_gate_has_time_to_finish_without_weakening_other_job_limits() {
+    let workflow = workflow();
+    assert!(workflow.contains("timeout-minutes: ${{ matrix.timeout }}"));
+    assert!(workflow.contains(
+        "- id: tests\n            name: Tests\n            command: cargo test --all-targets\n            timeout: 60"
+    ));
+    for id in ["format", "clippy", "release", "schema"] {
+        let start = workflow
+            .find(&format!("- id: {id}\n"))
+            .unwrap_or_else(|| panic!("missing {id} matrix entry"));
+        let entry = &workflow[start..];
+        let end = entry[1..]
+            .find("          - id:")
+            .map_or(entry.len(), |index| index + 1);
+        assert!(entry[..end].contains("timeout: 30"), "{id} timeout drifted");
+    }
+}
+
+#[test]
 fn workflow_uses_only_commit_pinned_actions_and_caches_cargo_dependencies() {
     let workflow = workflow();
     let action_lines = workflow

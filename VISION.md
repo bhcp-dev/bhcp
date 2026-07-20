@@ -173,12 +173,13 @@ supports no BHCP-versus-prose advantage.
 BHCP v0 is not complete; these measured limits are part of the evidence boundary,
 not a claim that the broader runtime or a population effect already exists.
 
-The next evidence program is preregistered over four checked-in Rust fixtures for
-registered use and the three representation-comparable fixtures for the symmetric
-prose-versus-contract study. It uses one pinned model, a 36-session,
-zero-incremental-spend budget, and descriptive analysis; that repository frame does
-not become a population or model-wide claim, and unfavorable and incomplete outcomes
-remain required evidence.
+The evidence-generalization program is preregistered over four checked-in Rust
+fixtures for registered use and the three representation-comparable fixtures for
+the symmetric prose-versus-contract study. Its completed positive-use arm found
+0/12 positive registry use and 0/12 in-session acceptance with no exclusions and
+correctly negative claims in every session. The remaining comparative arm stays
+within the pinned-model, zero-incremental-spend budget and descriptive analysis;
+neither result turns this repository frame into a population or model-wide claim.
 
 ## Version zero
 

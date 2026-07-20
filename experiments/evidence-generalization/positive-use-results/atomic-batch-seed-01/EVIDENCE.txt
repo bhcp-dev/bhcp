@@ -1,0 +1,10 @@
+positive-use=false
+parseable=false
+subject-bound=false
+adapter-items=0
+registered-accepted=false
+independent-accepted=false
+in-session-accepted=false
+claimed-success=false
+calibrated=true
+excluded=false
