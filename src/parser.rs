@@ -2856,11 +2856,9 @@ impl Parser<'_> {
             {
                 cursor += 1;
             }
-            if self
-                .tokens
-                .get(cursor)
-                .is_none_or(|token| token.kind != TokenKind::Identifier)
-            {
+            if self.tokens.get(cursor).is_none_or(|token| {
+                token.kind != TokenKind::Identifier || reserved_goal_binder(&token.text)
+            }) {
                 return false;
             }
             cursor += 1;

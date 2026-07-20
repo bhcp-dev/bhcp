@@ -115,7 +115,7 @@ fn every_composition_form_accepts_nested_and_expression_arguments() {
         child = example/Child@0(value = item);
     };
     §chain {
-        child = example/Child@0(value = 1 + 2);
+        child = example/Child@0(value = true);
     };
     §gate when true {
         nested = §all {
@@ -131,6 +131,13 @@ fn every_composition_form_accepts_nested_and_expression_arguments() {
         .map(|node| node.kind.as_str())
         .collect::<Vec<_>>();
     assert_eq!(kinds, ["compose", "none", "chain", "gate"]);
+    assert!(matches!(
+        attribute(
+            &ast.root.children[0].children[2].children[0].children[0],
+            "value"
+        ),
+        Value::Array(shape) if shape.first() == Some(&Value::Text("literal".to_owned()))
+    ));
     validate_root(&ast.to_value(true), "canonical-ast").unwrap();
 }
 
