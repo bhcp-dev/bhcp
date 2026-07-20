@@ -69,6 +69,7 @@ fn comparative_study_is_frozen_before_any_model_turn() {
     let mut blocks = BTreeMap::<(String, String), Vec<(usize, String)>>::new();
     let mut arms = BTreeMap::<String, usize>::new();
     let mut first = BTreeMap::<String, usize>::new();
+    let mut registered_schedule = Vec::new();
     for line in registration
         .lines()
         .filter(|line| line.starts_with("session|"))
@@ -95,7 +96,18 @@ fn comparative_study_is_frozen_before_any_model_turn() {
             .entry((task, seed))
             .or_default()
             .push((position, arm));
+        registered_schedule.push(format!(
+            "{}|{}|{}|{}",
+            fields[1], fields[2], position, fields[7]
+        ));
     }
+    let parent_schedule =
+        read(root.join("experiments/evidence-generalization/preregistration.txt"))
+            .lines()
+            .filter_map(|line| line.strip_prefix("session|comparative|"))
+            .map(str::to_owned)
+            .collect::<Vec<_>>();
+    assert_eq!(registered_schedule, parent_schedule);
     assert_eq!(blocks.len(), 12);
     assert_eq!(
         arms,
