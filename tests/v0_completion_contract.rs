@@ -297,6 +297,17 @@ const PROGRAM_SOURCE_HASHES: &[&str] = &[
     "source-hash|extension|bhcp.reference/review@0|bhcp.hash/sha3-512@0:a4efad8f3a560339836d309788349afc204d30a42dc675d00fe7ff43968114c99c485bb13dd48bfeff11713de6a3e549df8c101fd49db45d336137b47729ee0b",
 ];
 
+const PROGRAM_FILE_HASHES: &[(&str, &str)] = &[
+    (
+        "program.bhcp",
+        "bhcp.hash/sha3-512@0:bd3ff373c5bf642196fa263eaaed808a49163e0a55d3cfb06f9045dc8f228ab308a446351c56e2f433594dec31fab750c03dde6575ce394239f4b826e3016c76",
+    ),
+    (
+        "extension.bhcp",
+        "bhcp.hash/sha3-512@0:07b3f74e8ef4d3d70a570a243f78dfac67f6f148f8be90a6920d3c006bb6b08c18f2499cfd7ea78eb0982e8e39c246b986fb555870c69be912cb81f561c06991",
+    ),
+];
+
 #[derive(Debug)]
 struct Stage {
     owners: Vec<String>,
@@ -489,6 +500,7 @@ struct DataCall {
 struct ProgramContract {
     definitions: BTreeSet<(String, String)>,
     source_hashes: BTreeMap<(String, String), String>,
+    file_hashes: BTreeMap<String, String>,
     facts: BTreeMap<(String, String, String), String>,
     consumes: BTreeSet<(String, String, String)>,
     calls: Vec<DataCall>,
@@ -517,6 +529,12 @@ fn parse_program_contract(text: &str) -> Result<ProgramContract, String> {
                 ((*kind).to_owned(), (*symbol).to_owned()),
                 (*digest).to_owned(),
                 "program source hash",
+            )?,
+            ["file-hash", name, digest] => insert_unique(
+                &mut contract.file_hashes,
+                (*name).to_owned(),
+                (*digest).to_owned(),
+                "program file hash",
             )?,
             ["fact", owner, kind, name, mode] => insert_unique(
                 &mut contract.facts,
@@ -873,6 +891,22 @@ fn validate_program_projection_sources(
             return Err(format!(
                 "type definition projection mismatch for {kind} {symbol}: source hash differs"
             ));
+        }
+    }
+    let expected_file_hashes = PROGRAM_FILE_HASHES
+        .iter()
+        .map(|(name, digest)| ((*name).to_owned(), (*digest).to_owned()))
+        .collect::<BTreeMap<_, _>>();
+    if projection.file_hashes != expected_file_hashes {
+        return Err("program whole source hash projection mismatch".to_owned());
+    }
+    for (name, source) in [
+        ("program.bhcp", canonical),
+        ("extension.bhcp", extension_source),
+    ] {
+        let actual_hash = format_hash(&HashAlgorithm::default().hash(source.as_bytes()));
+        if projection.file_hashes.get(name) != Some(&actual_hash) {
+            return Err(format!("whole source hash mismatch for {name}"));
         }
     }
 
@@ -1811,6 +1845,17 @@ fn reference_validators_reject_invalid_policy_shapes_and_ownership() {
         )
         .unwrap_err()
         .contains("unprojected top-level construct")
+    );
+
+    let indented_top_level = format!("  §waiver bhcp.reference/hidden@0;\n{canonical}");
+    assert!(
+        validate_program_projection_sources(
+            &typed_projection,
+            &indented_top_level,
+            &read_reference(&root, "extension.bhcp").unwrap(),
+        )
+        .unwrap_err()
+        .contains("whole source hash")
     );
 
     let bindings = read_reference(&root, "policy-evidence-registry.txt")
