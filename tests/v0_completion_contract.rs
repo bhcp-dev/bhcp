@@ -2,7 +2,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::{Component, Path, PathBuf};
 
-use bhcp::hash::HashAlgorithm;
+use bhcp::hash::{HashAlgorithm, format_hash};
 use bhcp::model::ContentReference;
 use bhcp::pipeline::{compile_source, parse_policy_source};
 use bhcp::policy::{ExactNumber, WaiverDocument, WaiverWeakening, apply_waiver, compose_policies};
@@ -227,11 +227,13 @@ const PROGRAM_SEMANTICS: &[&str] = &[
     "type|bhcp.reference/DeliverChange@0|output|outcome|bhcp.reference/Delivery@0",
     "type|bhcp.reference/review@0|input|risk|bhcp.reference/Risk@0",
     "type|bhcp.reference/review@0|output|result|Unit",
+    "clause|bhcp.reference/Approve@0|high-risk|requires|Bool|bhcp.reference/isHighRisk@0(risk)",
     "clause|bhcp.reference/WalkTree@0|non-negative-depth|requires|Bool|0 <= remaining",
     "clause|bhcp.reference/WalkTree@0|leaf-at-zero|requires|Bool|remaining != 0 || node.children == []",
     "clause|bhcp.reference/DeliverChange@0|non-empty-digest|requires|Bool|bhcp.reference/nonEmpty@0(patch.digest)",
     "clause|bhcp.reference/DeliverChange@0|tree-depth-matches|requires|Bool|tree.depth == tree_depth",
     "clause|bhcp.reference/Persist@0|safe-result|ensures|Bool|match receipt",
+    "clause|bhcp.reference/Persist@0|stored|ensures|Bool|match receipt",
     "limit|bhcp.reference/WalkTree@0|depth|bhcp.reference/limit.depth@0|remaining|64|Bool",
     "limit|bhcp.reference/DeliverChange@0|attempts|bhcp.reference/limit.attempts@0|attempts|3|Bool",
     "effect|bhcp.reference/Persist@0|allow|bhcp-effect/fs.read@0|resource.repository",
@@ -270,6 +272,29 @@ const PROGRAM_DEFINITIONS: &[(&str, &str)] = &[
     ("function", "bhcp.reference/reviewReducer@0"),
     ("function", "bhcp.reference/lowerReview@0"),
     ("extension", "bhcp.reference/review@0"),
+];
+
+const PROGRAM_SOURCE_HASHES: &[&str] = &[
+    "source-hash|type|bhcp.reference/NonEmptyText@0|bhcp.hash/sha3-512@0:01d8536b07636ad0c97e56159a87c4a4541d017f0974b7e3736838e69dc75092c42b2983eaaff870a1cccd77cb1aa49f3d0bbc1c11d4066171e2ed105f7a6a26",
+    "source-hash|type|bhcp.reference/Risk@0|bhcp.hash/sha3-512@0:ab3fa7f2a5bf92f339edbcf5fe1cb2d6f855836c26c399c6962ed0474bf348452cc027233ac4d8e4a542c0d1f9f136315e8238d03e8b4287b3d4963fbd779429",
+    "source-hash|type|bhcp.reference/Patch@0|bhcp.hash/sha3-512@0:b14aabcc24ad133e82c47587acfb5a87d80808a2da86f73a373a15fde39189a644c14226ea086bb41eff9e52c4b0d7b862ab9cf197781bcf40db63df44340448",
+    "source-hash|type|bhcp.reference/Repository@0|bhcp.hash/sha3-512@0:f0e001c58a73a9a990652428c3c12a0b7fb29de43ede62ea2e0939d4161c4004286266b6eb848293189c2a95d0e8e04c2ffab7d014323cac182c6e4ba646eb9d",
+    "source-hash|type|bhcp.reference/Receipt@0|bhcp.hash/sha3-512@0:906714efd9e258cb5ac6090a274ea6597815ad67e7b44cd0ad08a0b8ffcdf5864a2fdd61e8b72743e604881e5624d52f43b68e68d6aaa692c043d9ebfe02ba6c",
+    "source-hash|type|bhcp.reference/DeliveryError@0|bhcp.hash/sha3-512@0:8f1c479e5181dda73cf2f3688a85a962abe4872dc28894030b8110e073f853ec13d32dd1fc87d037977e67545bb07ed86bb656951047c06565ee748992c304d1",
+    "source-hash|type|bhcp.reference/Node@0|bhcp.hash/sha3-512@0:da7de285a7ad42c2bd9a5c77be2a6b27e4f9563e9eba71311db8a248c0c11c038b83a4ec45b2d28a561d0fcff0da24f14eef49eb4036f4a2d4d33ce9eb7b8a0d",
+    "source-hash|type|bhcp.reference/WalkInput@0|bhcp.hash/sha3-512@0:af77aa62cb078671b8476325108e1f6ff9aeb22f33ec5df639f42869af1af55d70a45018066df62d83c2503d09b7cfe6f9c76c79d0d13ff436efb0baa9d6b693",
+    "source-hash|type|bhcp.reference/Delivery@0|bhcp.hash/sha3-512@0:d6ef939bd09c7da78068f8c56fa234601c6bc39c68c5d617c7caf333a36d351b6ae87a858acd2e352c9d98fe3da19ae0e5612cb49a3bbdc79de2050d6a5d4bed",
+    "source-hash|function|bhcp.reference/isHighRisk@0|bhcp.hash/sha3-512@0:d2eec7944f101557e4e9645798f5d1e30e4a3b07bd629cef6504d9c3ce0e4bf3bc94ba77b7419e2d4c7b7be077f45c50c547c864bba4a0ff100bb71da60fb0f7",
+    "source-hash|predicate|bhcp.reference/nonEmpty@0|bhcp.hash/sha3-512@0:a76335b2b3d4bf66b4133f4ac135a899448823ac285fcdcc2dce3eb7a66162d0224429b702767cec40c1671f48331bdd3e36b5287a32c42ec9dbe31353d72902",
+    "source-hash|goal|bhcp.reference/StartDelivery@0|bhcp.hash/sha3-512@0:f5c2041eba4034ad467bcd00e472002d4147112de9198bd125164a3353630f393d31e4708756060d8f4b29b6d58925fc74ffd8eea6f740f9fe85331b4cbf6739",
+    "source-hash|goal|bhcp.reference/ConfirmDelivery@0|bhcp.hash/sha3-512@0:397a5d6aa9b1e6af0e217af858fbaa650fa5450423232bcf1e04c826a13c3dcbb5181870dbc18b248cd1f75449489b7fa71cd71d8c637e5fef1cac5ad3e7938f",
+    "source-hash|goal|bhcp.reference/Approve@0|bhcp.hash/sha3-512@0:c2afc08120e2c85932b4e2169f04f82b4f16aaecab46a065712a82dd63bb04de49da990deb9264b5c64ead20616628b63da367d2e6f63a7ab75f45d4ab6c71d7",
+    "source-hash|goal|bhcp.reference/Persist@0|bhcp.hash/sha3-512@0:b1bdc2cdba8f68b305932c74be0350535958246ce9837836ebfd8213a860042701adb8ae95afc4084b5970bb1a55f8e22edf1e1bdc18e908b0ffb794cc2069f2",
+    "source-hash|goal|bhcp.reference/WalkTree@0|bhcp.hash/sha3-512@0:539d34e088362769ccb7912730bf4660f8706f99283dcd9b4f775e4d9e4f103c2006baf7f3593ef93d6df5882f8e727f847001f9eef86a2cf59c254b4b3f85df",
+    "source-hash|goal|bhcp.reference/DeliverChange@0|bhcp.hash/sha3-512@0:f755f87acf338bee5754481cbf979dc8fd1e91dffb6d69ecc5e6d94f531cb4990f8729e65556bcd23e1be996ab6c180a42c0f3d5f91422a8d8b9563ea74e7a31",
+    "source-hash|function|bhcp.reference/reviewReducer@0|bhcp.hash/sha3-512@0:a371bd995c73a30e6ee2ee3ed7e89e4682d1e41843a1a12cf9b6df3bda4cc91eceb6038a7f149ad982c8944c81e8461c08219db1b00c5d7b6f0f610a8609bb38",
+    "source-hash|function|bhcp.reference/lowerReview@0|bhcp.hash/sha3-512@0:03d6b8313992e4b03eaf910d333d25bd04496095d96bafd2c49d3a5530a8bbe7ef6f986e23d365012ea5df07d2f9396d0af56b73722d1d1b89e2330da06562bf",
+    "source-hash|extension|bhcp.reference/review@0|bhcp.hash/sha3-512@0:a4efad8f3a560339836d309788349afc204d30a42dc675d00fe7ff43968114c99c485bb13dd48bfeff11713de6a3e549df8c101fd49db45d336137b47729ee0b",
 ];
 
 #[derive(Debug)]
@@ -463,6 +488,7 @@ struct DataCall {
 #[derive(Debug, Default)]
 struct ProgramContract {
     definitions: BTreeSet<(String, String)>,
+    source_hashes: BTreeMap<(String, String), String>,
     facts: BTreeMap<(String, String, String), String>,
     consumes: BTreeSet<(String, String, String)>,
     calls: Vec<DataCall>,
@@ -486,6 +512,12 @@ fn parse_program_contract(text: &str) -> Result<ProgramContract, String> {
                     return Err("duplicate program definition".to_owned());
                 }
             }
+            ["source-hash", kind, symbol, digest] => insert_unique(
+                &mut contract.source_hashes,
+                ((*kind).to_owned(), (*symbol).to_owned()),
+                (*digest).to_owned(),
+                "program source hash",
+            )?,
             ["fact", owner, kind, name, mode] => insert_unique(
                 &mut contract.facts,
                 ((*owner).to_owned(), (*kind).to_owned(), (*name).to_owned()),
@@ -574,6 +606,93 @@ fn compact(text: &str) -> String {
         .collect()
 }
 
+fn top_level_definition_inventory(source: &str) -> Result<BTreeSet<(String, String)>, String> {
+    let mut definitions = BTreeSet::new();
+    for line in source.lines().filter(|line| line.starts_with('§')) {
+        let Some((kind, remainder)) = line['§'.len_utf8()..].split_once(' ') else {
+            continue;
+        };
+        if !matches!(
+            kind,
+            "type" | "function" | "predicate" | "goal" | "extension"
+        ) {
+            continue;
+        }
+        let symbol = remainder
+            .split(|character: char| character.is_whitespace() || character == '(')
+            .next()
+            .filter(|symbol| !symbol.is_empty())
+            .ok_or_else(|| format!("top-level {kind} definition omits a symbol"))?;
+        if !definitions.insert((kind.to_owned(), symbol.to_owned())) {
+            return Err(format!("duplicate top-level definition {kind} {symbol}"));
+        }
+    }
+    Ok(definitions)
+}
+
+fn source_goal_types(
+    canonical: &str,
+    definitions: &BTreeSet<(String, String)>,
+) -> Result<BTreeMap<(String, String, String), String>, String> {
+    let mut types = BTreeMap::new();
+    for (_, owner) in definitions.iter().filter(|(kind, _)| kind == "goal") {
+        let block = definition_block(canonical, "goal", owner)?;
+        for line in block.lines().map(str::trim) {
+            let Some(kind) = ["input", "resource", "state", "output"]
+                .into_iter()
+                .find(|kind| line.starts_with(&format!("§{kind} ")))
+            else {
+                continue;
+            };
+            let declaration = line
+                .strip_prefix(&format!("§{kind} "))
+                .expect("matched declaration prefix");
+            let Some((name, value_type)) = declaration.split_once(':') else {
+                return Err(format!("malformed source fact in {owner}"));
+            };
+            let Some(value_type) = value_type.trim().strip_suffix(';') else {
+                return Err(format!("unterminated source fact in {owner}"));
+            };
+            insert_unique(
+                &mut types,
+                (owner.clone(), kind.to_owned(), name.trim().to_owned()),
+                compact(value_type),
+                "source typed fact",
+            )?;
+        }
+    }
+    Ok(types)
+}
+
+fn source_clause_inventory(
+    canonical: &str,
+    definitions: &BTreeSet<(String, String)>,
+) -> Result<BTreeSet<(String, String, String)>, String> {
+    let mut clauses = BTreeSet::new();
+    for (_, owner) in definitions.iter().filter(|(kind, _)| kind == "goal") {
+        let block = definition_block(canonical, "goal", owner)?;
+        for line in block.lines().map(str::trim) {
+            let Some(contract) = ["requires", "ensures"]
+                .into_iter()
+                .find(|contract| line.starts_with(&format!("§{contract} \"")))
+            else {
+                continue;
+            };
+            let Some(label) = line
+                .strip_prefix(&format!("§{contract} \""))
+                .and_then(|remainder| remainder.split_once("\":"))
+                .map(|(label, _)| label)
+            else {
+                return Err(format!("malformed source clause in {owner}"));
+            };
+            if !clauses.insert((owner.clone(), contract.to_owned(), label.to_owned())) {
+                return Err(format!("duplicate source clause {owner}:{label}"));
+            }
+        }
+    }
+    Ok(clauses)
+}
+
 fn validate_program_projection_sources(
     text: &str,
     canonical: &str,
@@ -613,6 +732,83 @@ fn validate_program_projection_sources(
         }
     }
 
+    let mut source_definitions = top_level_definition_inventory(canonical)?;
+    source_definitions.extend(top_level_definition_inventory(extension_source)?);
+    if source_definitions != projection.definitions {
+        return Err("source definition projection mismatch".to_owned());
+    }
+
+    let projected_goal_types = projection
+        .semantics
+        .iter()
+        .filter(|row| row.starts_with("type|"))
+        .filter_map(|row| {
+            let fields = row.splitn(6, '|').collect::<Vec<_>>();
+            let [_, owner, kind, name, value_type] = fields.as_slice() else {
+                return None;
+            };
+            (*owner != "bhcp.reference/review@0"
+                && !(*owner == "bhcp.reference/WalkTree@0"
+                    && *kind == "output"
+                    && *name == "result"))
+                .then(|| {
+                    (
+                        ((*owner).to_owned(), (*kind).to_owned(), (*name).to_owned()),
+                        compact(value_type),
+                    )
+                })
+        })
+        .collect::<BTreeMap<_, _>>();
+    let actual_goal_types = source_goal_types(canonical, &projection.definitions)?;
+    if actual_goal_types != projected_goal_types {
+        return Err("source typed fact projection mismatch".to_owned());
+    }
+    let projected_goal_modes = projection
+        .facts
+        .iter()
+        .filter(|((owner, kind, name), _)| {
+            owner != "bhcp.reference/review@0"
+                && !(owner == "bhcp.reference/WalkTree@0" && kind == "output" && name == "result")
+        })
+        .map(|(key, mode)| (key.clone(), mode.clone()))
+        .collect::<BTreeMap<_, _>>();
+    let actual_goal_modes = actual_goal_types
+        .iter()
+        .map(|(key, value_type)| {
+            let mode = if value_type.starts_with("ownedaffine") {
+                "owned-affine"
+            } else if value_type.starts_with("ownedlinear") {
+                "owned-linear"
+            } else {
+                "unrestricted"
+            };
+            (key.clone(), mode.to_owned())
+        })
+        .collect::<BTreeMap<_, _>>();
+    if actual_goal_modes != projected_goal_modes {
+        return Err("source fact ownership projection mismatch".to_owned());
+    }
+
+    let projected_clauses = projection
+        .semantics
+        .iter()
+        .filter(|row| row.starts_with("clause|"))
+        .filter_map(|row| {
+            let fields = row.splitn(6, '|').collect::<Vec<_>>();
+            let [_, owner, label, contract, _, _] = fields.as_slice() else {
+                return None;
+            };
+            Some((
+                (*owner).to_owned(),
+                (*contract).to_owned(),
+                (*label).to_owned(),
+            ))
+        })
+        .collect::<BTreeSet<_>>();
+    if source_clause_inventory(canonical, &projection.definitions)? != projected_clauses {
+        return Err("source clause projection mismatch".to_owned());
+    }
+
     for row in projection
         .semantics
         .iter()
@@ -647,6 +843,36 @@ fn validate_program_projection_sources(
         let marker = format!("§{contract} \"{label}\": {expression}");
         if !compact(block).contains(&compact(&marker)) {
             return Err(format!("{owner} omits owner-scoped clause {marker}"));
+        }
+    }
+
+    let expected_source_hashes = PROGRAM_SOURCE_HASHES
+        .iter()
+        .map(|row| {
+            let fields = row.splitn(4, '|').collect::<Vec<_>>();
+            let ["source-hash", kind, symbol, digest] = fields.as_slice() else {
+                panic!("malformed expected source hash row");
+            };
+            (
+                ((*kind).to_owned(), (*symbol).to_owned()),
+                (*digest).to_owned(),
+            )
+        })
+        .collect::<BTreeMap<_, _>>();
+    if projection.source_hashes != expected_source_hashes {
+        return Err("program source hash projection mismatch".to_owned());
+    }
+    for ((kind, symbol), expected_hash) in &projection.source_hashes {
+        let block = if canonical.contains(&format!("§{kind} {symbol}")) {
+            definition_block(canonical, kind, symbol)?
+        } else {
+            definition_block(extension_source, kind, symbol)?
+        };
+        let actual_hash = format_hash(&HashAlgorithm::default().hash(block.as_bytes()));
+        if &actual_hash != expected_hash {
+            return Err(format!(
+                "type definition projection mismatch for {kind} {symbol}: source hash differs"
+            ));
         }
     }
 
@@ -1514,7 +1740,7 @@ fn reference_validators_reject_invalid_policy_shapes_and_ownership() {
         &read_reference(&root, "extension.bhcp").unwrap(),
     )
     .unwrap_err();
-    assert!(owner_error.contains("owner-scoped typed fact"));
+    assert!(owner_error.contains("typed fact projection"));
 
     let undefined_repository = canonical.replacen(
         "§type bhcp.reference/Repository@0 = { root: Text };\n",
@@ -1529,6 +1755,47 @@ fn reference_validators_reject_invalid_policy_shapes_and_ownership() {
         )
         .unwrap_err()
         .contains("occurs 0 times")
+    );
+
+    let omitted_obligation = canonical.replacen(
+        "    §ensures \"stored\": match receipt {\n        Ok(value) => bhcp.reference/nonEmpty@0(value.digest);\n        Err(_) => false;\n    };\n",
+        "",
+        1,
+    );
+    assert!(
+        validate_program_projection_sources(
+            &typed_projection,
+            &omitted_obligation,
+            &read_reference(&root, "extension.bhcp").unwrap(),
+        )
+        .unwrap_err()
+        .contains("clause projection")
+    );
+
+    let type_shape_drift = canonical.replacen("sequence: Text", "sequence: Bool", 1);
+    assert!(
+        validate_program_projection_sources(
+            &typed_projection,
+            &type_shape_drift,
+            &read_reference(&root, "extension.bhcp").unwrap(),
+        )
+        .unwrap_err()
+        .contains("type definition projection")
+    );
+
+    let input_drift = canonical.replacen(
+        "§goal bhcp.reference/StartDelivery@0 {\n    §output token: Text;",
+        "§goal bhcp.reference/StartDelivery@0 {\n    §input seed: Text;\n    §output token: Text;",
+        1,
+    );
+    assert!(
+        validate_program_projection_sources(
+            &typed_projection,
+            &input_drift,
+            &read_reference(&root, "extension.bhcp").unwrap(),
+        )
+        .unwrap_err()
+        .contains("typed fact projection")
     );
 
     let bindings = read_reference(&root, "policy-evidence-registry.txt")

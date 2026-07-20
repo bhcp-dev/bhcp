@@ -19,6 +19,26 @@ definition|goal|bhcp.reference/DeliverChange@0
 definition|function|bhcp.reference/reviewReducer@0
 definition|function|bhcp.reference/lowerReview@0
 definition|extension|bhcp.reference/review@0
+source-hash|type|bhcp.reference/NonEmptyText@0|bhcp.hash/sha3-512@0:01d8536b07636ad0c97e56159a87c4a4541d017f0974b7e3736838e69dc75092c42b2983eaaff870a1cccd77cb1aa49f3d0bbc1c11d4066171e2ed105f7a6a26
+source-hash|type|bhcp.reference/Risk@0|bhcp.hash/sha3-512@0:ab3fa7f2a5bf92f339edbcf5fe1cb2d6f855836c26c399c6962ed0474bf348452cc027233ac4d8e4a542c0d1f9f136315e8238d03e8b4287b3d4963fbd779429
+source-hash|type|bhcp.reference/Patch@0|bhcp.hash/sha3-512@0:b14aabcc24ad133e82c47587acfb5a87d80808a2da86f73a373a15fde39189a644c14226ea086bb41eff9e52c4b0d7b862ab9cf197781bcf40db63df44340448
+source-hash|type|bhcp.reference/Repository@0|bhcp.hash/sha3-512@0:f0e001c58a73a9a990652428c3c12a0b7fb29de43ede62ea2e0939d4161c4004286266b6eb848293189c2a95d0e8e04c2ffab7d014323cac182c6e4ba646eb9d
+source-hash|type|bhcp.reference/Receipt@0|bhcp.hash/sha3-512@0:906714efd9e258cb5ac6090a274ea6597815ad67e7b44cd0ad08a0b8ffcdf5864a2fdd61e8b72743e604881e5624d52f43b68e68d6aaa692c043d9ebfe02ba6c
+source-hash|type|bhcp.reference/DeliveryError@0|bhcp.hash/sha3-512@0:8f1c479e5181dda73cf2f3688a85a962abe4872dc28894030b8110e073f853ec13d32dd1fc87d037977e67545bb07ed86bb656951047c06565ee748992c304d1
+source-hash|type|bhcp.reference/Node@0|bhcp.hash/sha3-512@0:da7de285a7ad42c2bd9a5c77be2a6b27e4f9563e9eba71311db8a248c0c11c038b83a4ec45b2d28a561d0fcff0da24f14eef49eb4036f4a2d4d33ce9eb7b8a0d
+source-hash|type|bhcp.reference/WalkInput@0|bhcp.hash/sha3-512@0:af77aa62cb078671b8476325108e1f6ff9aeb22f33ec5df639f42869af1af55d70a45018066df62d83c2503d09b7cfe6f9c76c79d0d13ff436efb0baa9d6b693
+source-hash|type|bhcp.reference/Delivery@0|bhcp.hash/sha3-512@0:d6ef939bd09c7da78068f8c56fa234601c6bc39c68c5d617c7caf333a36d351b6ae87a858acd2e352c9d98fe3da19ae0e5612cb49a3bbdc79de2050d6a5d4bed
+source-hash|function|bhcp.reference/isHighRisk@0|bhcp.hash/sha3-512@0:d2eec7944f101557e4e9645798f5d1e30e4a3b07bd629cef6504d9c3ce0e4bf3bc94ba77b7419e2d4c7b7be077f45c50c547c864bba4a0ff100bb71da60fb0f7
+source-hash|predicate|bhcp.reference/nonEmpty@0|bhcp.hash/sha3-512@0:a76335b2b3d4bf66b4133f4ac135a899448823ac285fcdcc2dce3eb7a66162d0224429b702767cec40c1671f48331bdd3e36b5287a32c42ec9dbe31353d72902
+source-hash|goal|bhcp.reference/StartDelivery@0|bhcp.hash/sha3-512@0:f5c2041eba4034ad467bcd00e472002d4147112de9198bd125164a3353630f393d31e4708756060d8f4b29b6d58925fc74ffd8eea6f740f9fe85331b4cbf6739
+source-hash|goal|bhcp.reference/ConfirmDelivery@0|bhcp.hash/sha3-512@0:397a5d6aa9b1e6af0e217af858fbaa650fa5450423232bcf1e04c826a13c3dcbb5181870dbc18b248cd1f75449489b7fa71cd71d8c637e5fef1cac5ad3e7938f
+source-hash|goal|bhcp.reference/Approve@0|bhcp.hash/sha3-512@0:c2afc08120e2c85932b4e2169f04f82b4f16aaecab46a065712a82dd63bb04de49da990deb9264b5c64ead20616628b63da367d2e6f63a7ab75f45d4ab6c71d7
+source-hash|goal|bhcp.reference/Persist@0|bhcp.hash/sha3-512@0:b1bdc2cdba8f68b305932c74be0350535958246ce9837836ebfd8213a860042701adb8ae95afc4084b5970bb1a55f8e22edf1e1bdc18e908b0ffb794cc2069f2
+source-hash|goal|bhcp.reference/WalkTree@0|bhcp.hash/sha3-512@0:539d34e088362769ccb7912730bf4660f8706f99283dcd9b4f775e4d9e4f103c2006baf7f3593ef93d6df5882f8e727f847001f9eef86a2cf59c254b4b3f85df
+source-hash|goal|bhcp.reference/DeliverChange@0|bhcp.hash/sha3-512@0:f755f87acf338bee5754481cbf979dc8fd1e91dffb6d69ecc5e6d94f531cb4990f8729e65556bcd23e1be996ab6c180a42c0f3d5f91422a8d8b9563ea74e7a31
+source-hash|function|bhcp.reference/reviewReducer@0|bhcp.hash/sha3-512@0:a371bd995c73a30e6ee2ee3ed7e89e4682d1e41843a1a12cf9b6df3bda4cc91eceb6038a7f149ad982c8944c81e8461c08219db1b00c5d7b6f0f610a8609bb38
+source-hash|function|bhcp.reference/lowerReview@0|bhcp.hash/sha3-512@0:03d6b8313992e4b03eaf910d333d25bd04496095d96bafd2c49d3a5530a8bbe7ef6f986e23d365012ea5df07d2f9396d0af56b73722d1d1b89e2330da06562bf
+source-hash|extension|bhcp.reference/review@0|bhcp.hash/sha3-512@0:a4efad8f3a560339836d309788349afc204d30a42dc675d00fe7ff43968114c99c485bb13dd48bfeff11713de6a3e549df8c101fd49db45d336137b47729ee0b
 fact|bhcp.reference/StartDelivery@0|output|token|unrestricted
 fact|bhcp.reference/ConfirmDelivery@0|input|token|unrestricted
 fact|bhcp.reference/ConfirmDelivery@0|output|confirmation|unrestricted
@@ -71,11 +91,13 @@ type|bhcp.reference/DeliverChange@0|state|attempts|Integer
 type|bhcp.reference/DeliverChange@0|output|outcome|bhcp.reference/Delivery@0
 type|bhcp.reference/review@0|input|risk|bhcp.reference/Risk@0
 type|bhcp.reference/review@0|output|result|Unit
+clause|bhcp.reference/Approve@0|high-risk|requires|Bool|bhcp.reference/isHighRisk@0(risk)
 clause|bhcp.reference/WalkTree@0|non-negative-depth|requires|Bool|0 <= remaining
 clause|bhcp.reference/WalkTree@0|leaf-at-zero|requires|Bool|remaining != 0 || node.children == []
 clause|bhcp.reference/DeliverChange@0|non-empty-digest|requires|Bool|bhcp.reference/nonEmpty@0(patch.digest)
 clause|bhcp.reference/DeliverChange@0|tree-depth-matches|requires|Bool|tree.depth == tree_depth
 clause|bhcp.reference/Persist@0|safe-result|ensures|Bool|match receipt
+clause|bhcp.reference/Persist@0|stored|ensures|Bool|match receipt
 limit|bhcp.reference/WalkTree@0|depth|bhcp.reference/limit.depth@0|remaining|64|Bool
 limit|bhcp.reference/DeliverChange@0|attempts|bhcp.reference/limit.attempts@0|attempts|3|Bool
 effect|bhcp.reference/Persist@0|allow|bhcp-effect/fs.read@0|resource.repository
