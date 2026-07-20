@@ -38,6 +38,7 @@ fn comparative_study_is_frozen_before_any_model_turn() {
         "pins|codex-cli=0.142.4|model=gpt-5.4-mini|reasoning=medium|rust=1.97.1|sandbox=workspace-write/no-network/read-confined",
         "analysis|acceptance=paired-risk-difference+exact-mcnemar|calibration=paired-risk-difference+exact-mcnemar|resources=median+iqr|alpha=descriptive-only",
         "exclusion|pair-if-either-arm|retain-completed|stop-later-launches|no-replacement",
+        "usage-monitor|prior-input=1961148|prior-output=40755|prior-reasoning=31916|aggregate-input-stop-after=12000000|aggregate-output-stop-after=500000|aggregate-reasoning-stop-after=500000",
     ] {
         assert!(registration.lines().any(|line| line == exact), "{exact}");
     }

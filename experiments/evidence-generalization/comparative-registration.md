@@ -18,7 +18,9 @@ executable identities, model/toolchain pins, timeout, and resource boundaries ar
 closed in [`comparative-registration.txt`](comparative-registration.txt). Execution
 requires ChatGPT entitlement authentication, rejects API-key and API-base settings,
 uses sequential concurrency, authorizes at most 24 sessions and 360 model-minutes,
-and authorizes USD 0 incremental pay-as-you-go spend.
+and authorizes USD 0 incremental pay-as-you-go spend. The usage monitor carries
+forward the completed positive-use arm's 1,961,148 input, 40,755 output, and 31,916
+reasoning tokens before applying the parent protocol's aggregate stop thresholds.
 
 The primary estimate is the paired acceptance risk difference (BHCP minus prose)
 over blocks with two non-excluded arms, with discordant counts and a two-sided exact

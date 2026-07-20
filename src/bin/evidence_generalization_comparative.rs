@@ -21,6 +21,9 @@ const STUDY_MODEL_MINUTES: u64 = 360;
 const INPUT_STOP_AFTER: u64 = 12_000_000;
 const OUTPUT_STOP_AFTER: u64 = 500_000;
 const REASONING_STOP_AFTER: u64 = 500_000;
+const PRIOR_INPUT_TOKENS: u64 = 1_961_148;
+const PRIOR_OUTPUT_TOKENS: u64 = 40_755;
+const PRIOR_REASONING_TOKENS: u64 = 31_916;
 const SEEDS: [&str; 4] = ["seed-01", "seed-02", "seed-03", "seed-04"];
 
 #[derive(Clone, Copy)]
@@ -635,7 +638,7 @@ fn run_study(
     create_file(
         &output.join("AUTHORITY.txt"),
         format!(
-            "git-head={git_head}\nowner-attestation-merge={OWNER_ATTESTATION_MERGE}\nauth-mode=chatgpt\nincremental-usd=0\nconcurrency=1\n"
+            "git-head={git_head}\nowner-attestation-merge={OWNER_ATTESTATION_MERGE}\nauth-mode=chatgpt\nincremental-usd=0\nconcurrency=1\nprior-input-tokens={PRIOR_INPUT_TOKENS}\nprior-output-tokens={PRIOR_OUTPUT_TOKENS}\nprior-reasoning-tokens={PRIOR_REASONING_TOKENS}\n"
         )
         .as_bytes(),
     )?;
@@ -832,9 +835,9 @@ fn prelaunch(index: usize, usage: &Usage) -> Result<(), String> {
     {
         return Err("the next launch exceeds the comparative session/time budget".to_owned());
     }
-    if usage.input >= INPUT_STOP_AFTER
-        || usage.output >= OUTPUT_STOP_AFTER
-        || usage.reasoning >= REASONING_STOP_AFTER
+    if PRIOR_INPUT_TOKENS.saturating_add(usage.input) >= INPUT_STOP_AFTER
+        || PRIOR_OUTPUT_TOKENS.saturating_add(usage.output) >= OUTPUT_STOP_AFTER
+        || PRIOR_REASONING_TOKENS.saturating_add(usage.reasoning) >= REASONING_STOP_AFTER
     {
         return Err("a post-session usage stop threshold was reached".to_owned());
     }
@@ -1213,7 +1216,9 @@ fn write_patch(original: &Path, candidate: &Path, destination: &Path) -> Result<
 
 #[cfg(test)]
 mod tests {
-    use super::{exact_mcnemar, median_iqr};
+    use super::{
+        INPUT_STOP_AFTER, PRIOR_INPUT_TOKENS, Usage, exact_mcnemar, median_iqr, prelaunch,
+    };
 
     #[test]
     fn exact_mcnemar_covers_registered_edge_cases() {
@@ -1230,5 +1235,23 @@ mod tests {
         assert_eq!(median_iqr(&[1]), Some((1.0, 1.0, 1.0)));
         assert_eq!(median_iqr(&[1, 2, 3, 4]), Some((2.5, 1.5, 3.5)));
         assert_eq!(median_iqr(&[1, 2, 3, 4, 5]), Some((3.0, 2.0, 4.0)));
+    }
+
+    #[test]
+    fn usage_monitor_carries_forward_the_positive_study() {
+        assert!(prelaunch(0, &Usage::default()).is_ok());
+        let below = Usage {
+            input: INPUT_STOP_AFTER - PRIOR_INPUT_TOKENS - 1,
+            ..Usage::default()
+        };
+        assert!(prelaunch(1, &below).is_ok());
+        let reached = Usage {
+            input: INPUT_STOP_AFTER - PRIOR_INPUT_TOKENS,
+            ..Usage::default()
+        };
+        assert_eq!(
+            prelaunch(1, &reached).unwrap_err(),
+            "a post-session usage stop threshold was reached"
+        );
     }
 }
