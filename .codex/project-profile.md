@@ -120,9 +120,12 @@ Required checks established by issue #12 and enforced on `main`:
 - `Rust quality / Release build`
 - `Rust quality / 17-root CDDL fixtures`
 
-The remote workflow uses the repository mise pin and the same commands. A pull
-request is not mergeable merely because local checks pass. All configured required
-checks must be green for the exact Reviewed head SHA.
+The remote workflow uses the repository mise pin and preserves the same target
+coverage. Its test-plan validator requires every root integration target exactly
+once plus library and binary targets; concurrent partitions feed the stable
+`Rust quality / Tests` aggregate. The canonical local command remains `cargo test
+--all-targets`. A pull request is not mergeable merely because local checks pass.
+All configured required checks must be green for the exact Reviewed head SHA.
 
 Strict required-check mode is enabled on `main`; administrators are included. The
 branch must be current before merge, force pushes are disabled, the protected branch
