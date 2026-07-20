@@ -1,0 +1,63 @@
+§policy example/repository@0 §extends example/base-policy@0 {
+    layer repository;
+    rule a-requirement: requirement add { requirement: example/requirement.audit@0 } nonwaivable;
+    rule b-evidence: evidence add { obligation: example/obligation.review@0, classes: [static], minimum: 1 } nonwaivable;
+    rule c-prohibition: prohibition deny { effect: bhcp-effect/network@0 } nonwaivable;
+    rule d-capability: capability narrow { effect: bhcp-effect/fs.read@0, scope: { goals: [example/Review@0] } } nonwaivable;
+    rule e-limit: limit tighten { dimension: example/limit.attempts@0, unit: example/unit.count@0, maximum: [integer, 3] } waivable by ["security"];
+    rule f-type-mode: type-mode strengthen strict nonwaivable;
+}
+
+§syntax example/words@0 {
+    preamble "#!bhcp-profile";
+    mappings [
+        { category: "keyword", canonical: "goal", surface: "intent" },
+        { category: "sigil", canonical: "§", surface: "@" },
+        { category: "open-delimiter", canonical: "{", surface: "<" },
+        { category: "close-delimiter", canonical: "}", surface: ">" },
+        { category: "terminator", canonical: ";", surface: "!" },
+        { category: "alias", canonical: example/Review@0, surface: "review" }
+    ];
+    formatting { indent_width: 2, line_width: 100, final_newline: true };
+}
+
+§profile example/review@0 §extends example/base-profile@0 {
+    syntax example/words@0;
+    type_mode infer-strict;
+    policy_overlays [example/repository@0];
+}
+
+§waiver example/emergency@0 {
+    issuer "security";
+    targets [{
+        rule: [example/repository@0, "e-limit"],
+        weakening: {
+            category: "limit",
+            operation: "loosen",
+            from: { dimension: example/limit.attempts@0, unit: example/unit.count@0, maximum: [integer, 3] },
+            to: { dimension: example/limit.attempts@0, unit: example/unit.count@0, maximum: [integer, 4] }
+        }
+    }];
+    justification "one emergency retry";
+    issued_at time "2026-07-20T00:00:00Z";
+    not_before time "2026-07-20T00:00:00Z";
+    expires_at time "2026-07-21T00:00:00Z";
+    authorization [example/authorization@0];
+    audit_reference example/audit@0;
+}
+
+§extension example/derived@0 derived {
+    lowering example/lower-derived@0;
+    input example/Input@0;
+    output example/Output@0;
+    children [];
+}
+
+§extension example/native@0 native {
+    payload_schema example/native-payload-schema@0;
+    type_rule example/native-type-rule@0;
+    effect_rule example/native-effect-rule@0;
+    policy_rule example/native-policy-rule@0;
+    normalization_rule example/native-normalization-rule@0;
+    evidence_rule example/native-evidence-rule@0;
+}

@@ -4,8 +4,13 @@ use unicode_normalization::is_nfc;
 
 use crate::diagnostic::{Diagnostic, Result};
 use crate::model::{AstNode, ContentReference, Point, TokenSpan, is_symbol};
-use crate::policy::{PolicyDocument, PolicyHeader, PolicyLayer, PolicyRule, SourcePolicyDocument};
-use crate::profile::{SyntaxDocument, SyntaxMapping, SyntaxMappingCategory};
+use crate::policy::{
+    PolicyDocument, PolicyHeader, PolicyLayer, PolicyRule, SourcePolicyDocument,
+    validate_policy_timestamp,
+};
+use crate::profile::{
+    PresentationDocument, ProfileDocument, SyntaxDocument, SyntaxMapping, SyntaxMappingCategory,
+};
 use crate::value::Value;
 
 #[derive(Clone, Debug)]
@@ -49,6 +54,7 @@ const REGISTERED_KEYWORDS: &[&str] = &[
     "chain",
     "compose",
     "ensures",
+    "extension",
     "extends",
     "forbids",
     "function",
@@ -62,12 +68,16 @@ const REGISTERED_KEYWORDS: &[&str] = &[
     "policy",
     "predicate",
     "prefer",
+    "profile",
     "refines",
     "requires",
     "resource",
     "state",
+    "syntax",
     "type",
+    "use",
     "verify",
+    "waiver",
 ];
 const OPEN_DELIMITERS: &[&str] = &["(", "[", "{"];
 const CLOSE_DELIMITERS: &[&str] = &[")", "]", "}"];
@@ -1155,6 +1165,63 @@ pub struct SurfacePolicy {
 }
 
 #[derive(Clone, Debug)]
+pub struct SurfaceMetaField {
+    pub name: String,
+    pub label: Option<String>,
+    pub value: Value,
+    pub at: Point,
+    pub ast: AstNode,
+}
+
+#[derive(Clone, Debug)]
+pub struct SurfaceSyntax {
+    pub document: SyntaxDocument,
+    pub fields: Vec<SurfaceMetaField>,
+    pub at: Point,
+    pub ast: AstNode,
+}
+
+#[derive(Clone, Debug)]
+pub struct SurfaceProfile {
+    pub document: ProfileDocument,
+    pub fields: Vec<SurfaceMetaField>,
+    pub at: Point,
+    pub ast: AstNode,
+}
+
+#[derive(Clone, Debug)]
+pub struct SurfaceWaiver {
+    pub symbol: String,
+    pub fields: Vec<SurfaceMetaField>,
+    pub at: Point,
+    pub ast: AstNode,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum SurfaceExtensionKind {
+    Derived,
+    Native,
+}
+
+impl SurfaceExtensionKind {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Derived => "derived",
+            Self::Native => "native",
+        }
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct SurfaceExtension {
+    pub symbol: String,
+    pub extension_kind: SurfaceExtensionKind,
+    pub fields: Vec<SurfaceMetaField>,
+    pub at: Point,
+    pub ast: AstNode,
+}
+
+#[derive(Clone, Debug)]
 pub struct ParsedProgram {
     pub types: Vec<SurfaceTypeDefinition>,
     pub functions: Vec<SurfaceFunction>,
@@ -1162,6 +1229,10 @@ pub struct ParsedProgram {
     pub refinements: Vec<SurfaceRefinement>,
     pub goals: Vec<SurfaceGoal>,
     pub policies: Vec<SurfacePolicy>,
+    pub syntaxes: Vec<SurfaceSyntax>,
+    pub profiles: Vec<SurfaceProfile>,
+    pub waivers: Vec<SurfaceWaiver>,
+    pub extensions: Vec<SurfaceExtension>,
     pub ast: AstNode,
 }
 
@@ -1706,6 +1777,10 @@ impl Parser<'_> {
         let mut refinements = Vec::new();
         let mut goals = Vec::new();
         let mut policies = Vec::new();
+        let mut syntaxes = Vec::new();
+        let mut profiles = Vec::new();
+        let mut waivers = Vec::new();
+        let mut extensions = Vec::new();
         let mut definitions = Vec::new();
         let mut symbols = BTreeMap::new();
         let mut refinement_edges = BTreeMap::new();
@@ -1789,6 +1864,46 @@ impl Parser<'_> {
                     policies.push(policy);
                     result
                 }
+                "§syntax" => {
+                    let syntax = self.syntax_definition()?;
+                    let result = (
+                        Some(syntax.document.symbol.clone()),
+                        syntax.at.clone(),
+                        syntax.ast.clone(),
+                    );
+                    syntaxes.push(syntax);
+                    result
+                }
+                "§profile" => {
+                    let profile = self.profile_definition()?;
+                    let result = (
+                        Some(profile.document.symbol.clone()),
+                        profile.at.clone(),
+                        profile.ast.clone(),
+                    );
+                    profiles.push(profile);
+                    result
+                }
+                "§waiver" => {
+                    let waiver = self.waiver_definition()?;
+                    let result = (
+                        Some(waiver.symbol.clone()),
+                        waiver.at.clone(),
+                        waiver.ast.clone(),
+                    );
+                    waivers.push(waiver);
+                    result
+                }
+                "§extension" => {
+                    let extension = self.extension_definition()?;
+                    let result = (
+                        Some(extension.symbol.clone()),
+                        extension.at.clone(),
+                        extension.ast.clone(),
+                    );
+                    extensions.push(extension);
+                    result
+                }
                 _ => {
                     let code = if self.current().kind == TokenKind::Keyword {
                         "BHCP1004"
@@ -1832,6 +1947,10 @@ impl Parser<'_> {
             refinements,
             goals,
             policies,
+            syntaxes,
+            profiles,
+            waivers,
+            extensions,
             ast,
         })
     }
@@ -2269,6 +2388,12 @@ impl Parser<'_> {
         let category = self.identifier("policy category")?;
         let operation = self.identifier("policy operation")?;
         let value = self.meta_value()?;
+        if !matches!(self.current().kind, TokenKind::Identifier) {
+            return self.fail(
+                "BHCP1004",
+                "expression-valued policy clauses are outside canonical v0",
+            );
+        }
         let waiver = self.identifier("policy waivability")?;
         let (waivable, authorized_issuers) = match waiver.text.as_str() {
             "nonwaivable" => (false, Vec::new()),
@@ -2362,7 +2487,325 @@ impl Parser<'_> {
         Ok((rule, ast))
     }
 
+    fn syntax_definition(&mut self) -> Result<SurfaceSyntax> {
+        let keyword = self.expect("§syntax")?;
+        let (symbol, _) = self.qualified_name()?;
+        let (fields, end) = self.closed_meta_fields(
+            "syntax",
+            &[("preamble", true), ("mappings", true), ("formatting", true)],
+        )?;
+        let value = governance_document_value("syntax", &symbol, None, &fields);
+        let document = match PresentationDocument::from_value(&value).map_err(|diagnostic| {
+            at(
+                "BHCP1001",
+                format!("invalid syntax definition: {}", diagnostic.message),
+                self.source_name,
+                &keyword.start,
+            )
+        })? {
+            PresentationDocument::Syntax(document) => document,
+            PresentationDocument::Profile(_) => unreachable!(),
+        };
+        let ast = self.governance_ast(
+            "syntax",
+            "§syntax",
+            &symbol,
+            None,
+            None,
+            keyword.start.clone(),
+            end,
+            &fields,
+        );
+        Ok(SurfaceSyntax {
+            document,
+            fields,
+            at: keyword.start,
+            ast,
+        })
+    }
+
+    fn profile_definition(&mut self) -> Result<SurfaceProfile> {
+        let keyword = self.expect("§profile")?;
+        let (symbol, _) = self.qualified_name()?;
+        let extends = if self.matches("§extends") {
+            self.consume();
+            Some(self.qualified_name()?.0)
+        } else {
+            None
+        };
+        let (fields, end) = self.closed_meta_fields(
+            "profile",
+            &[
+                ("syntax", true),
+                ("type_mode", true),
+                ("policy_overlays", true),
+            ],
+        )?;
+        let value = governance_document_value("profile", &symbol, extends.as_deref(), &fields);
+        let document = match PresentationDocument::from_value(&value).map_err(|diagnostic| {
+            at(
+                "BHCP1001",
+                format!("invalid profile definition: {}", diagnostic.message),
+                self.source_name,
+                &keyword.start,
+            )
+        })? {
+            PresentationDocument::Profile(document) => document,
+            PresentationDocument::Syntax(_) => unreachable!(),
+        };
+        let ast = self.governance_ast(
+            "profile",
+            "§profile",
+            &symbol,
+            extends.as_deref(),
+            None,
+            keyword.start.clone(),
+            end,
+            &fields,
+        );
+        Ok(SurfaceProfile {
+            document,
+            fields,
+            at: keyword.start,
+            ast,
+        })
+    }
+
+    fn waiver_definition(&mut self) -> Result<SurfaceWaiver> {
+        let keyword = self.expect("§waiver")?;
+        let (symbol, _) = self.qualified_name()?;
+        let (fields, end) = self.closed_meta_fields(
+            "waiver",
+            &[
+                ("issuer", true),
+                ("targets", true),
+                ("justification", true),
+                ("authority_chain", false),
+                ("issued_at", true),
+                ("not_before", true),
+                ("expires_at", true),
+                ("authorization", true),
+                ("audit_reference", true),
+            ],
+        )?;
+        validate_waiver_source(&fields)
+            .map_err(|message| at("BHCP1001", message, self.source_name, &keyword.start))?;
+        let ast = self.governance_ast(
+            "waiver",
+            "§waiver",
+            &symbol,
+            None,
+            None,
+            keyword.start.clone(),
+            end,
+            &fields,
+        );
+        Ok(SurfaceWaiver {
+            symbol,
+            fields,
+            at: keyword.start,
+            ast,
+        })
+    }
+
+    fn extension_definition(&mut self) -> Result<SurfaceExtension> {
+        let keyword = self.expect("§extension")?;
+        let (symbol, _) = self.qualified_name()?;
+        let extension_kind_token = self.identifier("extension kind")?;
+        let extension_kind = match extension_kind_token.text.as_str() {
+            "derived" => SurfaceExtensionKind::Derived,
+            "native" => SurfaceExtensionKind::Native,
+            _ => {
+                return Err(at(
+                    "BHCP1001",
+                    "extension kind must be derived or native",
+                    self.source_name,
+                    &extension_kind_token.start,
+                ));
+            }
+        };
+        let specifications = match extension_kind {
+            SurfaceExtensionKind::Derived => &[
+                ("lowering", true),
+                ("input", true),
+                ("output", true),
+                ("children", true),
+            ][..],
+            SurfaceExtensionKind::Native => &[
+                ("payload_schema", true),
+                ("type_rule", true),
+                ("effect_rule", true),
+                ("policy_rule", true),
+                ("normalization_rule", true),
+                ("evidence_rule", true),
+            ][..],
+        };
+        let context = format!("{} extension", extension_kind.as_str());
+        let (fields, end) = self.closed_meta_fields(&context, specifications)?;
+        validate_extension_source(extension_kind, &fields)
+            .map_err(|message| at("BHCP1001", message, self.source_name, &keyword.start))?;
+        let ast = self.governance_ast(
+            "extension",
+            "§extension",
+            &symbol,
+            None,
+            Some(extension_kind),
+            keyword.start.clone(),
+            end,
+            &fields,
+        );
+        Ok(SurfaceExtension {
+            symbol,
+            extension_kind,
+            fields,
+            at: keyword.start,
+            ast,
+        })
+    }
+
+    fn closed_meta_fields(
+        &mut self,
+        context: &str,
+        specifications: &[(&str, bool)],
+    ) -> Result<(Vec<SurfaceMetaField>, Point)> {
+        self.expect("{")?;
+        let mut fields = Vec::new();
+        let mut previous_index = None;
+        while !self.matches("}") {
+            if self.current().kind == TokenKind::Eof {
+                return self.fail("BHCP1001", format!("unterminated {context} block"));
+            }
+            let name = self.identifier(&format!("{context} field"))?;
+            let Some(index) = specifications
+                .iter()
+                .position(|(candidate, _)| *candidate == name.text)
+            else {
+                return Err(at(
+                    "BHCP1004",
+                    format!("unknown {context} field {:?}", name.text),
+                    self.source_name,
+                    &name.start,
+                ));
+            };
+            if fields
+                .iter()
+                .any(|field: &SurfaceMetaField| field.name == name.text)
+            {
+                return Err(at(
+                    "BHCP1003",
+                    format!("duplicate {context} field {:?}", name.text),
+                    self.source_name,
+                    &name.start,
+                ));
+            }
+            if previous_index.is_some_and(|previous| index < previous) {
+                return Err(at(
+                    "BHCP1003",
+                    format!("{context} field order is closed and canonical"),
+                    self.source_name,
+                    &name.start,
+                ));
+            }
+            previous_index = Some(index);
+            let label = if self.current().kind == TokenKind::String && self.peek().text == ":" {
+                self.label()?
+            } else {
+                None
+            };
+            let value = self.meta_value()?;
+            let end = self.expect(";")?.end;
+            let mut attributes = vec![
+                ("name".to_owned(), Value::Text(name.text.clone())),
+                ("value".to_owned(), value.clone()),
+            ];
+            if let Some(label) = &label {
+                attributes.push(("label".to_owned(), Value::Text(label.clone())));
+            }
+            let ast = self.ast(
+                "meta-field",
+                None,
+                name.start.clone(),
+                end,
+                attributes,
+                vec![],
+            );
+            fields.push(SurfaceMetaField {
+                name: name.text,
+                label,
+                value,
+                at: name.start,
+                ast,
+            });
+        }
+        let end = self.consume().end;
+        for (name, required) in specifications {
+            if *required && !fields.iter().any(|field| field.name == *name) {
+                return Err(at(
+                    "BHCP1001",
+                    format!("{context} definition requires field {name:?}"),
+                    self.source_name,
+                    &end,
+                ));
+            }
+        }
+        Ok((fields, end))
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn governance_ast(
+        &mut self,
+        kind: &str,
+        token: &str,
+        symbol: &str,
+        extends: Option<&str>,
+        extension_kind: Option<SurfaceExtensionKind>,
+        start: Point,
+        end: Point,
+        fields: &[SurfaceMetaField],
+    ) -> AstNode {
+        let mut attributes = vec![("symbol".to_owned(), Value::Text(symbol.to_owned()))];
+        if let Some(extends) = extends {
+            attributes.push(("extends".to_owned(), Value::Text(extends.to_owned())));
+        }
+        if let Some(extension_kind) = extension_kind {
+            attributes.push((
+                "extension_kind".to_owned(),
+                Value::Text(extension_kind.as_str().to_owned()),
+            ));
+            attributes.push((
+                "must_understand".to_owned(),
+                Value::Bool(extension_kind == SurfaceExtensionKind::Native),
+            ));
+        }
+        attributes.extend(
+            fields
+                .iter()
+                .map(|field| (field.name.clone(), field.value.clone())),
+        );
+        self.ast(
+            kind,
+            Some(token),
+            start,
+            end,
+            attributes,
+            fields.iter().map(|field| field.ast.clone()).collect(),
+        )
+    }
+
     fn meta_value(&mut self) -> Result<Value> {
+        if self.matches("time") {
+            let at = self.consume().start;
+            let value = self.consume();
+            let Some(TokenValue::Text(value)) = value.value else {
+                return Err(at_fn(
+                    "BHCP1001",
+                    "time meta-value requires a string literal",
+                    self.source_name,
+                    &at,
+                ));
+            };
+            return Ok(Value::Tag(0, Box::new(Value::Text(value))));
+        }
         if self.matches("-") {
             let start = self.consume().start;
             let number = self.consume();
@@ -4536,6 +4979,234 @@ fn reserved_goal_binder(value: &str) -> bool {
             | "where"
             | "write"
     )
+}
+
+fn governance_document_value(
+    kind: &str,
+    symbol: &str,
+    extends: Option<&str>,
+    fields: &[SurfaceMetaField],
+) -> Value {
+    let mut entries = vec![
+        ("version".to_owned(), Value::Text("bhcp/v0".to_owned())),
+        ("features".to_owned(), Value::Array(vec![])),
+        ("kind".to_owned(), Value::Text(kind.to_owned())),
+        ("symbol".to_owned(), Value::Text(symbol.to_owned())),
+    ];
+    if let Some(extends) = extends {
+        entries.push(("extends".to_owned(), Value::Text(extends.to_owned())));
+    }
+    entries.extend(
+        fields
+            .iter()
+            .map(|field| (field.name.clone(), field.value.clone())),
+    );
+    Value::owned_map(entries)
+}
+
+fn governance_field<'a>(fields: &'a [SurfaceMetaField], name: &str) -> &'a Value {
+    &fields
+        .iter()
+        .find(|field| field.name == name)
+        .expect("closed required governance field")
+        .value
+}
+
+fn validate_waiver_source(fields: &[SurfaceMetaField]) -> std::result::Result<(), String> {
+    for name in ["issuer", "justification"] {
+        if !matches!(governance_field(fields, name), Value::Text(value) if !value.is_empty()) {
+            return Err(format!("waiver field {name:?} must be a non-empty string"));
+        }
+    }
+    let mut timestamps = Vec::new();
+    for name in ["issued_at", "not_before", "expires_at"] {
+        let Value::Tag(0, value) = governance_field(fields, name) else {
+            return Err(format!("waiver field {name:?} must be a time string"));
+        };
+        let Value::Text(value) = value.as_ref() else {
+            return Err(format!("waiver field {name:?} must be a time string"));
+        };
+        if value.is_empty() {
+            return Err(format!(
+                "waiver field {name:?} must be a non-empty time string"
+            ));
+        }
+        validate_policy_timestamp(value, &format!("waiver {name}"))
+            .map_err(|diagnostic| diagnostic.message)?;
+        timestamps.push(value);
+    }
+    if !(timestamps[0] <= timestamps[1] && timestamps[1] < timestamps[2]) {
+        return Err("waiver interval must satisfy issued_at <= not_before < expires_at".to_owned());
+    }
+    let Value::Array(targets) = governance_field(fields, "targets") else {
+        return Err("waiver targets must be an array".to_owned());
+    };
+    if targets.is_empty() {
+        return Err("waiver targets must be non-empty".to_owned());
+    }
+    for (index, target) in targets.iter().enumerate() {
+        if targets[..index].contains(target) {
+            return Err("waiver targets must be unique".to_owned());
+        }
+        validate_waiver_target(target)?;
+    }
+    let Value::Array(authorization) = governance_field(fields, "authorization") else {
+        return Err("waiver authorization must be an array".to_owned());
+    };
+    if authorization.is_empty()
+        || authorization.iter().any(|value| {
+            !matches!(value, Value::Map(_))
+                && !matches!(value, Value::Text(symbol) if is_symbol(symbol))
+        })
+    {
+        return Err(
+            "waiver authorization must contain non-empty artifact maps or exact symbols".to_owned(),
+        );
+    }
+    match governance_field(fields, "audit_reference") {
+        Value::Map(_) => {}
+        Value::Text(symbol) if is_symbol(symbol) => {}
+        _ => return Err("waiver audit_reference must be an artifact map or exact symbol".into()),
+    }
+    if let Some(authority_chain) = fields
+        .iter()
+        .find(|field| field.name == "authority_chain")
+        .map(|field| &field.value)
+        && !matches!(authority_chain, Value::Array(_))
+    {
+        return Err("waiver authority_chain must be an array".to_owned());
+    }
+    Ok(())
+}
+
+fn validate_waiver_target(value: &Value) -> std::result::Result<(), String> {
+    let Value::Map(entries) = value else {
+        return Err("waiver target must be a map".to_owned());
+    };
+    validate_closed_map(
+        entries,
+        &["rule", "scope", "weakening"],
+        &["rule", "weakening"],
+        "waiver target",
+    )?;
+    let Value::Array(rule) = map_value(entries, "rule").expect("required waiver rule") else {
+        return Err("waiver target rule must be [policy-symbol, rule-id]".to_owned());
+    };
+    if !matches!(rule.as_slice(), [Value::Text(policy), Value::Text(rule)] if is_symbol(policy) && !rule.is_empty())
+    {
+        return Err("waiver target rule must be [policy-symbol, rule-id]".to_owned());
+    }
+    if let Some(scope) = map_value(entries, "scope")
+        && !matches!(scope, Value::Map(_))
+    {
+        return Err("waiver target scope must be a map".to_owned());
+    }
+    validate_waiver_weakening(map_value(entries, "weakening").expect("required weakening"))
+}
+
+fn validate_waiver_weakening(value: &Value) -> std::result::Result<(), String> {
+    let Value::Map(entries) = value else {
+        return Err("waiver weakening must be a map".to_owned());
+    };
+    let category = text_map_value(entries, "category", "waiver weakening")?;
+    let operation = text_map_value(entries, "operation", "waiver weakening")?;
+    let (expected_operation, required): (&str, &[&str]) = match category {
+        "requirement" | "evidence" => ("remove", &["category", "operation", "value"]),
+        "prohibition" => ("allow", &["category", "operation", "value"]),
+        "capability" => ("broaden", &["category", "operation", "from", "to"]),
+        "limit" => ("loosen", &["category", "operation", "from", "to"]),
+        "type-mode" => ("weaken", &["category", "operation", "from", "to"]),
+        _ => return Err(format!("unknown waiver weakening category {category:?}")),
+    };
+    if operation != expected_operation {
+        return Err(format!(
+            "waiver weakening category {category:?} requires operation {expected_operation:?}"
+        ));
+    }
+    validate_closed_map(entries, required, required, "waiver weakening")
+}
+
+fn validate_extension_source(
+    kind: SurfaceExtensionKind,
+    fields: &[SurfaceMetaField],
+) -> std::result::Result<(), String> {
+    for field in fields {
+        match (kind, field.name.as_str(), &field.value) {
+            (SurfaceExtensionKind::Derived, "lowering", Value::Text(symbol))
+                if is_symbol(symbol) => {}
+            (SurfaceExtensionKind::Derived, "input" | "output", Value::Text(value))
+                if is_symbol(value)
+                    || matches!(
+                        value.as_str(),
+                        "Bool"
+                            | "Bytes"
+                            | "Decimal"
+                            | "Duration"
+                            | "Integer"
+                            | "Rational"
+                            | "Text"
+                            | "Timestamp"
+                            | "Unit"
+                    ) => {}
+            (SurfaceExtensionKind::Derived, "children", Value::Array(children))
+                if children
+                    .iter()
+                    .all(|value| matches!(value, Value::Text(symbol) if is_symbol(symbol))) => {}
+            (SurfaceExtensionKind::Native, _, Value::Text(symbol)) if is_symbol(symbol) => {}
+            (SurfaceExtensionKind::Derived, "children", _) => {
+                return Err("derived extension children must be an array of exact symbols".into());
+            }
+            _ => {
+                return Err(format!(
+                    "{} extension field {:?} must be an exact symbol",
+                    kind.as_str(),
+                    field.name
+                ));
+            }
+        }
+    }
+    Ok(())
+}
+
+fn validate_closed_map(
+    entries: &[(String, Value)],
+    order: &[&str],
+    required: &[&str],
+    context: &str,
+) -> std::result::Result<(), String> {
+    let mut seen = std::collections::BTreeSet::new();
+    for (name, _) in entries {
+        if !order.iter().any(|candidate| *candidate == name) {
+            return Err(format!("unknown {context} field {name:?}"));
+        }
+        if !seen.insert(name.as_str()) {
+            return Err(format!("duplicate {context} field {name:?}"));
+        }
+    }
+    for name in required {
+        if !seen.contains(name) {
+            return Err(format!("{context} requires field {name:?}"));
+        }
+    }
+    Ok(())
+}
+
+fn map_value<'a>(entries: &'a [(String, Value)], name: &str) -> Option<&'a Value> {
+    entries
+        .iter()
+        .find(|(candidate, _)| candidate == name)
+        .map(|(_, value)| value)
+}
+
+fn text_map_value<'a>(
+    entries: &'a [(String, Value)],
+    name: &str,
+    context: &str,
+) -> std::result::Result<&'a str, String> {
+    match map_value(entries, name) {
+        Some(Value::Text(value)) => Ok(value),
+        _ => Err(format!("{context} field {name:?} must be text")),
+    }
 }
 fn policy_layer_name(layer: PolicyLayer) -> &'static str {
     match layer {

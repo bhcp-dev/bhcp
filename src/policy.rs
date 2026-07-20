@@ -3601,7 +3601,7 @@ fn policy_timestamp(value: &Value, context: &str) -> Result<String> {
     Ok(timestamp)
 }
 
-fn validate_policy_timestamp(value: &str, context: &str) -> Result<()> {
+pub(crate) fn validate_policy_timestamp(value: &str, context: &str) -> Result<()> {
     let bytes = value.as_bytes();
     let punctuation = [
         (4, b'-'),

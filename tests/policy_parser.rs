@@ -91,7 +91,7 @@ fn checked_in_canonical_policy_fixture_lowers_through_the_strong_model() {
     assert_eq!(executable.code, "BHCP2004");
     assert_eq!(
         executable.message,
-        "policy definitions lower to policy documents, not executable goal IR"
+        "governance definitions lower to typed documents, not executable goal IR"
     );
 }
 
@@ -138,14 +138,14 @@ fn formatting_comments_and_labels_do_not_change_policy_documents() {
 }
 
 #[test]
-fn unsupported_waiver_and_profile_shorthand_fail_stably() {
+fn policy_only_api_rejects_waiver_only_input_and_profile_shorthand_stably() {
     let waiver = parse_policy_source("§waiver example/waiver@0 {}", "waiver.bhcp").unwrap_err();
-    assert_eq!(waiver.code, "BHCP1004");
+    assert_eq!(waiver.code, "BHCP1001");
     assert_eq!(waiver.line, 1);
-    assert_eq!(waiver.column, 1);
+    assert_eq!(waiver.column, 28);
     assert_eq!(
         waiver.message,
-        "top-level syntax \"§waiver\" is outside the implemented vertical slice"
+        "waiver definition requires field \"issuer\""
     );
 
     let profile = parse_policy_source(

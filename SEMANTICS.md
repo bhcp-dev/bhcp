@@ -938,10 +938,11 @@ names a stable local rule ID, may carry one diagnostic-only string label, states
 of the closed category/operation pairs below, supplies its typed meta-value, and ends
 with either `nonwaivable` or a non-empty `waivable by [...]` issuer list. Rule IDs,
 not labels or layout, enter source-rule identity. The current Rust parser implements
-this source-policy slice and deliberately rejects `§waiver`, profile attachment
-shorthand, expression-valued policy clauses, and other future surface forms with
-`BHCP1004`; waiver documents remain an artifact-level boundary until their dedicated
-canonical source issue.
+this source-policy slice plus closed canonical `§waiver`, `§syntax`, `§profile`, and
+`§extension` source definitions. Expression-valued policy clauses, parser callbacks,
+unrestricted macros, semantic overrides, and unsupported native payload behavior fail
+before an AST. Parsing these governance forms does not activate them: waiver
+application, profile attachment, and extension checking/lowering remain later stages.
 
 Policy source documents apply in this fixed order: organization, team, repository,
 user. Missing layers contribute the identity policy. Multiple documents in one layer
