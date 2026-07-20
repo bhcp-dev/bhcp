@@ -1,0 +1,9 @@
+workspace = content:bhcp.hash/sha3-512@0:reference-workspace
+patch = content:bhcp.hash/sha3-512@0:reference-patch
+risk = High
+tree = { name: "repository", depth: 0, children: [] }
+expected-output = Result<Receipt, DeliveryError>
+cancel-on = parent-cancel,deadline,policy-revocation
+case = happy: all required verifier and runtime obligations accept
+case = missing-advisory: optional advisory producer remains unresolved
+case = network-attack: executor attempts a prohibited capability and faults

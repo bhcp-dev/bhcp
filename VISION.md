@@ -207,6 +207,14 @@ system. Its required end-to-end scope includes:
 - deterministic CBOR artifacts, semantic and artifact identities, conformance
   scenarios, and human-auditable diagnostics.
 
+The machine-checked
+[`conformance/v0/completion-manifest.txt`](conformance/v0/completion-manifest.txt)
+turns this scope into a closed implementation inventory: 99 normative scenario
+instances, 17 wire roots, ten observable pipeline stages, and one nontrivial
+reference program are assigned to stable milestone-7 issue keys. The manifest and
+reference program are a planned acceptance contract; current fail-closed rejection
+of unsupported definitions remains correct until the assigned implementation lands.
+
 The first useful runtime remains a constrained coding-agent backend: it accepts an
 issue and repository, enforces capabilities, captures changes, runs independent
 verifiers, and returns a per-obligation evidence bundle. Existing languages and

@@ -1,0 +1,15 @@
+§policy bhcp.reference/organization-policy@0 {
+    layer organization;
+    rule attempts "Retry ceiling": limit tighten { dimension: "attempts", maximum: 3 } waivable by ["security"];
+    rule filesystem "Repository filesystem": capability narrow [fs.read, fs.write] nonwaivable;
+    rule network-deny "No network": prohibition deny network waivable by ["security"];
+    rule signed-commits "Signed commits": requirement add "signed-commits" nonwaivable;
+    rule static-evidence "Static evidence": evidence add "static-analysis>=1" nonwaivable;
+    rule typing "Strict types": type-mode strengthen strict nonwaivable;
+}
+
+§policy bhcp.reference/repository-policy@0 §extends bhcp.reference/organization-policy@0 {
+    layer repository;
+    rule review "Human approval": evidence add "human-approved>=1" nonwaivable;
+    rule attempts "Tighter retry ceiling": limit tighten { dimension: "attempts", maximum: 2 } waivable by ["security"];
+}

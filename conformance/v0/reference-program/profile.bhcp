@@ -1,0 +1,6 @@
+§profile bhcp.reference/review-profile@0 §extends bhcp/canonical@0 {
+    syntax bhcp.reference/words@0;
+    type_mode strict;
+    policy_overlays [bhcp.reference/repository-policy@0];
+    formatting { indent: 2, width: 88 };
+}

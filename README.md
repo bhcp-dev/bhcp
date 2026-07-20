@@ -576,6 +576,26 @@ The next executable prelude boundary is retained-value behavior over explicit
 state-read and compare-and-swap capabilities, without adding behavior kinds or
 stateful callbacks to Rust or semantic IR.
 
+## Practical v0 completion contract
+
+[`conformance/v0/completion-manifest.txt`](conformance/v0/completion-manifest.txt)
+freezes the milestone-7 implementation boundary. Its machine-checked inventory maps
+all 99 normative scenario instances (including each standard algebra's
+satisfied/refuted/unresolved/faulted matrix), all 17 wire roots, ten end-to-end
+pipeline outcomes, and the reference-program features to stable issue keys #99–#134.
+The validator rejects missing, duplicate, and unknown records and checks the root
+inventory against both the CDDL and diagnostic fixtures.
+
+The nontrivial
+[`conformance/v0/reference-program/`](conformance/v0/reference-program/) subject
+crosses complete source, checking, governance, graph, planning, execution, evidence,
+SDK, CLI, and conformance boundaries. It is an acceptance target, not current runtime
+support: the partial compiler is required and tested to reject it at the first
+unsupported top-level definition without emitting a partial artifact. End-to-end
+success becomes a valid implementation claim only after the assigned roadmap issues
+make the same frozen subject pass through the public Rust SDK and CLI with
+deterministic per-obligation evidence.
+
 ## Contributing and autonomous delivery
 
 [AGENTS.md](AGENTS.md) is the canonical repository operating contract for humans
@@ -593,4 +613,7 @@ and completion criteria. Labels and comments mirror claims; they are never locks
 The executable slice is not a claim that the execution platform already exists. v0
 is complete only when the parser, checker, planner, runtime, evidence machinery,
 SDK, and CLI implement the complete type system, minimal kernel, proof checker, and
-standard self-hosted prelude end-to-end.
+standard self-hosted prelude end-to-end, all records in the machine-checked
+completion manifest are demonstrable, and the reference program passes the audited
+pipeline. The checked-in contract defines that future claim; it does not make it
+true today.

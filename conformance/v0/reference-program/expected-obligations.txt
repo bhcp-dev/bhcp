@@ -1,0 +1,7 @@
+happy|obligation|non-empty-digest|static|accepted
+happy|obligation|safe-result:first-scan|static|accepted
+happy|obligation|high-risk|human-approved|accepted
+happy|obligation|safe-result:pre-persist|static|accepted
+happy|obligation|stored|runtime|accepted
+missing-advisory|obligation|optional-advisory|advisory|unresolved
+network-attack|obligation|prohibited-network-attempt|policy|faulted

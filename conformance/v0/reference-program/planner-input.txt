@@ -1,0 +1,7 @@
+semantic-program = bhcp.reference/DeliverChange@0
+input = execution-input.txt
+policy = bhcp.reference/repository-policy@0
+budget = { attempts: 2, wall-time: duration "PT10M", processes: 4 }
+executor = bhcp.executor/coding-agent@0
+required-features = [state-cas, process-sandbox, per-obligation-evidence]
+on-missing-capability = explained-refusal

@@ -1,0 +1,8 @@
+§function bhcp.reference/lowerReview@0(shape: Meta<DerivedForm, Text, Unit>): Meta<NetworkShape, Text, Unit>
+    = { reducer: bhcp.reference/reviewReducer@0, children: shape.children };
+
+§extension bhcp.reference/review@0 derived {
+    lowering bhcp.reference/lowerReview@0;
+    input Text;
+    output Unit;
+}
