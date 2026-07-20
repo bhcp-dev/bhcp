@@ -4,7 +4,7 @@ use std::collections::HashSet;
 
 use crate::diagnostic::{Diagnostic, Result};
 use crate::model::is_symbol;
-use crate::policy::{PolicyDocument, WaiverDocument};
+use crate::policy::{ArtifactReference, PolicyDocument, WaiverDocument};
 use crate::profile::PresentationDocument;
 use crate::value::Value;
 
@@ -323,8 +323,41 @@ fn validate_execution_result(document: &Value) -> Result<()> {
 }
 
 fn validate_extension_descriptor(document: &Value) -> Result<()> {
+    match document.get("symbol") {
+        Some(Value::Text(symbol)) if is_symbol(symbol) => {}
+        _ => {
+            return Err(Diagnostic::plain(
+                "BHCP5002",
+                "extension descriptor symbol must be an exact symbol",
+            ));
+        }
+    }
+    for field in [
+        "type_rule",
+        "effect_rule",
+        "policy_rule",
+        "normalization_rule",
+        "evidence_rule",
+    ] {
+        let value = document.get(field).ok_or_else(|| {
+            Diagnostic::plain(
+                "BHCP5002",
+                format!("extension descriptor is missing {field}"),
+            )
+        })?;
+        ArtifactReference::from_value(value).map_err(|diagnostic| {
+            Diagnostic::plain(
+                "BHCP5002",
+                format!(
+                    "extension descriptor {field} is invalid: {}",
+                    diagnostic.message
+                ),
+            )
+        })?;
+    }
     match document.get("extension_kind") {
         Some(Value::Text(kind)) if kind == "derived" => {
+            require_extension_fields(document, false)?;
             require_bool(document, "must_understand", false)?;
             match document.get("lowering") {
                 Some(Value::Text(lowering)) if is_symbol(lowering) => {}
@@ -344,16 +377,20 @@ fn validate_extension_descriptor(document: &Value) -> Result<()> {
             Ok(())
         }
         Some(Value::Text(kind)) if kind == "native" => {
+            require_extension_fields(document, true)?;
             require_bool(document, "must_understand", true)?;
-            match document.get("payload_schema") {
-                Some(Value::Map(_)) => {}
-                _ => {
-                    return Err(Diagnostic::plain(
-                        "BHCP5002",
-                        "native extension requires a payload schema",
-                    ));
-                }
-            }
+            ArtifactReference::from_value(document.get("payload_schema").ok_or_else(|| {
+                Diagnostic::plain("BHCP5002", "native extension requires a payload schema")
+            })?)
+            .map_err(|diagnostic| {
+                Diagnostic::plain(
+                    "BHCP5002",
+                    format!(
+                        "native extension payload schema is invalid: {}",
+                        diagnostic.message
+                    ),
+                )
+            })?;
             if document.get("lowering").is_some() {
                 return Err(Diagnostic::plain(
                     "BHCP5002",
@@ -367,6 +404,40 @@ fn validate_extension_descriptor(document: &Value) -> Result<()> {
             "extension kind must be derived or native",
         )),
     }
+}
+
+fn require_extension_fields(document: &Value, native: bool) -> Result<()> {
+    let Value::Map(entries) = document else {
+        unreachable!("validated root map")
+    };
+    let common = [
+        "version",
+        "features",
+        "artifact_id",
+        "provenance",
+        "authorization",
+        "kind",
+        "symbol",
+        "extension_kind",
+        "must_understand",
+        "type_rule",
+        "effect_rule",
+        "policy_rule",
+        "normalization_rule",
+        "evidence_rule",
+    ];
+    for (field, _) in entries {
+        if !common.contains(&field.as_str())
+            && !(native && field == "payload_schema")
+            && !(!native && field == "lowering")
+        {
+            return Err(Diagnostic::plain(
+                "BHCP5002",
+                format!("extension descriptor contains forbidden field {field:?}"),
+            ));
+        }
+    }
+    Ok(())
 }
 
 fn require_bool(value: &Value, field: &str, expected: bool) -> Result<()> {

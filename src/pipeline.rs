@@ -752,12 +752,27 @@ fn elaborate(
             &program.refinements[0].at,
         ));
     }
-    if !program.policies.is_empty() {
+    if !program.policies.is_empty()
+        || !program.syntaxes.is_empty()
+        || !program.profiles.is_empty()
+        || !program.waivers.is_empty()
+        || !program.extensions.is_empty()
+    {
+        let at = program
+            .policies
+            .iter()
+            .map(|definition| &definition.at)
+            .chain(program.syntaxes.iter().map(|definition| &definition.at))
+            .chain(program.profiles.iter().map(|definition| &definition.at))
+            .chain(program.waivers.iter().map(|definition| &definition.at))
+            .chain(program.extensions.iter().map(|definition| &definition.at))
+            .min_by_key(|point| point.byte)
+            .expect("governance definition was present");
         return Err(error(
             "BHCP2004",
-            "policy definitions lower to policy documents, not executable goal IR",
+            "governance definitions lower to typed documents, not executable goal IR",
             source_name,
-            &program.policies[0].at,
+            at,
         ));
     }
     if !program.functions.is_empty() {

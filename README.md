@@ -120,9 +120,10 @@ before executable IR until their checker, ownership/effect, and recursion stages
 | --- | --- | --- |
 | `§goal` / `§function` | Complete goal and general-function parsing/AST construction plus the checked executable goal/prelude-function slice described above | General checking/lowering, finite-domain proof, ownership/effects, cases, and recursion semantics |
 | `§type` / `§predicate` / `§refines` | Complete definition, parameter, type, refinement, and verifier-binding parsing into schema-valid canonical AST | Name/type checking and semantic-IR elaboration |
-| `§policy` | Layer, `§extends`, six closed typed rules, scopes/parameters, waivability, issuers, composition, inspection, policy-aware elaboration, and no-waiver conformance fixtures | Expression-valued policy clauses, waiver/profile shorthand, and enforcement beyond the compile-time/evidence boundary |
-| `§syntax` / `§profile` | Fixed byte-level selection, typed deterministic artifacts, exact one-parent syntax/profile resolution, monotonic attached overlays, resolved-profile inspection, span-aware custom-source compilation, and deterministic profile-aware formatting | Syntax/profile source definitions |
-| Other S7 definitions | None | `§use`, `§waiver`, and `§extension` source definitions |
+| `§policy` | Complete canonical source parsing for layer, `§extends`, six closed typed rules, scopes/parameters, waivability, and issuers; composition, inspection, policy-aware elaboration, and no-waiver conformance fixtures | Expression-valued policy clauses and enforcement beyond the compile-time/evidence boundary |
+| `§syntax` / `§profile` | Complete closed source-definition parsing into typed deterministic artifacts; fixed byte-level selection, exact one-parent resolution, monotonic attached overlays, resolved-profile inspection, span-aware custom-source compilation, and deterministic profile-aware formatting | Applying newly parsed definitions as source-local registry inputs remains the profile-lowering stage |
+| `§waiver` / `§extension` | Complete closed source-definition parsing for all six typed waiver changes, canonical scopes/targets, authority/time fields, and wire-compatible derived/native descriptors; materialized references round-trip through the v0 wire boundary while frozen exact-symbol references remain deferred | Resolving symbolic artifact references, waiver application, and extension checking/lowering remain governed semantic stages |
+| Other S7 definitions | None | `§use` declarations |
 
 The Phase 4 decision boundary admits only one-token keyword, punctuation, and symbol
 alias mappings. Exact single-parent chains resolve root to leaf; effective surface
@@ -518,9 +519,10 @@ and semantic/artifact identities at external CBOR input. Canonical `§policy` so
 now lowers through the same model: an explicit layer, optional `§extends`, stable rule
 IDs, all six typed category/operation/value forms, waivability, issuer lists, scopes,
 and canonical parameters are parsed with retained AST spans. Comments, formatting,
-and optional human labels do not enter the policy document. `§waiver`, profile
-attachment shorthand, and expression-valued policy clauses fail closed as deferred
-syntax. Validated source documents now compose in fixed organization → team →
+and optional human labels do not enter the policy document. Canonical `§waiver`,
+`§syntax`, `§profile`, and `§extension` definitions now parse into closed ordered AST
+forms; expression-valued policy clauses and executable governance payloads still fail
+before artifacts. Validated source documents now compose in fixed organization → team →
 repository → user order. The composer resolves same-layer inheritance, rejects
 missing/cyclic/cross-layer parents and duplicate sources, checks every later
 capability/limit/type-mode rule for weakening before joining, intersects capability
@@ -607,7 +609,8 @@ The nontrivial
 crosses complete source, checking, governance, graph, planning, execution, evidence,
 SDK, CLI, and conformance boundaries. It is an acceptance target, not current runtime
 support: the partial compiler is required and tested to reject it at the first
-unsupported top-level definition without emitting a partial artifact. End-to-end
+unsupported checking or lowering boundary without emitting a misleading later-stage
+artifact. End-to-end
 success becomes a valid implementation claim only after the assigned roadmap issues
 make the same frozen subject pass through the public Rust SDK and CLI with
 deterministic per-obligation evidence.
