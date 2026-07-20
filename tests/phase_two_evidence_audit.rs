@@ -41,6 +41,38 @@ fn assert_blob(repository: &Path, specification: &str) {
     }
 }
 
+fn single_pinned_path(specification: &str) -> &str {
+    assert!(
+        !specification.contains(','),
+        "expected one pinned artifact: {specification}"
+    );
+    specification
+        .rsplit_once('@')
+        .unwrap_or_else(|| panic!("artifact pin lacks @<git-blob>: {specification}"))
+        .0
+}
+
+fn expected_delivery(identifier: &str) -> (&str, &str, &str) {
+    match identifier {
+        "pilot-001" | "pilot-002" | "pilot-003" => {
+            ("none", "#6", "93e3cc6b892bd4373fc112e74cd52de75fe82594")
+        }
+        "pilot-004" => ("none", "#8", "98092552efda108cd3ce02e3787ad38239e09066"),
+        "pilot-005" => ("none", "#9", "64b5d164e4083041da0bbb09f10d5840a04f35d8"),
+        "pilot-006" => ("#21", "#86", "b227ce10e6e7e20c610c4d061a8cdb4fd15fd10c"),
+        "contextual-policy-multiseed-001"
+        | "contextual-policy-multiseed-002"
+        | "contextual-policy-multiseed-003"
+        | "contextual-policy-multiseed-004" => {
+            ("#26", "#88", "44bf1a1cf61f1829f3fbf839aea4067e06cb4a6c")
+        }
+        "in-session-evidence-forward-001" => {
+            ("#27", "#89", "ee7ee62649daa31b9216379b562e7f43442231da")
+        }
+        _ => panic!("unknown delivery identity: {identifier}"),
+    }
+}
+
 #[test]
 fn every_phase_two_experiment_has_exact_identity_and_executable_evidence() {
     let repository = root();
@@ -63,8 +95,8 @@ fn every_phase_two_experiment_has_exact_identity_and_executable_evidence() {
             skill,
             model,
             oracle,
-            result_path,
-            evidence_path,
+            result_specification,
+            evidence_specification,
             evidence_function,
             issue,
             pull_request,
@@ -78,7 +110,15 @@ fn every_phase_two_experiment_has_exact_identity_and_executable_evidence() {
             identifiers.insert(*identifier),
             "duplicate experiment: {line}"
         );
-        for pin in [source, task, contract, skill, oracle] {
+        for pin in [
+            source,
+            task,
+            contract,
+            skill,
+            oracle,
+            result_specification,
+            evidence_specification,
+        ] {
             assert_blob(&repository, pin);
         }
 
@@ -88,22 +128,20 @@ fn every_phase_two_experiment_has_exact_identity_and_executable_evidence() {
             "semantic identity drifted: {line}"
         );
         assert!(semantic_id.starts_with("bhcp.hash/sha3-512@0:"), "{line}");
+        let result_path = single_pinned_path(result_specification);
+        let evidence_path = single_pinned_path(evidence_specification);
         assert!(
-            repository.join(result_path).is_file(),
-            "missing result: {line}"
+            !read(repository.join(result_path)).trim().is_empty(),
+            "{line}"
         );
 
         let evidence = read(repository.join(evidence_path));
         assert!(
-            evidence.contains(&format!("fn {evidence_function}()")),
+            evidence.contains(&format!("#[test]\nfn {evidence_function}() {{")),
             "missing executable evidence: {line}",
         );
-        assert!(
-            issue == &"none" || issue.starts_with('#'),
-            "missing issue pin: {line}"
-        );
-        assert!(pull_request.starts_with('#'), "missing PR pin: {line}");
-        assert_eq!(merge.len(), 40, "missing squash-merge pin: {line}");
+        let expected = expected_delivery(identifier);
+        assert_eq!((*issue, *pull_request, *merge), expected, "{line}");
 
         assert!(
             report.lines().any(|report_line| {
@@ -182,6 +220,26 @@ fn report_links_and_public_maturity_claims_agree() {
     assert!(report.contains("Pilot 001 cannot be reproduced at the model layer"));
     assert!(report.contains("0/5 accepted"));
     assert!(report.contains("0/1 accepted"));
+    for provenance in [
+        "[#6](https://github.com/bhcp-dev/bhcp/pull/6) | `93e3cc6b892bd4373fc112e74cd52de75fe82594`",
+        "[#8](https://github.com/bhcp-dev/bhcp/pull/8) | `98092552efda108cd3ce02e3787ad38239e09066`",
+        "[#9](https://github.com/bhcp-dev/bhcp/pull/9) | `64b5d164e4083041da0bbb09f10d5840a04f35d8`",
+        "[#86](https://github.com/bhcp-dev/bhcp/pull/86) | `b227ce10e6e7e20c610c4d061a8cdb4fd15fd10c`",
+        "[#87](https://github.com/bhcp-dev/bhcp/pull/87) | `56ae59f8fa8a8584891958f101d6a902767352fa`",
+        "[#88](https://github.com/bhcp-dev/bhcp/pull/88) | `44bf1a1cf61f1829f3fbf839aea4067e06cb4a6c`",
+        "[#89](https://github.com/bhcp-dev/bhcp/pull/89) | `ee7ee62649daa31b9216379b562e7f43442231da`",
+    ] {
+        assert!(
+            report.contains(provenance),
+            "missing delivery provenance: {provenance}"
+        );
+    }
+    for follow_up in ["issues/91", "issues/92", "issues/93"] {
+        assert!(
+            report.contains(follow_up),
+            "missing residual follow-up: {follow_up}"
+        );
+    }
     assert!(agents.contains("not yet a complete parser, checker, planner"));
     assert!(profile.contains("all milestone acceptance outcomes are demonstrable"));
 }

@@ -74,7 +74,7 @@ The primary evaluated skill is saved exactly under
 
 The follow-up used `main` commit
 `4a9a7788e9b7066fdf308b5d8e5ea6ef35842cee` and is saved under
-[`latest-skill/`](latest-skill/):
+[`follow-up-skill/`](follow-up-skill/):
 
 - `SKILL.md` Git blob: `7c6b39df7e7682afa59e2d75d1f4cb13276ea2c7`;
 - `agents/openai.yaml` Git blob:
@@ -82,6 +82,10 @@ The follow-up used `main` commit
 
 The oracle was unchanged for the follow-up and remained absent until that agent
 also stopped.
+
+The separate [`latest-skill/`](latest-skill/) directory is the post-forward-001
+workflow artifact added later by PR #89. It was not an input to Pilot 006 and must
+not be substituted for the immutable follow-up skill above.
 
 ## Prompts
 

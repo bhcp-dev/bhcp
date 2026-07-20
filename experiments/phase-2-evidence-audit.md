@@ -9,8 +9,10 @@ complete parser, checker, planner, runtime, proof system, execution graph, SDK, 
 The machine ledger in [`phase-2-evidence-audit.txt`](phase-2-evidence-audit.txt)
 pins every recorded experiment to its exact source, task/prompt, contract and
 semantic ID, evaluated skill (or explicit absence), Codex/model/reasoning request,
-withheld oracle, result report, executable evidence, delivery PR, and squash merge.
-Git blob checks make later artifact drift fail the Rust suite.
+withheld oracle, result report, executable test declaration, delivery PR, and
+squash merge. Git blob checks cover both inputs and evidence, while an explicit
+experiment-to-delivery map makes later artifact or provenance drift fail the Rust
+suite.
 
 ## Classification
 
@@ -80,12 +82,18 @@ implemented and independently accepts the exact focused candidate, so the negati
 model turn is an empirical result rather than a missing adapter capability. The
 small single-fixture samples support no hypothesis test, confidence interval,
 population rate, model-wide effect, or causal skill effect. The record supports
-no BHCP-versus-prose advantage. Those are future research questions outside this finite implementation
-milestone, not prose substitutes for a missing required runtime behavior.
+no BHCP-versus-prose advantage. Those are future research questions outside this
+finite implementation milestone, not prose substitutes for a missing required
+runtime behavior.
 
-There is therefore no hidden Phase 2 runtime defect or promised statistical claim
-to defer as an open blocker. Any future generalization study must begin with a new
-preregistered outcome milestone and keep these fixed records unchanged.
+The residual empirical gaps are now explicit roadmap work. [#92](https://github.com/bhcp-dev/bhcp/issues/92)
+tracks positive in-session adapter use across a representative task sample, and
+[#93](https://github.com/bhcp-dev/bhcp/issues/93) tracks symmetric BHCP-versus-prose
+and claim-calibration effects. Both are natively blocked by the frozen protocol,
+analysis, and resource-authorization decision in [#91](https://github.com/bhcp-dev/bhcp/issues/91),
+under the separate **Future research — Evidence generalization** milestone. This
+keeps the completed Phase 2 implementation boundary finite and its negative records
+unchanged without presenting unmeasured claims as complete.
 
 ## Delivery and consistency
 
