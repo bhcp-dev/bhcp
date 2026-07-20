@@ -1,0 +1,8 @@
+§type example/Identifier@0<T: Dynamic> = { value: T, note?: Text, ... };
+§type example/Choice@0 = variant { None, Some(Text) };
+§type example/ResourceView@0 = owned write affine 'scope example/Repository@0;
+§type example/Combined@0 = example/A@0 | example/B@0 & Never;
+§type example/Workflow@0 = Goal<Text, Result<Text, example/Error@0>>;
+§function example/identity@0<T: Dynamic>(value: T): T = value;
+§predicate example/nonEmpty@0(value: Text): Bool = value != "" with example/static@0;
+§refines example/Identifier@0 example/Entity@0;
