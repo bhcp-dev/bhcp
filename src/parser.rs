@@ -1948,7 +1948,7 @@ impl Parser<'_> {
         }
         self.consume();
         loop {
-            let parameter = self.identifier("type parameter")?;
+            let parameter = self.binder("type parameter")?;
             if names.contains(&parameter.text) {
                 return Err(at(
                     "BHCP1003",
@@ -1979,7 +1979,7 @@ impl Parser<'_> {
         let mut parameters = Vec::new();
         if !self.matches(")") {
             loop {
-                let name = self.identifier("parameter name")?;
+                let name = self.binder("parameter name")?;
                 if parameters
                     .iter()
                     .any(|existing: &SurfaceParameter| existing.name == name.text)
@@ -2016,7 +2016,7 @@ impl Parser<'_> {
             self.consume();
             if !self.matches(")") {
                 loop {
-                    let name = self.identifier("verifier argument name")?;
+                    let name = self.binder("verifier argument name")?;
                     if arguments
                         .iter()
                         .any(|argument: &SurfaceVerifierArgument| argument.name == name.text)
@@ -3142,7 +3142,7 @@ impl Parser<'_> {
         }
         if self.matches("where") {
             self.consume();
-            let binder = self.identifier("refinement binder")?;
+            let binder = self.binder("refinement binder")?;
             self.expect("=>")?;
             value = SurfaceType::Refined {
                 value_type: Box::new(value),
@@ -3488,7 +3488,7 @@ impl Parser<'_> {
         }
         if self.matches("|") {
             self.consume();
-            tail = Some(self.identifier("effect-row tail")?.text);
+            tail = Some(self.binder("effect-row tail")?.text);
         }
         self.expect("}")?;
         Ok(SurfaceEffectRow { effects, tail })
@@ -3614,6 +3614,21 @@ impl Parser<'_> {
             )
         }
     }
+    fn binder(&mut self, description: &str) -> Result<Token> {
+        let token = self.identifier(description)?;
+        if reserved_binder(&token.text) {
+            return Err(at(
+                "BHCP1001",
+                format!(
+                    "reserved spelling {:?} cannot be used as {description}",
+                    token.text
+                ),
+                self.source_name,
+                &token.start,
+            ));
+        }
+        Ok(token)
+    }
     fn fail<T>(&self, code: &'static str, message: impl Into<String>) -> Result<T> {
         Err(at(code, message, self.source_name, &self.current().start))
     }
@@ -3624,6 +3639,27 @@ fn identifier_start(character: char) -> bool {
 }
 fn identifier_continue(character: char) -> bool {
     identifier_start(character) || character.is_ascii_digit() || character == '-'
+}
+fn reserved_binder(value: &str) -> bool {
+    FIXED_BARE_WORDS.contains(&value)
+        || matches!(
+            value,
+            "completed"
+                | "derived"
+                | "duration"
+                | "exists"
+                | "expect"
+                | "faulted"
+                | "float"
+                | "forall"
+                | "in"
+                | "let"
+                | "map"
+                | "match"
+                | "native"
+                | "set"
+                | "time"
+        )
 }
 fn policy_layer_name(layer: PolicyLayer) -> &'static str {
     match layer {

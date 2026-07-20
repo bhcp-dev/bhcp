@@ -139,6 +139,12 @@ fn complete_definition_forms_build_a_closed_schema_valid_ast() {
         attribute(&ast.root.children[6], "verifier"),
         &Value::Text("example/static@0".to_owned())
     );
+    assert!(matches!(
+        attribute(&ast.root.children[5], "result"),
+        Value::Array(shape)
+            if shape.first() == Some(&Value::Text("parameter".to_owned()))
+                && shape.get(1) == Some(&Value::Text("T".to_owned()))
+    ));
     let Value::Array(union) = attribute(&ast.root.children[3], "definition") else {
         panic!("combined type is not structured as a union");
     };
@@ -218,6 +224,16 @@ fn definition_parser_rejects_duplicates_and_malformed_boundaries_stably() {
             "§type example/Duplicate@0<T, T> = T;",
             "BHCP1003",
             "duplicate type parameter",
+        ),
+        (
+            "§type example/Captured@0<Text> = Text;",
+            "BHCP1001",
+            "reserved spelling \"Text\" cannot be used as type parameter",
+        ),
+        (
+            "§function example/captured@0(true: Bool): Bool = true;",
+            "BHCP1001",
+            "reserved spelling \"true\" cannot be used as parameter name",
         ),
         (
             "§function example/duplicate@0(value: Text, value: Text): Text = value;",
