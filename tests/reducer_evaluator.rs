@@ -66,6 +66,7 @@ fn ir(
         goals.push(GoalDefinition {
             id: "goal-child".to_owned(),
             symbol: "example/child@0".to_owned(),
+            type_mode: bhcp::policy::TypeMode::InferStrict,
             input: input.clone(),
             output: child_output,
             evidence: BhcpType::Evidence(vec!["static".to_owned()]),
@@ -85,6 +86,7 @@ fn ir(
     goals.push(GoalDefinition {
         id: "goal-parent".to_owned(),
         symbol: "example/parent@0".to_owned(),
+        type_mode: bhcp::policy::TypeMode::InferStrict,
         input,
         output: output.clone(),
         evidence: BhcpType::Evidence(vec!["static".to_owned()]),
@@ -99,6 +101,8 @@ fn ir(
     });
     SemanticIrDocument {
         features: vec![],
+        type_mode: bhcp::policy::TypeMode::InferStrict,
+        types: vec![],
         functions: vec![reducer],
         goals,
         entrypoints: vec!["goal-parent".to_owned()],

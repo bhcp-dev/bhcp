@@ -145,6 +145,16 @@ represented only by WAV-01/WAV-02 acceptance requirements.
 
 ## Types, expressions, ownership, and effects
 
+`tests/type_checker.rs` makes TYP-01 through TYP-08 and NUM-01 executable at the
+v0 type boundary. It covers inference without implicit `Dynamic`, explicit runtime
+check descriptors, nominal distinction, open-record width subtyping, proof-gated
+refinement introduction, explicit `Option`/`Result` tags, exact numeric components,
+machine overflow, and unchanged float bits. It also exercises all wire type forms,
+generic arity/bounds, goal variance, canonical normalization, stable `BHCP4101`–
+`BHCP4106` failures, semantic-IR schema validation, and type-sensitive identity.
+The later expression, ownership, effect, and runtime issues consume this checked
+model; this evidence does not claim those downstream stages are complete.
+
 | ID | Scenario | Expected result |
 | --- | --- | --- |
 | TYP-01 | Inferred locals elaborate under `infer-strict`. | Types are materialized; no implicit `Dynamic` remains. |

@@ -3,6 +3,8 @@ use std::collections::HashSet;
 use crate::diagnostic::{Diagnostic, Result};
 use crate::hash::{HashAlgorithm, SHA3_512};
 use crate::kernel::KernelNetwork;
+use crate::policy::TypeMode;
+use crate::typecheck::CheckedTypeDefinition;
 use crate::value::Value;
 
 pub const BASE_FEATURE: &str = "bhcp/feature.canonical-simple-goal@0";
@@ -686,6 +688,7 @@ fn policy_indices(indices: &[usize]) -> Value {
 pub struct GoalDefinition {
     pub id: String,
     pub symbol: String,
+    pub type_mode: TypeMode,
     pub input: BhcpType,
     pub output: BhcpType,
     pub evidence: BhcpType,
@@ -701,7 +704,7 @@ impl GoalDefinition {
             ("symbol".to_owned(), Value::Text(self.symbol.clone())),
             (
                 "type_mode".to_owned(),
-                Value::Text("infer-strict".to_owned()),
+                Value::Text(self.type_mode.as_str().to_owned()),
             ),
             ("input".to_owned(), self.input.to_value()),
             ("output".to_owned(), self.output.to_value()),
@@ -757,6 +760,8 @@ impl FunctionDefinition {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct SemanticIrDocument {
     pub features: Vec<String>,
+    pub type_mode: TypeMode,
+    pub types: Vec<CheckedTypeDefinition>,
     pub functions: Vec<FunctionDefinition>,
     pub goals: Vec<GoalDefinition>,
     pub entrypoints: Vec<String>,
@@ -783,9 +788,17 @@ impl SemanticIrDocument {
             ("kind".to_owned(), Value::Text("semantic-ir".to_owned())),
             (
                 "type_mode".to_owned(),
-                Value::Text("infer-strict".to_owned()),
+                Value::Text(self.type_mode.as_str().to_owned()),
             ),
-            ("types".to_owned(), Value::Array(vec![])),
+            (
+                "types".to_owned(),
+                Value::Array(
+                    self.types
+                        .iter()
+                        .map(CheckedTypeDefinition::to_value)
+                        .collect(),
+                ),
+            ),
             (
                 "functions".to_owned(),
                 Value::Array(
@@ -836,6 +849,20 @@ impl SemanticIrDocument {
         let mut child_goals = Vec::new();
         let mut function_symbols = HashSet::new();
         let mut reducers = Vec::new();
+        let mut type_symbols = HashSet::new();
+        for definition in &self.types {
+            add_id(&definition.id, &mut ids)?;
+            if !type_symbols.insert(definition.symbol.clone()) {
+                return Err(Diagnostic::plain(
+                    "BHCP4001",
+                    "type definition symbols must be unique",
+                ));
+            }
+            definition.validate()?;
+            for parameter in &definition.parameters {
+                add_id(&parameter.id, &mut ids)?;
+            }
+        }
         for function in &self.functions {
             add_id(&function.id, &mut ids)?;
             if !is_symbol(&function.symbol) || !function_symbols.insert(function.symbol.clone()) {

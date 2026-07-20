@@ -253,6 +253,7 @@ fn semantic_ir_resolves_network_reducers_as_bhcp_functions() {
     let child = GoalDefinition {
         id: "goal-a".to_owned(),
         symbol: "example/child@0".to_owned(),
+        type_mode: bhcp::policy::TypeMode::InferStrict,
         input: parent_input,
         output: text.clone(),
         evidence: BhcpType::Evidence(vec!["static".to_owned()]),
@@ -263,6 +264,7 @@ fn semantic_ir_resolves_network_reducers_as_bhcp_functions() {
     let parent = GoalDefinition {
         id: "goal-parent".to_owned(),
         symbol: "example/parent@0".to_owned(),
+        type_mode: bhcp::policy::TypeMode::InferStrict,
         input: BhcpType::Record(vec![]),
         output: text.clone(),
         evidence: BhcpType::Evidence(vec!["static".to_owned()]),
@@ -282,6 +284,8 @@ fn semantic_ir_resolves_network_reducers_as_bhcp_functions() {
     };
     let mut ir = SemanticIrDocument {
         features: vec![],
+        type_mode: bhcp::policy::TypeMode::InferStrict,
+        types: vec![],
         functions: vec![reducer],
         goals: vec![child, parent],
         entrypoints: vec!["goal-parent".to_owned()],

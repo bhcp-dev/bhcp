@@ -119,7 +119,13 @@ identity.
 The current Rust slice reaches policy-aware elaboration: a validated effective
 policy can gate type mode, authority, prohibitions, and explicit dimensioned numeric
 limits before semantic IR exists. Accepted IR retains its governing policy and
-normalized decisions. The implemented waiver path validates and applies exact typed
+normalized decisions. The same boundary now has a closed v0 value/type checker:
+canonical forms and exact numeric representations normalize without host-float
+conversion; generic bounds, nominal/structural subtyping, refinements with explicit
+evidence, goal variance, and checked `Dynamic` crossings are enforced; and authored
+type definitions enter deterministic semantic IR. Expression/function/predicate,
+ownership, and effect analysis remain distinct roadmap stages. The implemented
+waiver path validates and applies exact typed
 targets and changes across all six categories, scope containment, direct/delegated
 issuer authority, injected half-open time validity, audit material, atomic rejection,
 and identity effects. Unrepresentable partial product-scope subtraction and the later
