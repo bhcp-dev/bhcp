@@ -1,0 +1,6 @@
+§type example/Tuple@0 = (Text, Integer,);
+§type example/Refined@0 = Integer where n => n > 0;
+§type example/Effectful@0 = Goal<Text, Result<Text, example/Error@0>, !{example/read@0 | E}, example/Evidence@0>;
+§type example/Namespaced@0 = example::Container@0<Option<Text>>;
+§type example/Collections@0 = { list: [Text], set: Set<Text>, map: Map<Text, Integer> };
+§predicate example/verified@0<T: example/Bound@0>(value: T): Bool with example/check@0(subject = borrow value);

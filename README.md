@@ -103,15 +103,20 @@ one child, inferred `Excluded | Included<T>` output, and typed child arguments b
 to parent input fields. A false condition accepts no child observation; a true one
 requests its child and propagates its semantic or operational result. Other
 composition children remain zero-argument goal calls. Nested compositions, project
-functions, and constructs outside the slice are rejected with a stable diagnostic
-rather than erased.
+functions, and constructs outside the executable slice are rejected during lowering
+with a stable diagnostic rather than erased. Parsing separately accepts complete S7
+`§type`, general `§function`, `§predicate`, and standalone `§refines` definitions,
+including generic bounds, structural and algebraic types, handles, refinement
+predicates, verifier arguments, and exact source spans. Their closed deterministic
+AST is the boundary for the later checker and elaboration roadmap issues.
 
 | Canonical definition | Implemented source slice | Explicitly deferred |
 | --- | --- | --- |
-| `§goal` / `§function` | Goals and the checked prelude-function boundary described above | General project functions and the remaining S7 goal grammar |
+| `§goal` / `§function` | Goals, complete general function parsing/AST construction, and the checked prelude-function executable boundary described above | General project-function checking/lowering and the remaining S7 goal grammar |
+| `§type` / `§predicate` / `§refines` | Complete definition, parameter, type, refinement, and verifier-binding parsing into schema-valid canonical AST | Name/type checking and semantic-IR elaboration |
 | `§policy` | Layer, `§extends`, six closed typed rules, scopes/parameters, waivability, issuers, composition, inspection, policy-aware elaboration, and no-waiver conformance fixtures | Expression-valued policy clauses, waiver/profile shorthand, and enforcement beyond the compile-time/evidence boundary |
 | `§syntax` / `§profile` | Fixed byte-level selection, typed deterministic artifacts, exact one-parent syntax/profile resolution, monotonic attached overlays, resolved-profile inspection, span-aware custom-source compilation, and deterministic profile-aware formatting | Syntax/profile source definitions |
-| Other S7 definitions | None | `§type`, `§predicate`, `§waiver`, `§extension`, and `§refines` |
+| Other S7 definitions | None | `§use`, `§waiver`, and `§extension` source definitions |
 
 The Phase 4 decision boundary admits only one-token keyword, punctuation, and symbol
 alias mappings. Exact single-parent chains resolve root to leaf; effective surface

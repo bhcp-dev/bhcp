@@ -42,8 +42,28 @@ pub struct NormalizedToken {
 }
 
 const REGISTERED_KEYWORDS: &[&str] = &[
-    "all", "allows", "any", "chain", "compose", "ensures", "extends", "forbids", "function",
-    "gate", "goal", "input", "limit", "none", "output", "policy", "prefer", "requires", "verify",
+    "all",
+    "allows",
+    "any",
+    "chain",
+    "compose",
+    "ensures",
+    "extends",
+    "forbids",
+    "function",
+    "gate",
+    "goal",
+    "input",
+    "limit",
+    "none",
+    "output",
+    "policy",
+    "predicate",
+    "prefer",
+    "refines",
+    "requires",
+    "type",
+    "verify",
 ];
 const OPEN_DELIMITERS: &[&str] = &["(", "[", "{"];
 const CLOSE_DELIMITERS: &[&str] = &[")", "]", "}"];
@@ -63,6 +83,11 @@ const FIXED_LEXICAL_TOKENS: &[&str] = &[
     "!=",
     "&&",
     "||",
+    "=>",
+    "::",
+    "&",
+    "|",
+    "'",
     ":",
     ",",
     ".",
@@ -80,17 +105,26 @@ const FIXED_BARE_WORDS: &[&str] = &[
     "DerivedForm",
     "Duration",
     "Dynamic",
+    "Goal",
     "Integer",
+    "List",
+    "Map",
     "Meta",
     "NetworkShape",
+    "Never",
+    "Option",
     "Rational",
     "Reduction",
+    "Result",
+    "Set",
     "Text",
     "Timestamp",
     "Unit",
     "add",
+    "affine",
     "as",
     "borrow",
+    "borrowed",
     "by",
     "capability",
     "classes",
@@ -112,6 +146,7 @@ const FIXED_BARE_WORDS: &[&str] = &[
     "infer-strict",
     "integer",
     "layer",
+    "linear",
     "maximum",
     "minimum",
     "model-judged",
@@ -121,15 +156,18 @@ const FIXED_BARE_WORDS: &[&str] = &[
     "obligation",
     "operations",
     "organization",
+    "owned",
     "parameters",
     "prohibition",
     "rational",
+    "read",
     "repository",
     "requirement",
     "resources",
     "rule",
     "scope",
     "share",
+    "shared",
     "static",
     "statistical",
     "strengthen",
@@ -139,12 +177,16 @@ const FIXED_BARE_WORDS: &[&str] = &[
     "tighten",
     "true",
     "unit",
+    "unrestricted",
     "unresolved",
     "user",
     "using",
+    "variant",
     "waivable",
     "when",
     "with",
+    "where",
+    "write",
 ];
 
 #[derive(Clone, Debug)]
@@ -749,7 +791,7 @@ fn token_match_at(source: &str, cursor: usize, candidate: &str) -> Option<usize>
     .then_some(end)
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug)]
 pub enum SurfaceType {
     Primitive(&'static str),
     Exact(&'static str),
@@ -762,9 +804,70 @@ pub enum SurfaceType {
         input: Box<SurfaceType>,
         output: Box<SurfaceType>,
     },
+    Nominal {
+        symbol: String,
+        arguments: Vec<SurfaceType>,
+    },
+    Never,
+    StructuralRecord {
+        fields: Vec<SurfaceDefinitionField>,
+        open: bool,
+    },
+    Tuple(Vec<SurfaceType>),
+    List(Box<SurfaceType>),
+    Set(Box<SurfaceType>),
+    Map {
+        key: Box<SurfaceType>,
+        value: Box<SurfaceType>,
+    },
+    Option(Box<SurfaceType>),
+    Result {
+        ok: Box<SurfaceType>,
+        error: Box<SurfaceType>,
+    },
+    Variant(Vec<SurfaceVariantCase>),
+    Goal {
+        input: Box<SurfaceType>,
+        output: Box<SurfaceType>,
+        effects: Option<SurfaceEffectRow>,
+        evidence: Option<Box<SurfaceType>>,
+    },
+    Union(Vec<SurfaceType>),
+    Intersection(Vec<SurfaceType>),
+    Handle {
+        ownership: String,
+        access: Option<String>,
+        usage: Option<String>,
+        lifetime: Option<String>,
+        value_type: Box<SurfaceType>,
+    },
+    Refined {
+        value_type: Box<SurfaceType>,
+        binder: String,
+        predicate: Box<SurfaceExpression>,
+    },
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug)]
+pub struct SurfaceDefinitionField {
+    pub name: String,
+    pub optional: bool,
+    pub value_type: SurfaceType,
+}
+
+#[derive(Clone, Debug)]
+pub struct SurfaceVariantCase {
+    pub name: String,
+    pub payload: Vec<SurfaceType>,
+}
+
+#[derive(Clone, Debug)]
+pub struct SurfaceEffectRow {
+    pub effects: Vec<String>,
+    pub tail: Option<String>,
+}
+
+#[derive(Clone, Debug)]
 pub struct SurfaceFieldType {
     pub name: String,
     pub value_type: SurfaceType,
@@ -958,9 +1061,53 @@ pub struct SurfaceGoalArgument {
 pub struct SurfaceFunction {
     pub symbol: String,
     pub type_parameters: Vec<String>,
+    pub type_parameter_bounds: Vec<Option<SurfaceType>>,
     pub parameters: Vec<SurfaceParameter>,
     pub result: SurfaceType,
     pub definition: SurfaceExpression,
+    pub at: Point,
+    pub ast: AstNode,
+}
+
+#[derive(Clone, Debug)]
+pub struct SurfaceTypeDefinition {
+    pub symbol: String,
+    pub type_parameters: Vec<String>,
+    pub type_parameter_bounds: Vec<Option<SurfaceType>>,
+    pub definition: SurfaceType,
+    pub at: Point,
+    pub ast: AstNode,
+}
+
+#[derive(Clone, Debug)]
+pub struct SurfaceVerifierBinding {
+    pub symbol: String,
+    pub arguments: Vec<SurfaceVerifierArgument>,
+}
+
+#[derive(Clone, Debug)]
+pub struct SurfaceVerifierArgument {
+    pub name: String,
+    pub mode: SurfaceArgumentMode,
+    pub value: SurfaceExpression,
+}
+
+#[derive(Clone, Debug)]
+pub struct SurfacePredicate {
+    pub symbol: String,
+    pub type_parameters: Vec<String>,
+    pub type_parameter_bounds: Vec<Option<SurfaceType>>,
+    pub parameters: Vec<SurfaceParameter>,
+    pub definition: Option<SurfaceExpression>,
+    pub verifier: Option<SurfaceVerifierBinding>,
+    pub at: Point,
+    pub ast: AstNode,
+}
+
+#[derive(Clone, Debug)]
+pub struct SurfaceRefinement {
+    pub subtype: SurfaceType,
+    pub supertype: SurfaceType,
     pub at: Point,
     pub ast: AstNode,
 }
@@ -981,7 +1128,10 @@ pub struct SurfacePolicy {
 
 #[derive(Clone, Debug)]
 pub struct ParsedProgram {
+    pub types: Vec<SurfaceTypeDefinition>,
     pub functions: Vec<SurfaceFunction>,
+    pub predicates: Vec<SurfacePredicate>,
+    pub refinements: Vec<SurfaceRefinement>,
     pub goals: Vec<SurfaceGoal>,
     pub policies: Vec<SurfacePolicy>,
     pub ast: AstNode,
@@ -1463,7 +1613,10 @@ fn lex_with_origins(
             continue;
         }
         let pair = format!("{current}{next}");
-        if matches!(pair.as_str(), "<=" | ">=" | "==" | "!=" | "&&" | "||") {
+        if matches!(
+            pair.as_str(),
+            "<=" | ">=" | "==" | "!=" | "&&" | "||" | "=>" | "::"
+        ) {
             advance(&mut index, &mut byte, &mut line, &mut column);
             advance(&mut index, &mut byte, &mut line, &mut column);
             tokens.push(Token {
@@ -1475,8 +1628,8 @@ fn lex_with_origins(
             });
             continue;
         }
-        if "+-*/%!=<>".contains(current) || "{}[]();:,.@".contains(current) {
-            let kind = if "+-*/%!=<>".contains(current) {
+        if "+-*/%!=<>&|".contains(current) || "{}[]();:,.@?'".contains(current) {
+            let kind = if "+-*/%!=<>&|".contains(current) {
                 TokenKind::Operator
             } else {
                 TokenKind::Punctuation
@@ -1519,21 +1672,74 @@ struct Parser<'a> {
 
 impl Parser<'_> {
     fn program(mut self) -> Result<ParsedProgram> {
+        let mut types = Vec::new();
         let mut functions = Vec::new();
+        let mut predicates = Vec::new();
+        let mut refinements = Vec::new();
         let mut goals = Vec::new();
         let mut policies = Vec::new();
         let mut definitions = Vec::new();
+        let mut symbols = BTreeMap::new();
+        let mut refinement_edges = BTreeMap::new();
         while self.current().kind != TokenKind::Eof {
-            match self.current().text.as_str() {
+            let (symbol, at, ast) = match self.current().text.as_str() {
+                "§type" => {
+                    let definition = self.type_definition()?;
+                    let result = (
+                        Some(definition.symbol.clone()),
+                        definition.at.clone(),
+                        definition.ast.clone(),
+                    );
+                    types.push(definition);
+                    result
+                }
                 "§function" => {
                     let function = self.function()?;
-                    definitions.push(function.ast.clone());
+                    let result = (
+                        Some(function.symbol.clone()),
+                        function.at.clone(),
+                        function.ast.clone(),
+                    );
                     functions.push(function);
+                    result
+                }
+                "§predicate" => {
+                    let predicate = self.predicate()?;
+                    let result = (
+                        Some(predicate.symbol.clone()),
+                        predicate.at.clone(),
+                        predicate.ast.clone(),
+                    );
+                    predicates.push(predicate);
+                    result
+                }
+                "§refines" => {
+                    let refinement = self.refinement()?;
+                    let edge = format!(
+                        "{} -> {}",
+                        type_name(&refinement.subtype),
+                        type_name(&refinement.supertype)
+                    );
+                    if refinement_edges
+                        .insert(edge.clone(), refinement.at.clone())
+                        .is_some()
+                    {
+                        return Err(at(
+                            "BHCP1003",
+                            format!("duplicate refines edge {edge}"),
+                            self.source_name,
+                            &refinement.at,
+                        ));
+                    }
+                    let result = (None, refinement.at.clone(), refinement.ast.clone());
+                    refinements.push(refinement);
+                    result
                 }
                 "§goal" => {
                     let goal = self.goal()?;
-                    definitions.push(goal.ast.clone());
+                    let result = (Some(goal.symbol.clone()), goal.at.clone(), goal.ast.clone());
                     goals.push(goal);
+                    result
                 }
                 "§policy" => {
                     let policy = self.policy()?;
@@ -1547,8 +1753,13 @@ impl Parser<'_> {
                             &policy.at,
                         ));
                     }
-                    definitions.push(policy.ast.clone());
+                    let result = (
+                        Some(policy.document.symbol.clone()),
+                        policy.at.clone(),
+                        policy.ast.clone(),
+                    );
                     policies.push(policy);
+                    result
                 }
                 _ => {
                     let code = if self.current().kind == TokenKind::Keyword {
@@ -1564,7 +1775,18 @@ impl Parser<'_> {
                         ),
                     );
                 }
+            };
+            if let Some(symbol) = symbol
+                && symbols.insert(symbol.clone(), at.clone()).is_some()
+            {
+                return Err(at_fn(
+                    "BHCP1003",
+                    format!("duplicate definition symbol {symbol}"),
+                    self.source_name,
+                    &at,
+                ));
             }
+            definitions.push(ast);
         }
         if definitions.is_empty() {
             return self.fail(
@@ -1576,44 +1798,201 @@ impl Parser<'_> {
         let end = definitions.last().unwrap().span.end.clone();
         let ast = self.ast("program", None, start, end, vec![], definitions);
         Ok(ParsedProgram {
+            types,
             functions,
+            predicates,
+            refinements,
             goals,
             policies,
             ast,
         })
     }
 
-    fn function(&mut self) -> Result<SurfaceFunction> {
-        let keyword = self.expect("§function")?;
+    fn type_definition(&mut self) -> Result<SurfaceTypeDefinition> {
+        let keyword = self.expect("§type")?;
         let (symbol, _) = self.qualified_name()?;
-        let mut type_parameters = Vec::new();
-        if self.matches("<") {
-            self.consume();
-            loop {
-                let parameter = self.identifier("type parameter")?;
-                if type_parameters.contains(&parameter.text) {
-                    return Err(at(
-                        "BHCP1003",
-                        "duplicate type parameter",
-                        self.source_name,
-                        &parameter.start,
-                    ));
-                }
-                type_parameters.push(parameter.text);
-                if !self.matches(",") {
-                    break;
-                }
-                self.consume();
-            }
-            self.expect(">")?;
+        let (type_parameters, type_parameter_bounds) = self.type_parameters()?;
+        self.expect("=")?;
+        let definition = self.value_type(&type_parameters)?;
+        let end = self.expect(";")?.end;
+        let ast = self.ast(
+            "type",
+            Some("§type"),
+            keyword.start.clone(),
+            end,
+            vec![
+                ("symbol".to_owned(), Value::Text(symbol.clone())),
+                (
+                    "type_parameters".to_owned(),
+                    type_parameters_value(&type_parameters, &type_parameter_bounds),
+                ),
+                ("definition".to_owned(), surface_type_value(&definition)),
+            ],
+            vec![],
+        );
+        Ok(SurfaceTypeDefinition {
+            symbol,
+            type_parameters,
+            type_parameter_bounds,
+            definition,
+            at: keyword.start,
+            ast,
+        })
+    }
+
+    fn predicate(&mut self) -> Result<SurfacePredicate> {
+        let keyword = self.expect("§predicate")?;
+        let (symbol, _) = self.qualified_name()?;
+        let (type_parameters, type_parameter_bounds) = self.type_parameters()?;
+        let parameters = self.parameters(&type_parameters)?;
+        self.expect(":")?;
+        let result = self.identifier("predicate result type")?;
+        if result.text != "Bool" {
+            return Err(at(
+                "BHCP1001",
+                "predicate result must be Bool",
+                self.source_name,
+                &result.start,
+            ));
         }
+        let definition = if self.matches("=") {
+            self.consume();
+            Some(self.expression(0)?)
+        } else {
+            None
+        };
+        let verifier = if self.matches("with") {
+            Some(self.verifier_binding()?)
+        } else {
+            None
+        };
+        let end = self.expect(";")?.end;
+        let mut attributes = definition_attributes(
+            &symbol,
+            &type_parameters,
+            &type_parameter_bounds,
+            &parameters,
+            Some(&SurfaceType::Primitive("Bool")),
+            definition.as_ref(),
+        );
+        if let Some(binding) = &verifier {
+            attributes.push(("verifier".to_owned(), Value::Text(binding.symbol.clone())));
+            attributes.push((
+                "verifier_arguments".to_owned(),
+                Value::Array(
+                    binding
+                        .arguments
+                        .iter()
+                        .map(verifier_argument_value)
+                        .collect(),
+                ),
+            ));
+        }
+        let ast = self.ast(
+            "predicate",
+            Some("§predicate"),
+            keyword.start.clone(),
+            end,
+            attributes,
+            vec![],
+        );
+        Ok(SurfacePredicate {
+            symbol,
+            type_parameters,
+            type_parameter_bounds,
+            parameters,
+            definition,
+            verifier,
+            at: keyword.start,
+            ast,
+        })
+    }
+
+    fn refinement(&mut self) -> Result<SurfaceRefinement> {
+        let keyword = self.expect("§refines")?;
+        let (subtype_symbol, _) = self.qualified_name()?;
+        let (supertype_symbol, _) = self.qualified_name()?;
+        let end = self.expect(";")?.end;
+        let subtype = SurfaceType::Nominal {
+            symbol: subtype_symbol,
+            arguments: vec![],
+        };
+        let supertype = SurfaceType::Nominal {
+            symbol: supertype_symbol,
+            arguments: vec![],
+        };
+        let ast = self.ast(
+            "refines",
+            Some("§refines"),
+            keyword.start.clone(),
+            end,
+            vec![
+                ("subtype".to_owned(), surface_type_value(&subtype)),
+                ("supertype".to_owned(), surface_type_value(&supertype)),
+            ],
+            vec![],
+        );
+        Ok(SurfaceRefinement {
+            subtype,
+            supertype,
+            at: keyword.start,
+            ast,
+        })
+    }
+
+    fn type_parameters(&mut self) -> Result<(Vec<String>, Vec<Option<SurfaceType>>)> {
+        let mut names = Vec::new();
+        let mut bounds = Vec::new();
+        if !self.matches("<") {
+            return Ok((names, bounds));
+        }
+        self.consume();
+        loop {
+            let parameter = self.identifier("type parameter")?;
+            if names.contains(&parameter.text) {
+                return Err(at(
+                    "BHCP1003",
+                    "duplicate type parameter",
+                    self.source_name,
+                    &parameter.start,
+                ));
+            }
+            names.push(parameter.text);
+            let bound = if self.matches(":") {
+                self.consume();
+                Some(self.value_type(&names)?)
+            } else {
+                None
+            };
+            bounds.push(bound);
+            if !self.matches(",") {
+                break;
+            }
+            self.consume();
+        }
+        self.expect(">")?;
+        Ok((names, bounds))
+    }
+
+    fn parameters(&mut self, type_parameters: &[String]) -> Result<Vec<SurfaceParameter>> {
         self.expect("(")?;
         let mut parameters = Vec::new();
         if !self.matches(")") {
             loop {
                 let name = self.identifier("parameter name")?;
+                if parameters
+                    .iter()
+                    .any(|existing: &SurfaceParameter| existing.name == name.text)
+                {
+                    return Err(at(
+                        "BHCP1003",
+                        "duplicate parameter",
+                        self.source_name,
+                        &name.start,
+                    ));
+                }
                 self.expect(":")?;
-                let value_type = self.value_type(&type_parameters)?;
+                let value_type = self.value_type(type_parameters)?;
                 parameters.push(SurfaceParameter {
                     name: name.text,
                     value_type,
@@ -1626,6 +2005,63 @@ impl Parser<'_> {
             }
         }
         self.expect(")")?;
+        Ok(parameters)
+    }
+
+    fn verifier_binding(&mut self) -> Result<SurfaceVerifierBinding> {
+        self.expect("with")?;
+        let (symbol, _) = self.qualified_name()?;
+        let mut arguments = Vec::new();
+        if self.matches("(") {
+            self.consume();
+            if !self.matches(")") {
+                loop {
+                    let name = self.identifier("verifier argument name")?;
+                    if arguments
+                        .iter()
+                        .any(|argument: &SurfaceVerifierArgument| argument.name == name.text)
+                    {
+                        return Err(at(
+                            "BHCP1003",
+                            "duplicate verifier argument",
+                            self.source_name,
+                            &name.start,
+                        ));
+                    }
+                    self.expect("=")?;
+                    let mode = if self.matches("move") {
+                        self.consume();
+                        SurfaceArgumentMode::Move
+                    } else if self.matches("borrow") {
+                        self.consume();
+                        SurfaceArgumentMode::Borrow
+                    } else if self.matches("share") {
+                        self.consume();
+                        SurfaceArgumentMode::Share
+                    } else {
+                        SurfaceArgumentMode::Value
+                    };
+                    arguments.push(SurfaceVerifierArgument {
+                        name: name.text,
+                        mode,
+                        value: self.expression(0)?,
+                    });
+                    if !self.matches(",") {
+                        break;
+                    }
+                    self.consume();
+                }
+            }
+            self.expect(")")?;
+        }
+        Ok(SurfaceVerifierBinding { symbol, arguments })
+    }
+
+    fn function(&mut self) -> Result<SurfaceFunction> {
+        let keyword = self.expect("§function")?;
+        let (symbol, _) = self.qualified_name()?;
+        let (type_parameters, type_parameter_bounds) = self.type_parameters()?;
+        let parameters = self.parameters(&type_parameters)?;
         self.expect(":")?;
         let result = self.value_type(&type_parameters)?;
         self.expect("=")?;
@@ -1636,12 +2072,20 @@ impl Parser<'_> {
             Some("§function"),
             keyword.start.clone(),
             end,
-            vec![("symbol".to_owned(), Value::Text(symbol.clone()))],
+            definition_attributes(
+                &symbol,
+                &type_parameters,
+                &type_parameter_bounds,
+                &parameters,
+                Some(&result),
+                Some(&definition),
+            ),
             vec![],
         );
         Ok(SurfaceFunction {
             symbol,
             type_parameters,
+            type_parameter_bounds,
             parameters,
             result,
             definition,
@@ -2001,13 +2445,13 @@ impl Parser<'_> {
         while self
             .tokens
             .get(cursor)
-            .is_some_and(|token| token.text == "/" || token.text == ".")
+            .is_some_and(|token| token.text == "/" || token.text == "." || token.text == "::")
             && self
                 .tokens
                 .get(cursor + 1)
                 .is_some_and(|token| token.kind == TokenKind::Identifier)
         {
-            if self.tokens[cursor].text == "/" {
+            if self.tokens[cursor].text == "/" || self.tokens[cursor].text == "::" {
                 segments += 1;
             }
             cursor += 2;
@@ -2502,6 +2946,18 @@ impl Parser<'_> {
     }
 
     fn unary(&mut self) -> Result<SurfaceExpression> {
+        if matches!(
+            self.current().text.as_str(),
+            "let" | "match" | "forall" | "exists" | "set" | "map" | "{" | "["
+        ) {
+            return self.fail(
+                "BHCP1004",
+                format!(
+                    "expression syntax {:?} is outside the implemented vertical slice",
+                    self.current().text
+                ),
+            );
+        }
         if self.matches("!") || self.matches("-") {
             let operator = self.consume();
             return Ok(SurfaceExpression::Unary {
@@ -2530,8 +2986,9 @@ impl Parser<'_> {
                 let at = token.start.clone();
                 let mut name = token.text;
                 if self.semantic_name_suffix_follows() {
-                    while self.matches("/") || self.matches(".") {
-                        name.push_str(&self.consume().text);
+                    while self.matches("/") || self.matches(".") || self.matches("::") {
+                        let separator = self.consume().text;
+                        name.push_str(if separator == "::" { "/" } else { &separator });
                         name.push_str(&self.identifier("name segment")?.text);
                     }
                     name.push_str(&self.consume().text);
@@ -2599,7 +3056,7 @@ impl Parser<'_> {
         let mut has_path_separator = false;
         while matches!(
             self.tokens.get(cursor).map(|token| token.text.as_str()),
-            Some("/") | Some(".")
+            Some("/") | Some(".") | Some("::")
         ) && matches!(
             self.tokens.get(cursor + 1).map(|token| token.kind),
             Some(TokenKind::Identifier)
@@ -2615,23 +3072,259 @@ impl Parser<'_> {
     }
 
     fn value_type(&mut self, parameters: &[String]) -> Result<SurfaceType> {
+        self.union_type(parameters)
+    }
+
+    fn union_type(&mut self, parameters: &[String]) -> Result<SurfaceType> {
+        let first = self.intersection_type(parameters)?;
+        if !self.matches("|") {
+            return Ok(first);
+        }
+        let mut members = vec![first];
+        while self.matches("|") {
+            self.consume();
+            members.push(self.intersection_type(parameters)?);
+        }
+        Ok(SurfaceType::Union(members))
+    }
+
+    fn intersection_type(&mut self, parameters: &[String]) -> Result<SurfaceType> {
+        let first = self.prefix_type(parameters)?;
+        if !self.matches("&") {
+            return Ok(first);
+        }
+        let mut members = vec![first];
+        while self.matches("&") {
+            self.consume();
+            members.push(self.prefix_type(parameters)?);
+        }
+        Ok(SurfaceType::Intersection(members))
+    }
+
+    fn prefix_type(&mut self, parameters: &[String]) -> Result<SurfaceType> {
+        let handle = if matches!(
+            self.current().text.as_str(),
+            "owned" | "shared" | "borrowed"
+        ) {
+            let ownership = self.consume().text;
+            let access = if matches!(self.current().text.as_str(), "read" | "write") {
+                Some(self.consume().text)
+            } else {
+                None
+            };
+            let usage = if matches!(
+                self.current().text.as_str(),
+                "unrestricted" | "affine" | "linear"
+            ) {
+                Some(self.consume().text)
+            } else {
+                None
+            };
+            let lifetime = if self.matches("'") {
+                self.consume();
+                Some(self.identifier("lifetime")?.text)
+            } else {
+                None
+            };
+            Some((ownership, access, usage, lifetime))
+        } else {
+            None
+        };
+        let mut value = self.primary_type(parameters)?;
+        if let Some((ownership, access, usage, lifetime)) = handle {
+            value = SurfaceType::Handle {
+                ownership,
+                access,
+                usage,
+                lifetime,
+                value_type: Box::new(value),
+            };
+        }
+        if self.matches("where") {
+            self.consume();
+            let binder = self.identifier("refinement binder")?;
+            self.expect("=>")?;
+            value = SurfaceType::Refined {
+                value_type: Box::new(value),
+                binder: binder.text,
+                predicate: Box::new(self.expression(0)?),
+            };
+        }
+        Ok(value)
+    }
+
+    fn primary_type(&mut self, parameters: &[String]) -> Result<SurfaceType> {
+        if self.matches("[") {
+            self.consume();
+            let element = self.value_type(parameters)?;
+            self.expect("]")?;
+            return Ok(SurfaceType::List(Box::new(element)));
+        }
         if self.matches("{") {
             self.consume();
             let mut fields = Vec::new();
+            let mut open = false;
             while !self.matches("}") {
+                if self.matches(".")
+                    && self.peek().text == "."
+                    && self
+                        .tokens
+                        .get(self.cursor + 2)
+                        .is_some_and(|token| token.text == ".")
+                {
+                    self.consume();
+                    self.consume();
+                    self.consume();
+                    open = true;
+                    break;
+                }
                 let name = self.identifier("field name")?;
+                if fields
+                    .iter()
+                    .any(|field: &SurfaceDefinitionField| field.name == name.text)
+                {
+                    return Err(at(
+                        "BHCP1003",
+                        "duplicate record field",
+                        self.source_name,
+                        &name.start,
+                    ));
+                }
+                let optional = if self.matches("?") {
+                    self.consume();
+                    true
+                } else {
+                    false
+                };
                 self.expect(":")?;
-                fields.push(SurfaceFieldType {
+                fields.push(SurfaceDefinitionField {
                     name: name.text,
+                    optional,
                     value_type: self.value_type(parameters)?,
                 });
                 if !self.matches(",") {
                     break;
                 }
                 self.consume();
+                if self.matches("}") {
+                    return self.fail("BHCP1001", "trailing record comma requires ...");
+                }
             }
             self.expect("}")?;
-            return Ok(SurfaceType::Record(fields));
+            if !open && fields.iter().all(|field| !field.optional) {
+                return Ok(SurfaceType::Record(
+                    fields
+                        .into_iter()
+                        .map(|field| SurfaceFieldType {
+                            name: field.name,
+                            value_type: field.value_type,
+                        })
+                        .collect(),
+                ));
+            }
+            return Ok(SurfaceType::StructuralRecord { fields, open });
+        }
+        if self.matches("(") {
+            self.consume();
+            let first = self.value_type(parameters)?;
+            if !self.matches(",") {
+                self.expect(")")?;
+                return Ok(first);
+            }
+            self.consume();
+            let mut members = vec![first];
+            if !self.matches(")") {
+                loop {
+                    members.push(self.value_type(parameters)?);
+                    if !self.matches(",") {
+                        break;
+                    }
+                    self.consume();
+                    if self.matches(")") {
+                        break;
+                    }
+                }
+            }
+            self.expect(")")?;
+            return Ok(SurfaceType::Tuple(members));
+        }
+        if self.matches("variant") {
+            self.consume();
+            self.expect("{")?;
+            let mut cases = Vec::new();
+            while !self.matches("}") {
+                let name = self.identifier("variant tag")?;
+                if cases
+                    .iter()
+                    .any(|case: &SurfaceVariantCase| case.name == name.text)
+                {
+                    return Err(at(
+                        "BHCP1003",
+                        "duplicate variant tag",
+                        self.source_name,
+                        &name.start,
+                    ));
+                }
+                let mut payload = Vec::new();
+                if self.matches("(") {
+                    self.consume();
+                    if !self.matches(")") {
+                        loop {
+                            payload.push(self.value_type(parameters)?);
+                            if !self.matches(",") {
+                                break;
+                            }
+                            self.consume();
+                        }
+                    }
+                    self.expect(")")?;
+                }
+                cases.push(SurfaceVariantCase {
+                    name: name.text,
+                    payload,
+                });
+                if !self.matches(",") {
+                    break;
+                }
+                self.consume();
+                if self.matches("}") {
+                    return self.fail("BHCP1001", "variant cases cannot end with a comma");
+                }
+            }
+            if cases.is_empty() {
+                return self.fail("BHCP1001", "variant type requires at least one case");
+            }
+            self.expect("}")?;
+            return Ok(SurfaceType::Variant(cases));
+        }
+        if self.matches("Goal") {
+            self.consume();
+            self.expect("<")?;
+            let input = self.value_type(parameters)?;
+            self.expect(",")?;
+            let output = self.value_type(parameters)?;
+            let mut effects = None;
+            let mut evidence = None;
+            if self.matches(",") {
+                self.consume();
+                effects = Some(self.effect_row()?);
+                if self.matches(",") {
+                    self.consume();
+                    evidence = Some(Box::new(self.value_type(parameters)?));
+                }
+            }
+            self.expect(">")?;
+            return Ok(SurfaceType::Goal {
+                input: Box::new(input),
+                output: Box::new(output),
+                effects,
+                evidence,
+            });
+        }
+        if self.starts_qualified_name() {
+            let (symbol, _) = self.qualified_name()?;
+            let arguments = self.type_arguments(parameters)?;
+            return Ok(SurfaceType::Nominal { symbol, arguments });
         }
         let token = self.identifier("type")?;
         let value = match token.text.as_str() {
@@ -2645,6 +3338,7 @@ impl Parser<'_> {
             "Rational" => SurfaceType::Exact("Rational"),
             "Decimal" => SurfaceType::Exact("Decimal"),
             "Dynamic" => SurfaceType::Dynamic,
+            "Never" => SurfaceType::Never,
             "Reduction" => {
                 self.expect("<")?;
                 let output = self.value_type(parameters)?;
@@ -2677,16 +3371,70 @@ impl Parser<'_> {
                     output: Box::new(output),
                 }
             }
+            "List" | "Set" => {
+                let mut arguments = self.type_arguments(parameters)?;
+                if arguments.len() != 1 {
+                    return Err(at(
+                        "BHCP1001",
+                        format!("{} requires exactly one type argument", token.text),
+                        self.source_name,
+                        &token.start,
+                    ));
+                }
+                let element = Box::new(arguments.remove(0));
+                if token.text == "List" {
+                    SurfaceType::List(element)
+                } else {
+                    SurfaceType::Set(element)
+                }
+            }
+            "Map" => {
+                let mut arguments = self.type_arguments(parameters)?;
+                if arguments.len() != 2 {
+                    return Err(at(
+                        "BHCP1001",
+                        "Map requires exactly two type arguments",
+                        self.source_name,
+                        &token.start,
+                    ));
+                }
+                let value = Box::new(arguments.pop().expect("Map arity was checked"));
+                let key = Box::new(arguments.pop().expect("Map arity was checked"));
+                SurfaceType::Map { key, value }
+            }
+            "Option" => {
+                let mut arguments = self.type_arguments(parameters)?;
+                if arguments.len() != 1 {
+                    return Err(at(
+                        "BHCP1001",
+                        "Option requires exactly one type argument",
+                        self.source_name,
+                        &token.start,
+                    ));
+                }
+                SurfaceType::Option(Box::new(arguments.remove(0)))
+            }
+            "Result" => {
+                let mut arguments = self.type_arguments(parameters)?;
+                if arguments.len() != 2 {
+                    return Err(at(
+                        "BHCP1001",
+                        "Result requires exactly two type arguments",
+                        self.source_name,
+                        &token.start,
+                    ));
+                }
+                let error = Box::new(arguments.pop().expect("Result arity was checked"));
+                let ok = Box::new(arguments.pop().expect("Result arity was checked"));
+                SurfaceType::Result { ok, error }
+            }
             name if parameters.iter().any(|parameter| parameter == name) => {
                 SurfaceType::Parameter(name.to_owned())
             }
             _ => {
                 return Err(at(
-                    "BHCP1004",
-                    format!(
-                        "type syntax {:?} is outside the implemented vertical slice",
-                        token.text
-                    ),
+                    "BHCP1002",
+                    "semantic names must use namespace/name@version",
                     self.source_name,
                     &token.start,
                 ));
@@ -2695,14 +3443,65 @@ impl Parser<'_> {
         Ok(value)
     }
 
+    fn type_arguments(&mut self, parameters: &[String]) -> Result<Vec<SurfaceType>> {
+        if !self.matches("<") {
+            return Ok(vec![]);
+        }
+        self.consume();
+        let mut arguments = vec![self.value_type(parameters)?];
+        while self.matches(",") {
+            self.consume();
+            arguments.push(self.value_type(parameters)?);
+        }
+        self.expect(">")?;
+        Ok(arguments)
+    }
+
+    fn effect_row(&mut self) -> Result<SurfaceEffectRow> {
+        self.expect("!")?;
+        self.expect("{")?;
+        let mut effects = Vec::new();
+        let mut tail = None;
+        if !self.matches("}") && !self.matches("|") {
+            loop {
+                let (effect, at) = self.qualified_name()?;
+                if effects.contains(&effect) {
+                    return Err(at_fn(
+                        "BHCP1003",
+                        "duplicate effect-row member",
+                        self.source_name,
+                        &at,
+                    ));
+                }
+                effects.push(effect);
+                if !self.matches(",") {
+                    break;
+                }
+                self.consume();
+                if self.matches("|") {
+                    return self.fail(
+                        "BHCP1001",
+                        "effect-row tail follows the final member without a comma",
+                    );
+                }
+            }
+        }
+        if self.matches("|") {
+            self.consume();
+            tail = Some(self.identifier("effect-row tail")?.text);
+        }
+        self.expect("}")?;
+        Ok(SurfaceEffectRow { effects, tail })
+    }
+
     fn qualified_name(&mut self) -> Result<(String, Point)> {
         let first = self.identifier("qualified name")?;
         let at = first.start.clone();
         let mut segments = vec![first.text];
-        while self.matches("/") || self.matches(".") {
+        while self.matches("/") || self.matches(".") || self.matches("::") {
             let separator = self.consume().text;
             let component = self.identifier("name segment")?.text;
-            if separator == "/" {
+            if separator == "/" || separator == "::" {
                 segments.push(component);
             } else {
                 let last = segments.last_mut().expect("qualified name has a component");
@@ -2837,12 +3636,323 @@ fn policy_layer_name(layer: PolicyLayer) -> &'static str {
 fn type_name(value: &SurfaceType) -> String {
     match value {
         SurfaceType::Primitive(name) | SurfaceType::Exact(name) => (*name).to_owned(),
-        SurfaceType::Record(_) => "record".to_owned(),
+        SurfaceType::Record(_) | SurfaceType::StructuralRecord { .. } => "record".to_owned(),
         SurfaceType::Parameter(name) => name.clone(),
         SurfaceType::Dynamic => "Dynamic".to_owned(),
+        SurfaceType::Never => "Never".to_owned(),
         SurfaceType::Reduction(_) => "Reduction".to_owned(),
         SurfaceType::Meta { kind, .. } => format!("Meta<{kind}>"),
+        SurfaceType::Nominal { symbol, .. } => symbol.clone(),
+        SurfaceType::Tuple(_) => "tuple".to_owned(),
+        SurfaceType::List(_) => "list".to_owned(),
+        SurfaceType::Set(_) => "set".to_owned(),
+        SurfaceType::Map { .. } => "map".to_owned(),
+        SurfaceType::Option(_) => "Option".to_owned(),
+        SurfaceType::Result { .. } => "Result".to_owned(),
+        SurfaceType::Variant(_) => "variant".to_owned(),
+        SurfaceType::Goal { .. } => "Goal".to_owned(),
+        SurfaceType::Union(_) => "union".to_owned(),
+        SurfaceType::Intersection(_) => "intersection".to_owned(),
+        SurfaceType::Handle { ownership, .. } => format!("{ownership} handle"),
+        SurfaceType::Refined { value_type, .. } => type_name(value_type),
     }
+}
+
+fn surface_type_value(value: &SurfaceType) -> Value {
+    match value {
+        SurfaceType::Primitive(name) => Value::Array(vec![
+            Value::Text("primitive".to_owned()),
+            Value::Text((*name).to_owned()),
+        ]),
+        SurfaceType::Exact(name) => Value::Array(vec![
+            Value::Text("exact-number".to_owned()),
+            Value::Text((*name).to_owned()),
+        ]),
+        SurfaceType::Record(fields) => Value::Array(vec![
+            Value::Text("record".to_owned()),
+            Value::Array(
+                fields
+                    .iter()
+                    .map(|field| {
+                        Value::map([
+                            ("name", Value::Text(field.name.clone())),
+                            ("optional", Value::Bool(false)),
+                            ("type", surface_type_value(&field.value_type)),
+                        ])
+                    })
+                    .collect(),
+            ),
+            Value::Bool(false),
+        ]),
+        SurfaceType::StructuralRecord { fields, open } => Value::Array(vec![
+            Value::Text("record".to_owned()),
+            Value::Array(
+                fields
+                    .iter()
+                    .map(|field| {
+                        Value::map([
+                            ("name", Value::Text(field.name.clone())),
+                            ("optional", Value::Bool(field.optional)),
+                            ("type", surface_type_value(&field.value_type)),
+                        ])
+                    })
+                    .collect(),
+            ),
+            Value::Bool(*open),
+        ]),
+        SurfaceType::Parameter(name) => Value::Array(vec![
+            Value::Text("parameter".to_owned()),
+            Value::Text(name.clone()),
+        ]),
+        SurfaceType::Dynamic => Value::Array(vec![Value::Text("dynamic".to_owned())]),
+        SurfaceType::Never => Value::Array(vec![Value::Text("never".to_owned())]),
+        SurfaceType::Reduction(output) => Value::Array(vec![
+            Value::Text("reduction".to_owned()),
+            surface_type_value(output),
+        ]),
+        SurfaceType::Meta {
+            kind,
+            input,
+            output,
+        } => Value::Array(vec![
+            Value::Text("meta".to_owned()),
+            Value::Text((*kind).to_owned()),
+            surface_type_value(input),
+            surface_type_value(output),
+        ]),
+        SurfaceType::Nominal { symbol, arguments } => Value::Array(vec![
+            Value::Text("nominal".to_owned()),
+            Value::Text(symbol.clone()),
+            Value::Array(arguments.iter().map(surface_type_value).collect()),
+        ]),
+        SurfaceType::Tuple(members) => Value::Array(vec![
+            Value::Text("tuple".to_owned()),
+            Value::Array(members.iter().map(surface_type_value).collect()),
+        ]),
+        SurfaceType::List(element) => Value::Array(vec![
+            Value::Text("list".to_owned()),
+            surface_type_value(element),
+        ]),
+        SurfaceType::Set(element) => Value::Array(vec![
+            Value::Text("set".to_owned()),
+            surface_type_value(element),
+        ]),
+        SurfaceType::Map { key, value } => Value::Array(vec![
+            Value::Text("map".to_owned()),
+            surface_type_value(key),
+            surface_type_value(value),
+        ]),
+        SurfaceType::Option(element) => Value::Array(vec![
+            Value::Text("option".to_owned()),
+            surface_type_value(element),
+        ]),
+        SurfaceType::Result { ok, error } => Value::Array(vec![
+            Value::Text("result".to_owned()),
+            surface_type_value(ok),
+            surface_type_value(error),
+        ]),
+        SurfaceType::Variant(cases) => Value::Array(vec![
+            Value::Text("variant".to_owned()),
+            Value::Array(
+                cases
+                    .iter()
+                    .map(|case| {
+                        Value::map([
+                            ("name", Value::Text(case.name.clone())),
+                            (
+                                "payload",
+                                Value::Array(case.payload.iter().map(surface_type_value).collect()),
+                            ),
+                        ])
+                    })
+                    .collect(),
+            ),
+        ]),
+        SurfaceType::Goal {
+            input,
+            output,
+            effects,
+            evidence,
+        } => Value::Array(vec![
+            Value::Text("goal".to_owned()),
+            surface_type_value(input),
+            surface_type_value(output),
+            effects.as_ref().map_or(Value::Null, effect_row_value),
+            evidence
+                .as_ref()
+                .map_or(Value::Null, |value| surface_type_value(value)),
+        ]),
+        SurfaceType::Union(members) => Value::Array(vec![
+            Value::Text("union".to_owned()),
+            Value::Array(members.iter().map(surface_type_value).collect()),
+        ]),
+        SurfaceType::Intersection(members) => Value::Array(vec![
+            Value::Text("intersection".to_owned()),
+            Value::Array(members.iter().map(surface_type_value).collect()),
+        ]),
+        SurfaceType::Handle {
+            ownership,
+            access,
+            usage,
+            lifetime,
+            value_type,
+        } => Value::Array(vec![
+            Value::Text("handle".to_owned()),
+            Value::Text(ownership.clone()),
+            access.clone().map_or(Value::Null, Value::Text),
+            usage.clone().map_or(Value::Null, Value::Text),
+            lifetime.clone().map_or(Value::Null, Value::Text),
+            surface_type_value(value_type),
+        ]),
+        SurfaceType::Refined {
+            value_type,
+            binder,
+            predicate,
+        } => Value::Array(vec![
+            Value::Text("refinement".to_owned()),
+            surface_type_value(value_type),
+            Value::Text(binder.clone()),
+            surface_expression_value(predicate),
+        ]),
+    }
+}
+
+fn effect_row_value(row: &SurfaceEffectRow) -> Value {
+    Value::map([
+        (
+            "effects",
+            Value::Array(row.effects.iter().cloned().map(Value::Text).collect()),
+        ),
+        ("tail", row.tail.clone().map_or(Value::Null, Value::Text)),
+    ])
+}
+
+fn surface_expression_value(expression: &SurfaceExpression) -> Value {
+    match expression {
+        SurfaceExpression::Literal { value, .. } => Value::Array(vec![
+            Value::Text("literal".to_owned()),
+            match value {
+                SurfaceLiteral::Bool(value) => Value::Bool(*value),
+                SurfaceLiteral::Integer(value) => Value::Integer(*value),
+                SurfaceLiteral::Text(value) => Value::Text(value.clone()),
+            },
+        ]),
+        SurfaceExpression::Reference { name, .. } => Value::Array(vec![
+            Value::Text("reference".to_owned()),
+            Value::Text(name.clone()),
+        ]),
+        SurfaceExpression::Unary {
+            operator, operand, ..
+        } => Value::Array(vec![
+            Value::Text("unary".to_owned()),
+            Value::Text(operator.clone()),
+            surface_expression_value(operand),
+        ]),
+        SurfaceExpression::Binary {
+            operator,
+            left,
+            right,
+            ..
+        } => Value::Array(vec![
+            Value::Text("binary".to_owned()),
+            Value::Text(operator.clone()),
+            surface_expression_value(left),
+            surface_expression_value(right),
+        ]),
+        SurfaceExpression::Call {
+            function,
+            arguments,
+            ..
+        } => Value::Array(vec![
+            Value::Text("call".to_owned()),
+            Value::Text(function.clone()),
+            Value::Array(arguments.iter().map(surface_expression_value).collect()),
+        ]),
+        SurfaceExpression::If {
+            condition,
+            consequent,
+            alternative,
+            ..
+        } => Value::Array(vec![
+            Value::Text("if".to_owned()),
+            surface_expression_value(condition),
+            surface_expression_value(consequent),
+            surface_expression_value(alternative),
+        ]),
+    }
+}
+
+fn type_parameters_value(names: &[String], bounds: &[Option<SurfaceType>]) -> Value {
+    Value::Array(
+        names
+            .iter()
+            .zip(bounds)
+            .map(|(name, bound)| {
+                Value::map([
+                    ("name", Value::Text(name.clone())),
+                    (
+                        "bound",
+                        bound.as_ref().map_or(Value::Null, surface_type_value),
+                    ),
+                ])
+            })
+            .collect(),
+    )
+}
+
+fn definition_attributes(
+    symbol: &str,
+    type_parameters: &[String],
+    type_parameter_bounds: &[Option<SurfaceType>],
+    parameters: &[SurfaceParameter],
+    result: Option<&SurfaceType>,
+    definition: Option<&SurfaceExpression>,
+) -> Vec<(String, Value)> {
+    let mut attributes = vec![
+        ("symbol".to_owned(), Value::Text(symbol.to_owned())),
+        (
+            "type_parameters".to_owned(),
+            type_parameters_value(type_parameters, type_parameter_bounds),
+        ),
+        (
+            "parameters".to_owned(),
+            Value::Array(
+                parameters
+                    .iter()
+                    .map(|parameter| {
+                        Value::map([
+                            ("name", Value::Text(parameter.name.clone())),
+                            ("type", surface_type_value(&parameter.value_type)),
+                        ])
+                    })
+                    .collect(),
+            ),
+        ),
+    ];
+    if let Some(result) = result {
+        attributes.push(("result".to_owned(), surface_type_value(result)));
+    }
+    if let Some(definition) = definition {
+        attributes.push((
+            "definition".to_owned(),
+            surface_expression_value(definition),
+        ));
+    }
+    attributes
+}
+
+fn verifier_argument_value(argument: &SurfaceVerifierArgument) -> Value {
+    let mode = match argument.mode {
+        SurfaceArgumentMode::Value => "value",
+        SurfaceArgumentMode::Move => "move",
+        SurfaceArgumentMode::Borrow => "borrow",
+        SurfaceArgumentMode::Share => "share",
+    };
+    Value::map([
+        ("name", Value::Text(argument.name.clone())),
+        ("mode", Value::Text(mode.to_owned())),
+        ("value", surface_expression_value(&argument.value)),
+    ])
 }
 fn operator_precedence(operator: &str) -> Option<u8> {
     Some(match operator {

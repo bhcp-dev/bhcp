@@ -728,6 +728,30 @@ fn elaborate(
     source_name: &str,
     algorithm: HashAlgorithm,
 ) -> Result<SemanticIrDocument> {
+    if !program.types.is_empty() {
+        return Err(error(
+            "BHCP2004",
+            "type definitions are outside the implemented executable slice",
+            source_name,
+            &program.types[0].at,
+        ));
+    }
+    if !program.predicates.is_empty() {
+        return Err(error(
+            "BHCP2004",
+            "predicate definitions are outside the implemented executable slice",
+            source_name,
+            &program.predicates[0].at,
+        ));
+    }
+    if !program.refinements.is_empty() {
+        return Err(error(
+            "BHCP2004",
+            "refinement declarations are outside the implemented executable slice",
+            source_name,
+            &program.refinements[0].at,
+        ));
+    }
     if !program.policies.is_empty() {
         return Err(error(
             "BHCP2004",
@@ -2289,7 +2313,24 @@ fn lower_type(
         SurfaceType::Reduction(output) => {
             BhcpType::Reduction(Box::new(lower_type(output, source_name, at)?))
         }
-        SurfaceType::Parameter(_) | SurfaceType::Dynamic | SurfaceType::Meta { .. } => {
+        SurfaceType::Parameter(_)
+        | SurfaceType::Dynamic
+        | SurfaceType::Meta { .. }
+        | SurfaceType::Nominal { .. }
+        | SurfaceType::Never
+        | SurfaceType::StructuralRecord { .. }
+        | SurfaceType::Tuple(_)
+        | SurfaceType::List(_)
+        | SurfaceType::Set(_)
+        | SurfaceType::Map { .. }
+        | SurfaceType::Option(_)
+        | SurfaceType::Result { .. }
+        | SurfaceType::Variant(_)
+        | SurfaceType::Goal { .. }
+        | SurfaceType::Union(_)
+        | SurfaceType::Intersection(_)
+        | SurfaceType::Handle { .. }
+        | SurfaceType::Refined { .. } => {
             return Err(error(
                 "BHCP2004",
                 "compile-time and generic types are not permitted in executable goal facts",
