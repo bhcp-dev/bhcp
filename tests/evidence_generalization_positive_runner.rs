@@ -267,3 +267,76 @@ fn checked_in_registration_names_every_frozen_input_and_analysis_rule() {
         12
     );
 }
+
+#[test]
+fn checked_in_null_result_preserves_and_replays_every_registered_session() {
+    let repository = repository();
+    let results = repository.join("experiments/evidence-generalization/positive-use-results");
+    assert!(!results.join("STOPPED.md").exists());
+    assert_eq!(
+        fs::read_to_string(results.join("AUTHORITY.txt")).unwrap(),
+        "git-head=b9a814b7f69b6c3849109af08f58f38da83d836a\nowner-attestation-merge=c327d80308dbf6010321ca05ef498493b04350e7\nauth-mode=chatgpt\nincremental-usd=0\nconcurrency=1\n"
+    );
+    let ledger = fs::read_to_string(results.join("RESULTS.txt")).unwrap();
+    let sessions = ledger
+        .lines()
+        .filter(|line| line.starts_with("session|"))
+        .collect::<Vec<_>>();
+    assert_eq!(sessions.len(), 12);
+    let registration = fs::read_to_string(
+        repository.join("experiments/evidence-generalization/positive-use-registration.txt"),
+    )
+    .unwrap();
+    for task in TASKS {
+        for seed in ["seed-01", "seed-02", "seed-03"] {
+            let id = format!("{task}-{seed}");
+            let ledger_prefix = format!(
+                "session|{task}|{seed}|positive-use=false|registered-accepted=false|independent-accepted=false|accepted=false|claimed=false|calibrated=true|excluded=false|"
+            );
+            assert!(sessions.iter().any(|line| line.starts_with(&ledger_prefix)));
+            let registered = registration
+                .lines()
+                .find(|line| line.starts_with(&format!("session|{task}|{seed}|")))
+                .unwrap();
+            let fields = registered.split('|').collect::<Vec<_>>();
+            assert_eq!(fields.len(), 6);
+
+            let session = results.join(id);
+            assert_eq!(
+                fs::metadata(session.join("candidate.patch")).unwrap().len(),
+                0
+            );
+            assert!(!session.join("evidence.cbor").exists());
+            assert_eq!(
+                fs::read_to_string(session.join("EVIDENCE.txt")).unwrap(),
+                "positive-use=false\nparseable=false\nsubject-bound=false\nadapter-items=0\nregistered-accepted=false\nindependent-accepted=false\nin-session-accepted=false\nclaimed-success=false\ncalibrated=true\nexcluded=false\n"
+            );
+            let controller = fs::read_to_string(session.join("CONTROLLER.md")).unwrap();
+            assert!(controller.contains(&format!("- Plan: `{}`", fields[3])));
+            assert!(controller.contains(&format!("- Fixture: `{}`", fields[4])));
+            assert!(controller.contains("- Model: `gpt-5.4-mini`"));
+            assert!(controller.contains("- Reasoning: `medium`"));
+            assert!(controller.contains("- Sandbox: `workspace-write/no-network/read-confined`"));
+            assert!(controller.contains("rejected (verification-failed) | no |"));
+            for accepted in ["format", "clippy", "change-policy"] {
+                assert!(controller.contains(&format!("Judge `{accepted}`: accepted")));
+            }
+            let public_status = if task == "in-session-evidence" {
+                "rejected"
+            } else {
+                "accepted"
+            };
+            assert!(controller.contains(&format!("Judge `public`: {public_status}")));
+            assert!(controller.contains("Judge `oracle`: rejected"));
+        }
+    }
+    let report = fs::read_to_string(results.join("README.md")).unwrap();
+    for exact in [
+        "`12` included sessions and `0` infrastructure exclusions",
+        "Positive registry use: **0/12** (two-sided 95% Clopper–Pearson `0.0000..0.2646`)",
+        "In-session acceptance: **0/12** (two-sided 95% Clopper–Pearson `0.0000..0.2646`)",
+        "Incremental pay-as-you-go spend authority and observed spend: **USD 0**",
+    ] {
+        assert!(report.contains(exact), "missing result claim: {exact}");
+    }
+}

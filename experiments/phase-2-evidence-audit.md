@@ -86,14 +86,16 @@ no BHCP-versus-prose advantage. Those are future research questions outside this
 finite implementation milestone, not prose substitutes for a missing required
 runtime behavior.
 
-The residual empirical gaps are now explicit roadmap work. [#92](https://github.com/bhcp-dev/bhcp/issues/92)
-tracks positive in-session adapter use across a representative task sample, and
-[#93](https://github.com/bhcp-dev/bhcp/issues/93) tracks symmetric BHCP-versus-prose
-and claim-calibration effects. Both are natively blocked by the frozen protocol,
-analysis, and resource-authorization decision in [#91](https://github.com/bhcp-dev/bhcp/issues/91),
-under the separate **Future research — Evidence generalization** milestone. This
-keeps the completed Phase 2 implementation boundary finite and its negative records
-unchanged without presenting unmeasured claims as complete.
+The residual empirical gaps are explicit roadmap work. The preregistered
+[#92](https://github.com/bhcp-dev/bhcp/issues/92) study is now a retained null result:
+across twelve completed sessions it observed 0/12 positive registry use and 0/12
+in-session acceptance, no infrastructure exclusions, and twelve calibrated negative
+claims. Its [full record](evidence-generalization/positive-use-results/README.md)
+does not reinterpret the Phase 2 evidence. [#93](https://github.com/bhcp-dev/bhcp/issues/93)
+separately tracks the symmetric BHCP-versus-prose and claim-calibration comparison
+under the frozen protocol and resource decision in
+[#91](https://github.com/bhcp-dev/bhcp/issues/91). This keeps the completed Phase 2
+implementation boundary finite without presenting unmeasured claims as complete.
 
 ## Delivery and consistency
 

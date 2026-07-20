@@ -474,9 +474,13 @@ The separate [evidence-generalization preregistration](experiments/evidence-gene
 freezes a four-task registered-use frame and a three-task equal-information
 prose-versus-contract comparison, single-model arms, a 36-session schedule,
 descriptive analysis, exclusions, stopping rules, and a zero-incremental-spend
-resource budget for issues #92 and #93. It records future research authority without
-upgrading the Phase 2 negatives or claiming model, developer, or language-wide
-generalization.
+resource budget for issues #92 and #93. The completed
+[positive-use study](experiments/evidence-generalization/positive-use-results/README.md)
+retains all twelve registered sessions with no exclusions: positive registry use
+was 0/12 and in-session acceptance was 0/12 (two-sided 95% Clopper–Pearson
+0.0000–0.2646), while all twelve negative claims were calibrated. This null result
+does not upgrade the Phase 2 record or establish model, developer, or language-wide
+generalization; the preregistered prose-versus-contract study remains separate.
 
 The v0 policy wire and restriction algebra are now specified in
 [`SEMANTICS.md`](SEMANTICS.md#s92-monotonic-policy) and the CDDL bundle. Six closed
