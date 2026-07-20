@@ -62,6 +62,8 @@ pub struct AdapterRequest<'a> {
     pub verifier: &'a str,
     pub obligations: &'a [String],
     pub payload: &'a [u8],
+    pub subject: &'a ContentReference,
+    pub subject_bytes: &'a [u8],
     pub effect_ceiling: &'a [String],
 }
 
@@ -112,6 +114,9 @@ impl VerifierProcessRunner {
         validate_request(declaration, request)?;
         let registration_bytes = encode_deterministic(&declaration_value(declaration))?;
         let request_bytes = encode_deterministic(&request_value(request))?;
+        if request_bytes.len() > MAX_ADAPTER_INPUT_BYTES {
+            return Err(invalid("encoded adapter request exceeds the input limit"));
+        }
         let mut record = AdapterExecutionRecord {
             declaration: declaration.clone(),
             obligations: request.obligations.to_vec(),
@@ -632,6 +637,18 @@ fn validate_request(
     if request.payload.len() > MAX_ADAPTER_INPUT_BYTES {
         return Err(invalid("adapter payload exceeds the input limit"));
     }
+    request.subject.validate()?;
+    if request.subject.size != request.subject_bytes.len()
+        || request.subject.digests.iter().any(|digest| {
+            HashAlgorithm::from_id(&digest.algorithm)
+                .map(|algorithm| algorithm.hash(request.subject_bytes) != *digest)
+                .unwrap_or(true)
+        })
+    {
+        return Err(invalid(
+            "adapter subject bytes do not match the supplied content reference",
+        ));
+    }
     if request.verifier != declaration.symbol {
         return Err(invalid(
             "adapter request does not match the exact registration symbol",
@@ -729,6 +746,11 @@ fn request_value(request: AdapterRequest<'_>) -> Value {
             ),
         ),
         ("payload", Value::Bytes(request.payload.to_vec())),
+        ("subject", request.subject.to_value()),
+        (
+            "subject_content",
+            Value::Bytes(request.subject_bytes.to_vec()),
+        ),
     ])
 }
 

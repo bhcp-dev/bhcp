@@ -33,6 +33,17 @@ bench = false
 doc = false
 
 [[bin]]
+name = "bhcp-in-session-evidence-adapter"
+path = "src/bin/in_session_evidence_adapter.rs"
+test = false
+bench = false
+doc = false
+
+[[bin]]
+name = "in_session_evidence_forward"
+path = "src/bin/in_session_evidence_forward.rs"
+
+[[bin]]
 name = "bhcp-experiment-fake-agent"
 path = "tests/fixtures/experiment_fake_agent.rs"
 test = false

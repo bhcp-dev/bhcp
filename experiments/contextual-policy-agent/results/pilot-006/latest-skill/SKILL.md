@@ -55,6 +55,20 @@ that obligation; if unavailable, mark its obligations unresolved. Never add test
 extra edits as a substitute for an unavailable adapter. A visible check is not
 adapter evidence unless it is the registered producer.
 
+When the task supplies a canonical project-registry invocation, use it exactly.
+The closed CLI shape is `bhcp verify <contract> <goal> <candidate-cbor>
+<subject-file> <produced-at>`. The host must supply the typed candidate and fixed
+timestamp; do not invent either. Redirect the canonical bundle to the
+controller-owned target directory, then run `bhcp inspect` on that bundle. Do not
+write evidence artifacts into the candidate tree.
+
+Treat exit 0 as completed accepted evidence, 3 as completed rejection, 4 as an
+unresolved required gap, and 5 as a verifier fault. Inspect retained bundles for all
+four states and preserve those distinctions. A local `bhcp-project.toml` selects
+bounded producers but cannot grant effects absent from the canonical contract.
+Never convert a visible check, manifest entry, unregistered command, rejected
+result, unresolved gap, or fault into accepted adapter evidence.
+
 Report the semantic ID, changed files, checks and adapters run, obligation status
 grouped by ID or range, and remaining gaps. Claim success only when every mandatory
 obligation is accepted, no forbidden effect occurred, and all required evidence is

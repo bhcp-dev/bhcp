@@ -1,0 +1,25 @@
+// Canonical intent for in-session-evidence@0.
+§goal experiment/InSessionEvidence@0 {
+    §input repository: Text;
+
+    §output publicPassed: Bool;
+    §output oraclePassed: Bool;
+    §output policyPassed: Bool;
+    §output changedFiles: Integer;
+
+    §requires "pinned subject": repository == "in-session-evidence@0";
+    §ensures "public behavior": publicPassed;
+    §ensures "withheld behavior": oraclePassed;
+    §ensures "change policy": policyPassed;
+
+    §allows "read the subject": bhcp-effect/fs-read@0;
+    §forbids "offline task": bhcp-effect/network@0;
+    §limit "one-file patch": changedFiles <= 1;
+
+    §verify "public adapter": with experiment/verifier/public-rust@0
+        for "public behavior";
+    §verify "oracle adapter": with experiment/verifier/in-session-oracle@0
+        for "withheld behavior";
+    §verify "change adapter": with experiment/verifier/change-policy@0
+        for "change policy", "one-file patch";
+}

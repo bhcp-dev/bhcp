@@ -57,6 +57,16 @@ before Codex starts. Exact Codex, BHCP, Rustup, and toolchain files are frozen i
 the plan; isolated credentials are readable by the Codex parent but not its child
 commands. Other operating systems fail closed for this pin.
 
+The in-session-evidence forward driver packages the canonical `bhcp` CLI, adapter
+sandbox, and project adapter beside the isolated subject. The subject's manifest
+registers public, withheld-oracle, and exact change-policy producers, while the
+contract remains the authority for their maximum effects. A model may retain and
+inspect the canonical bundle before claiming success; the controller subsequently
+runs its own frozen judges, so model-visible evidence and independent acceptance are
+recorded separately. The registry request binds the exact controller-supplied subject
+bytes to the claim's content reference, and the fixture producers judge that supplied
+content rather than reopening an ambient subject path.
+
 Only after a complete session does the controller create an isolated candidate
 view for each ordered judge. Non-oracle judges receive no oracle path; only a
 judge explicitly registered with `uses_oracle` receives an exact copy of the
@@ -100,6 +110,9 @@ controller has no JSON event artifact path. Raw model service logs remain extern
 to Git.
 
 The fake-agent integration tests exercise every rejection category and judge the
-unmodified starters of both existing Rust fixtures symmetrically: public tests
-pass, the unchanged withheld oracles reject them, and neither agent sees an oracle
-before stopping.
+unmodified starters of the earlier Rust fixtures symmetrically: public tests pass,
+the unchanged withheld oracles reject them, and neither agent sees an oracle before
+stopping. The in-session-evidence integration path additionally proves that the
+bounded registry rejects the starter, accepts the exact focused candidate, requires
+all three mandatory targets, distinguishes unavailable and malicious producers, and
+does not let a manifest self-authorize effects.

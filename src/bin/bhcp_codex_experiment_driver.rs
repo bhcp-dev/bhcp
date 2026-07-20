@@ -57,6 +57,13 @@ fn run() -> Result<(), String> {
     let cargo_home = existing_directory(&arguments[2], "Cargo home")?;
     let rustup_home = existing_directory(&arguments[3], "Rustup home")?;
     let bhcp = existing_file(&arguments[4], "BHCP executable")?;
+    let adapter_sandbox = existing_file(
+        bhcp.parent()
+            .ok_or_else(|| "BHCP executable has no parent directory".to_owned())?
+            .join("bhcp-adapter-sandbox")
+            .as_os_str(),
+        "BHCP adapter sandbox helper",
+    )?;
     let toolchain_bin = existing_directory(&arguments[5], "toolchain bin")?;
     let rust_toolchain = arguments[6]
         .to_str()
@@ -101,6 +108,10 @@ fn run() -> Result<(), String> {
     copy_private_file(&codex_home.join("auth.json"), &auth)?;
     let isolated_bhcp = isolated_tool_bin.join("bhcp");
     copy_executable(&bhcp, &isolated_bhcp)?;
+    copy_executable(
+        &adapter_sandbox,
+        &isolated_tool_bin.join("bhcp-adapter-sandbox"),
+    )?;
     let schema = target.join("codex-final-schema.json");
     let final_output = target.join("codex-final.json");
     create_file(&schema, FINAL_SCHEMA.as_bytes())?;

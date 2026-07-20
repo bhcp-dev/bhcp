@@ -1,14 +1,17 @@
+use std::collections::BTreeSet;
 use std::env;
 use std::fs;
 use std::io::{self, Write};
 use std::path::Path;
 use std::process::ExitCode;
 
+use bhcp::adapter::{CancellationToken, VerifierProcessRunner};
 use bhcp::cbor::{decode_deterministic, encode_deterministic};
 use bhcp::formatting::format_source_bytes_with_profile_registry_and_algorithm;
 use bhcp::hash::{HashAlgorithm, format_hash};
 use bhcp::inspection::render_artifact;
 use bhcp::manifest::ProjectManifest;
+use bhcp::model::{ClauseKind, ContentReference, SemanticIrDocument};
 use bhcp::pipeline::{
     compile_source_bytes_with_algorithm, parse_policy_source_bytes_with_algorithm,
     parse_source_bytes_with_algorithm,
@@ -16,6 +19,10 @@ use bhcp::pipeline::{
 use bhcp::policy::{PolicyDocument, SourcePolicyDocument, compose_policies};
 use bhcp::profile::{PresentationDocument, ProfileRegistry};
 use bhcp::schema::validate_root;
+use bhcp::value::Value;
+use bhcp::verification::{
+    VerificationDecision, VerificationRequest, VerificationState, VerifierRegistry,
+};
 
 fn main() -> ExitCode {
     match run() {
@@ -41,6 +48,12 @@ fn run() -> Result<(), (u8, String)> {
     {
         return format_source_file(&arguments[1..]);
     }
+    if arguments
+        .first()
+        .is_some_and(|argument| argument == "verify")
+    {
+        return verify_candidate(&arguments[1..]);
+    }
     if arguments.len() != 2
         || !matches!(
             arguments[0].as_str(),
@@ -49,7 +62,7 @@ fn run() -> Result<(), (u8, String)> {
     {
         return Err((
             2,
-            "usage: bhcp <parse|lower|inspect|hash> <source-or-cbor-file> | bhcp format <source-file> [syntax-profile-or-policy-cbor]...".to_owned(),
+            "usage: bhcp <parse|lower|inspect|hash> <source-or-cbor-file> | bhcp format <source-file> [syntax-profile-or-policy-cbor]... | bhcp verify <source-file> <goal> <candidate-cbor> <subject-file> <produced-at>".to_owned(),
         ));
     }
     let command = &arguments[0];
@@ -97,6 +110,156 @@ fn run() -> Result<(), (u8, String)> {
             render_artifact(&compiled.ir.to_value(true), Some(file))
         );
         Ok(())
+    }
+}
+
+fn verify_candidate(arguments: &[String]) -> Result<(), (u8, String)> {
+    let [source_file, goal, candidate_file, subject_file, produced_at] = arguments else {
+        return Err((
+            2,
+            "usage: bhcp verify <source-file> <goal> <candidate-cbor> <subject-file> <produced-at>"
+                .to_owned(),
+        ));
+    };
+    let source = fs::read(source_file).map_err(|error| (1, format!("{source_file}: {error}")))?;
+    let (manifest, project_root) = ProjectManifest::discover_with_root(Path::new(source_file))
+        .map_err(|error| (1, error.to_string()))?;
+    let compilation =
+        compile_source_bytes_with_algorithm(&source, source_file, manifest.identity_algorithm)
+            .map_err(|error| (1, error.to_string()))?;
+    let candidate_bytes =
+        fs::read(candidate_file).map_err(|error| (1, format!("{candidate_file}: {error}")))?;
+    let candidate =
+        decode_deterministic(&candidate_bytes).map_err(|error| (1, error.to_string()))?;
+    let Value::Map(candidate_fields) = &candidate else {
+        return Err((
+            1,
+            "BHCP7001: verification candidate must be a map".to_owned(),
+        ));
+    };
+    if candidate_fields.len() != 2
+        || candidate_fields
+            .iter()
+            .any(|(key, _)| !matches!(key.as_str(), "input" | "output"))
+    {
+        return Err((
+            1,
+            "BHCP7001: verification candidate requires only input and output".to_owned(),
+        ));
+    }
+    let input = candidate
+        .get("input")
+        .ok_or_else(|| (1, "BHCP7001: verification candidate omits input".to_owned()))?;
+    let output = candidate.get("output").ok_or_else(|| {
+        (
+            1,
+            "BHCP7001: verification candidate omits output".to_owned(),
+        )
+    })?;
+    let effect_ceiling = adapter_effect_ceiling(&compilation.ir, goal)?;
+    let subject_bytes =
+        fs::read(subject_file).map_err(|error| (1, format!("{subject_file}: {error}")))?;
+    let subject = ContentReference::from_bytes(
+        "application/vnd.bhcp.subject-source",
+        &subject_bytes,
+        manifest.identity_algorithm,
+    );
+    let execution_graph_bytes = encode_deterministic(&Value::map([
+        ("goal", Value::Text(goal.clone())),
+        ("subject", subject.to_value()),
+    ]))
+    .map_err(|error| (1, error.to_string()))?;
+    let execution_graph = ContentReference::from_bytes(
+        "application/vnd.bhcp.execution-graph+cbor",
+        &execution_graph_bytes,
+        manifest.identity_algorithm,
+    );
+
+    let mut registry = VerifierRegistry::new();
+    for declaration in &manifest.verifier_adapters {
+        registry
+            .register_adapter(
+                VerifierProcessRunner::new(&project_root)
+                    .map_err(|error| (1, error.to_string()))?,
+                declaration.clone(),
+                effect_ceiling.clone(),
+                CancellationToken::new(),
+            )
+            .map_err(|error| (1, error.to_string()))?;
+    }
+    let report = registry
+        .verify(VerificationRequest {
+            compilation: &compilation,
+            goal,
+            input,
+            output,
+            subject,
+            subject_bytes: &subject_bytes,
+            execution_graph,
+            produced_at,
+        })
+        .map_err(|error| (1, error.to_string()))?;
+    write_stdout(&report.bundle_bytes)?;
+    match report.state {
+        VerificationState::Completed(VerificationDecision::Accepted) => Ok(()),
+        VerificationState::Completed(VerificationDecision::Rejected) => Err((
+            3,
+            "BHCP7001: verification rejected the candidate".to_owned(),
+        )),
+        VerificationState::Completed(VerificationDecision::Unresolved) => Err((
+            4,
+            "BHCP7001: verification left required evidence unresolved".to_owned(),
+        )),
+        VerificationState::Faulted(_) => Err((
+            5,
+            "BHCP7001: verification encountered a verifier fault".to_owned(),
+        )),
+    }
+}
+
+fn adapter_effect_ceiling(
+    ir: &SemanticIrDocument,
+    goal_selector: &str,
+) -> Result<Vec<String>, (u8, String)> {
+    let goal = ir
+        .goals
+        .iter()
+        .find(|goal| goal.symbol == goal_selector || goal.id == goal_selector)
+        .ok_or_else(|| {
+            (
+                1,
+                format!("BHCP7001: verification goal {goal_selector:?} does not exist"),
+            )
+        })?;
+    let mut allowed = BTreeSet::new();
+    let mut forbidden = BTreeSet::new();
+    for clause in &goal.clauses {
+        let ClauseKind::Authority { kind, effects } = &clause.kind else {
+            continue;
+        };
+        for effect in effects {
+            let Some(local) = local_adapter_effect(&effect.id) else {
+                continue;
+            };
+            if *kind == "forbids" {
+                forbidden.insert(local);
+            } else if *kind == "allows" && effect.resource.is_none() && effect.parameters.is_empty()
+            {
+                allowed.insert(local);
+            }
+        }
+    }
+    allowed.retain(|effect| !forbidden.contains(effect));
+    Ok(allowed.into_iter().map(str::to_owned).collect())
+}
+
+fn local_adapter_effect(effect: &str) -> Option<&'static str> {
+    match effect {
+        "bhcp-effect/clock@0" => Some("bhcp-effect/clock@0"),
+        "bhcp-effect/fs-read@0" => Some("bhcp-effect/fs.read@0"),
+        "bhcp-effect/fs-write@0" => Some("bhcp-effect/fs.write@0"),
+        "bhcp-effect/process@0" => Some("bhcp-effect/process@0"),
+        _ => None,
     }
 }
 

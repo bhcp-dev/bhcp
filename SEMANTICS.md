@@ -280,8 +280,12 @@ required to load the executable are part of the host implementation surface, not
 adapter project authority.
 
 The v0 process request is deterministic CBOR with version, verifier symbol, normalized
-structural obligation targets, and opaque payload bytes. The deterministic CBOR response
-is a closed map: accepted and rejected carry evidence media type, payload, and trust;
+structural obligation targets, the exact subject content reference and bytes, and opaque
+payload bytes. The runner MUST verify that the subject bytes match every digest and the
+size in that reference before launch. A producer MUST judge those supplied bytes; it
+MUST NOT substitute an ambient project path while attributing its result to the supplied
+subject. The deterministic CBOR response is a closed map: accepted and rejected carry
+evidence media type, payload, and trust;
 unresolved and faulted carry a registered reason. Unknown fields, versions, states,
 non-deterministic encoding, or invalid evidence data are malformed output. The runner
 MUST bound the request, executable artifact, stdout, stderr, declared wall-clock timeout,
@@ -294,8 +298,9 @@ and response when one was produced.
 
 When a goal-level verifier resolves to a process adapter, the registry MUST encode the
 opaque payload as the deterministic closed candidate record `{ input: I, output: O }`,
-MUST pass only the binding's already-resolved structural obligation targets, and MUST
-intersect the declaration with an explicit effective effect ceiling before launch.
+MUST pass only the binding's already-resolved structural obligation targets and the
+verification request's exact subject, and MUST intersect the declaration with an
+explicit effective effect ceiling before launch.
 Accepted evidence supports exactly those targets; accepted counter-evidence from a
 rejected result refutes exactly those targets. An absent registration creates an
 `unsupported` gap, an unresolved result creates a required unresolved gap, and a

@@ -13,7 +13,9 @@ use bhcp::adapter::{
     AdapterRequest, CancellationToken, MAX_ADAPTER_INPUT_BYTES, VerifierProcessRunner,
 };
 use bhcp::cbor::decode_deterministic;
+use bhcp::hash::HashAlgorithm;
 use bhcp::manifest::{VerifierAdapterDeclaration, WorkingScope};
+use bhcp::model::ContentReference;
 use bhcp::verification::{VerifierConclusion, VerifierExecution};
 #[cfg(unix)]
 use nix::fcntl::{FcntlArg, FdFlag, fcntl};
@@ -67,8 +69,17 @@ fn request(payload: &[u8]) -> AdapterRequest<'_> {
         verifier: "example/verifier.fixture@0",
         obligations: OBLIGATIONS.get_or_init(|| vec!["clause-2".to_owned(), "clause-3".to_owned()]),
         payload,
+        subject: subject_reference(),
+        subject_bytes: b"subject",
         effect_ceiling: EFFECTS.get_or_init(|| vec!["bhcp-effect/process@0".to_owned()]),
     }
+}
+
+fn subject_reference() -> &'static ContentReference {
+    static SUBJECT: OnceLock<ContentReference> = OnceLock::new();
+    SUBJECT.get_or_init(|| {
+        ContentReference::from_bytes("application/test", b"subject", HashAlgorithm::default())
+    })
 }
 
 fn runner(project_root: &Path) -> VerifierProcessRunner {
@@ -131,6 +142,43 @@ fn exact_registration_targets_and_argv_are_retained_without_shell_or_path_lookup
             bhcp::value::Value::Text("clause-2".to_owned()),
             bhcp::value::Value::Text("clause-3".to_owned()),
         ]))
+    );
+    assert_eq!(
+        encoded_request.get("subject"),
+        Some(&subject_reference().to_value())
+    );
+    assert_eq!(
+        encoded_request.get("subject_content"),
+        Some(&bhcp::value::Value::Bytes(b"subject".to_vec()))
+    );
+}
+
+#[test]
+fn request_target_must_match_the_exact_registered_symbol() {
+    let project = TestProject::new();
+    let runner = runner(&project.root);
+    let obligations = vec!["clause-2".to_owned()];
+    let effects = vec!["bhcp-effect/process@0".to_owned()];
+    let mismatched = AdapterRequest {
+        verifier: "example/another-verifier@0",
+        obligations: &obligations,
+        payload: b"candidate",
+        subject: subject_reference(),
+        subject_bytes: b"subject",
+        effect_ceiling: &effects,
+    };
+
+    let error = runner
+        .run(
+            &declaration("accepted"),
+            mismatched,
+            &CancellationToken::new(),
+        )
+        .unwrap_err();
+
+    assert_eq!(
+        error.to_string(),
+        "<artifact>:1:1: BHCP7001: adapter request does not match the exact registration symbol"
     );
 }
 
@@ -280,6 +328,8 @@ fn request_and_effect_boundaries_fail_before_process_execution() {
                 verifier: "example/verifier.other@0",
                 obligations: &["clause-2".to_owned()],
                 payload: b"candidate",
+                subject: subject_reference(),
+                subject_bytes: b"subject",
                 effect_ceiling: &["bhcp-effect/process@0".to_owned()],
             },
             &CancellationToken::new(),
@@ -292,8 +342,26 @@ fn request_and_effect_boundaries_fail_before_process_execution() {
             &declaration,
             AdapterRequest {
                 verifier: "example/verifier.fixture@0",
+                obligations: &["clause-2".to_owned()],
+                payload: b"candidate",
+                subject: subject_reference(),
+                subject_bytes: b"another subject",
+                effect_ceiling: &["bhcp-effect/process@0".to_owned()],
+            },
+            &CancellationToken::new(),
+        )
+        .unwrap_err();
+    assert!(diagnostic.message.contains("subject bytes"));
+
+    let diagnostic = runner
+        .run(
+            &declaration,
+            AdapterRequest {
+                verifier: "example/verifier.fixture@0",
                 obligations: &["clause-3".to_owned(), "clause-2".to_owned()],
                 payload: b"candidate",
+                subject: subject_reference(),
+                subject_bytes: b"subject",
                 effect_ceiling: &["bhcp-effect/process@0".to_owned()],
             },
             &CancellationToken::new(),
@@ -308,6 +376,8 @@ fn request_and_effect_boundaries_fail_before_process_execution() {
                 verifier: "example/verifier.fixture@0",
                 obligations: &["clause-2".to_owned()],
                 payload: b"candidate",
+                subject: subject_reference(),
+                subject_bytes: b"subject",
                 effect_ceiling: &[],
             },
             &CancellationToken::new(),
@@ -400,6 +470,8 @@ fn os_sandbox_denies_network_and_undeclared_filesystem_access() {
                     verifier: &allowed_read.symbol,
                     obligations: &["clause-2".to_owned()],
                     payload: b"candidate",
+                    subject: subject_reference(),
+                    subject_bytes: b"subject",
                     effect_ceiling: &effects,
                 },
                 &CancellationToken::new(),
@@ -443,6 +515,8 @@ fn os_sandbox_denies_network_and_undeclared_filesystem_access() {
                     verifier: &allowed_write.symbol,
                     obligations: &["clause-2".to_owned()],
                     payload: b"candidate",
+                    subject: subject_reference(),
+                    subject_bytes: b"subject",
                     effect_ceiling: &effects,
                 },
                 &CancellationToken::new(),

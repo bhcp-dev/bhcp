@@ -33,6 +33,13 @@ fn main() {
     );
     let target = PathBuf::from(std::env::var_os("CARGO_TARGET_DIR").expect("missing target"));
     assert!(target.is_dir());
+    let tool_bin = std::env::split_paths(&std::env::var_os("PATH").expect("missing PATH"))
+        .next()
+        .expect("empty PATH");
+    assert!(
+        tool_bin.join("bhcp-adapter-sandbox").is_file(),
+        "the packaged adapter sandbox helper was not staged beside BHCP"
+    );
     let arguments: Vec<_> = std::env::args_os().collect();
     let output_index = arguments
         .iter()

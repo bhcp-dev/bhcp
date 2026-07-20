@@ -1,0 +1,12 @@
+[package]
+name = "in-session-evidence-oracle"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.97.1"
+publish = false
+
+[dependencies]
+in-session-evidence = { path = "../subject" }
+
+[lints.rust]
+unsafe_code = "forbid"

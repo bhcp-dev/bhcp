@@ -142,6 +142,10 @@ impl ProjectManifest {
     }
 
     pub fn discover(source_path: &Path) -> Result<Self> {
+        Self::discover_with_root(source_path).map(|(manifest, _)| manifest)
+    }
+
+    pub fn discover_with_root(source_path: &Path) -> Result<(Self, PathBuf)> {
         let mut directory = source_path.parent();
         while let Some(candidate_directory) = directory {
             let candidate = candidate_directory.join(FILE_NAME);
@@ -149,11 +153,23 @@ impl ProjectManifest {
                 let source = fs::read_to_string(&candidate).map_err(|read_error| {
                     error(read_error.to_string(), &candidate.display().to_string(), 1)
                 })?;
-                return Self::parse(&source, &candidate.display().to_string());
+                let manifest = Self::parse(&source, &candidate.display().to_string())?;
+                let root = fs::canonicalize(candidate_directory).map_err(|read_error| {
+                    error(read_error.to_string(), &candidate.display().to_string(), 1)
+                })?;
+                return Ok((manifest, root));
             }
             directory = candidate_directory.parent();
         }
-        Ok(Self::default())
+        let parent = source_path.parent().unwrap_or_else(|| Path::new("."));
+        let root = fs::canonicalize(parent).map_err(|read_error| {
+            error(
+                read_error.to_string(),
+                &source_path.display().to_string(),
+                1,
+            )
+        })?;
+        Ok((Self::default(), root))
     }
 }
 

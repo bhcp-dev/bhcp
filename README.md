@@ -353,6 +353,12 @@ size, wall-clock time, and cancellation are bounded and have stable, distinguish
 outcomes. Every execution record retains the exact declaration, obligation targets,
 request, response when present, executable artifact, and exit code.
 
+Each request carries both the verification subject's content reference and its exact
+bytes. The runner validates their size and every digest before launch, and a producer
+must judge those bytes rather than substitute an ambient project file. Evidence claims
+therefore cannot name one caller-supplied subject while a registered adapter examines
+another.
+
 The runner compares the executable's device, inode, mode, size, and nanosecond
 modification identity before and after artifact capture and again immediately before
 launch, so same-length replacement is detected. The portable native launch still
@@ -389,6 +395,14 @@ cancellation are unresolved completion reasons; process/protocol failures are fa
 A `BHCP7001` diagnostic means the request or registration violated the boundary before
 any adapter process was started.
 
+The canonical project-registry entry point is
+`bhcp verify <contract> <goal> <candidate-cbor> <subject-file> <produced-at>`.
+It discovers the nearest project manifest from the contract path, compiles the
+contract, validates the typed candidate, registers the declared adapters, and emits
+the retained canonical evidence bundle on standard output. Exit 0 means accepted,
+3 rejected, 4 unresolved, and 5 faulted. The manifest may narrow the contract's
+effective effect ceiling but cannot authorize an effect the contract did not allow.
+
 ## Coding-agent experiments
 
 [`experiments/CONTROLLER.md`](experiments/CONTROLLER.md) documents the implemented
@@ -408,10 +422,10 @@ whether BHCP makes completion claims more precise and mechanically checkable, no
 whether hidden requirements can surprise an agent.
 
 The fixture documentation defines the two-arm protocol and verifier boundary. The
-generic dispatcher, bounded process integration, and evidence-bundle model are now
-executable; an external controller must still select and register the
-experiment-specific Rust, oracle, and change-policy declarations and provide the
-execution-graph reference.
+generic dispatcher, bounded process integration, evidence-bundle model, and canonical
+project-registry CLI are executable. The controller supplies the fixed candidate,
+subject artifact, timestamp, and execution-graph identity; the contract and project
+manifest select the bounded Rust, oracle, and change-policy producers.
 
 The explicitly invoked repo skill at
 [`.codex/skills/interpret-bhcp-contract/`](.codex/skills/interpret-bhcp-contract/)
@@ -436,6 +450,15 @@ patches, one compact-skill run that collapsed the lattice and failed two invaria
 and a latest-main skill follow-up that passed all ten with substantially higher
 token intake. The paired skill outcomes make run variance and ordered-obligation
 retention explicit rather than reporting only a favorable sample.
+
+[`experiments/in-session-evidence-agent/`](experiments/in-session-evidence-agent/)
+is a deliberately small forward fixture for the registered evidence path. Its public,
+withheld-oracle, and exact change-policy adapters are exposed through the canonical
+project registry while independent controller judges remain the acceptance authority.
+The preregistered forward 001 run produced a valid 0/1 negative: the model made no
+edit, invoked no registered adapter, claimed no success, and all three semantic judges
+rejected the unchanged starter. The result is retained without an adaptive replacement;
+the post-run latest skill now documents the canonical registry workflow.
 
 The v0 policy wire and restriction algebra are now specified in
 [`SEMANTICS.md`](SEMANTICS.md#s92-monotonic-policy) and the CDDL bundle. Six closed
