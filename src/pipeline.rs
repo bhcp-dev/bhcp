@@ -1,6 +1,7 @@
 use std::collections::{BTreeMap, HashMap, HashSet};
 
 use crate::cbor::encode_deterministic;
+use crate::definition::DefinitionElaborator;
 use crate::diagnostic::{Diagnostic, Result};
 use crate::hash::{HashAlgorithm, artifact_hash_with, semantic_hash_with};
 use crate::kernel::{ArgumentMode, KernelArgument, KernelChild, KernelNetwork};
@@ -25,7 +26,7 @@ use crate::prelude::{
     NONE_FEATURE, NONE_LOWERER, NONE_REDUCER, NetworkShape, Prelude,
 };
 use crate::profile::{ProfileRegistry, SyntaxDocument};
-use crate::typecheck::check_type_definitions;
+use crate::typecheck::{CheckedType, check_type_definitions};
 use crate::value::Value;
 
 #[derive(Clone, Debug)]
@@ -735,23 +736,10 @@ fn elaborate(
     source_name: &str,
     algorithm: HashAlgorithm,
 ) -> Result<SemanticIrDocument> {
-    let types = check_type_definitions(program)?.definitions;
-    if !program.predicates.is_empty() {
-        return Err(error(
-            "BHCP2004",
-            "predicate definitions are outside the implemented executable slice",
-            source_name,
-            &program.predicates[0].at,
-        ));
-    }
-    if !program.refinements.is_empty() {
-        return Err(error(
-            "BHCP2004",
-            "refinement declarations are outside the implemented executable slice",
-            source_name,
-            &program.refinements[0].at,
-        ));
-    }
+    let checked_types = check_type_definitions(program)?;
+    let types = checked_types.definitions.clone();
+    let mut definitions = DefinitionElaborator::new(program, &checked_types, source_name)?;
+    definitions.elaborate_roots()?;
     if !program.policies.is_empty()
         || !program.syntaxes.is_empty()
         || !program.profiles.is_empty()
@@ -775,15 +763,11 @@ fn elaborate(
             at,
         ));
     }
-    if !program.functions.is_empty() {
-        return Err(error(
-            "BHCP2004",
-            "project function definitions are outside the implemented executable slice",
-            source_name,
-            &program.functions[0].at,
-        ));
-    }
-    if program.goals.is_empty() && program.types.is_empty() {
+    if program.goals.is_empty()
+        && program.types.is_empty()
+        && program.functions.is_empty()
+        && program.predicates.is_empty()
+    {
         return Err(Diagnostic::new(
             "BHCP1001",
             "an executable source file must contain at least one goal",
@@ -826,16 +810,21 @@ fn elaborate(
     let mut goals = Vec::new();
     let mut functions = Vec::new();
     for (index, goal) in program.goals.iter().enumerate() {
+        let mut state = GoalLoweringState {
+            definitions: &mut definitions,
+            functions: &mut functions,
+            ids: &mut ids,
+        };
         goals.push(lower_goal(
             goal,
             index,
             source_name,
             &signatures,
             &prelude,
-            &mut functions,
-            &mut ids,
+            &mut state,
         )?);
     }
+    let (pure_functions, predicates) = definitions.finish();
     let entrypoints = goals.iter().map(|goal| goal.id.clone()).collect();
     let mut features = features_for(algorithm);
     if uses_self_hosted_all(program) {
@@ -858,6 +847,8 @@ fn elaborate(
         type_mode: TypeMode::InferStrict,
         types,
         functions,
+        pure_functions,
+        predicates,
         goals,
         entrypoints,
         effective_policy: None,
@@ -1065,15 +1056,25 @@ fn goal_signature(goal: &SurfaceGoal, index: usize, source_name: &str) -> Result
     })
 }
 
+struct GoalLoweringState<'a> {
+    definitions: &'a mut DefinitionElaborator,
+    functions: &'a mut Vec<FunctionDefinition>,
+    ids: &'a mut Ids,
+}
+
 fn lower_goal(
     goal: &SurfaceGoal,
     index: usize,
     source_name: &str,
     signatures: &HashMap<String, GoalSignature>,
     prelude: &Prelude,
-    functions: &mut Vec<FunctionDefinition>,
-    ids: &mut Ids,
+    state: &mut GoalLoweringState<'_>,
 ) -> Result<GoalDefinition> {
+    let GoalLoweringState {
+        definitions,
+        functions,
+        ids,
+    } = state;
     let clause_ids: Vec<_> = goal.clauses.iter().map(|_| ids.next("clause")).collect();
     let mut labels = HashMap::new();
     for (index, clause) in goal.clauses.iter().enumerate() {
@@ -1155,7 +1156,8 @@ fn lower_goal(
                 dimension,
                 condition,
             } => {
-                let condition = lower_expression(condition, &environment, source_name, ids)?;
+                let condition =
+                    lower_expression(condition, &environment, definitions, source_name, ids)?;
                 if condition.value_type != BhcpType::Primitive("Bool") {
                     return Err(error(
                         "BHCP2003",
@@ -1183,7 +1185,13 @@ fn lower_goal(
                 objective,
             } => ClauseKind::Preference {
                 priority: *priority,
-                objective: lower_expression(objective, &environment, source_name, ids)?,
+                objective: lower_expression(
+                    objective,
+                    &environment,
+                    definitions,
+                    source_name,
+                    ids,
+                )?,
             },
             SurfaceClauseKind::Verify {
                 verifier,
@@ -2390,6 +2398,7 @@ fn lower_type(
 fn lower_expression(
     surface: &SurfaceExpression,
     environment: &HashMap<String, Binding>,
+    definitions: &mut DefinitionElaborator,
     source_name: &str,
     ids: &mut Ids,
 ) -> Result<Expression> {
@@ -2430,7 +2439,7 @@ fn lower_expression(
             operand,
             at,
         } => {
-            let operand = lower_expression(operand, environment, source_name, ids)?;
+            let operand = lower_expression(operand, environment, definitions, source_name, ids)?;
             let accepted = (operator == "!" && operand.value_type == BhcpType::Primitive("Bool"))
                 || (operator == "-" && operand.value_type == BhcpType::ExactNumber("Integer"));
             if !accepted {
@@ -2453,8 +2462,8 @@ fn lower_expression(
             right,
             at,
         } => {
-            let left = lower_expression(left, environment, source_name, ids)?;
-            let right = lower_expression(right, environment, source_name, ids)?;
+            let left = lower_expression(left, environment, definitions, source_name, ids)?;
+            let right = lower_expression(right, environment, definitions, source_name, ids)?;
             if left.value_type != right.value_type {
                 return Err(error(
                     "BHCP2003",
@@ -2478,15 +2487,8 @@ fn lower_expression(
                 "&&" | "||" if left.value_type == BhcpType::Primitive("Bool") => {
                     BhcpType::Primitive("Bool")
                 }
-                "-" | "*" | "/" | "%" => {
-                    return Err(error(
-                        "BHCP2004",
-                        format!(
-                            "binary operator {operator} is outside the implemented expression slice"
-                        ),
-                        source_name,
-                        at,
-                    ));
+                "-" | "*" | "/" | "%" if left.value_type == BhcpType::ExactNumber("Integer") => {
+                    left.value_type.clone()
                 }
                 _ => {
                     return Err(error(
@@ -2502,13 +2504,61 @@ fn lower_expression(
                 ExpressionForm::Binary(operator.clone(), Box::new(left), Box::new(right)),
             )
         }
-        SurfaceExpression::Call { at, .. } | SurfaceExpression::If { at, .. } => {
-            return Err(error(
-                "BHCP2004",
-                "function calls and conditionals are outside the implemented goal-expression slice",
-                source_name,
-                at,
-            ));
+        SurfaceExpression::Call {
+            function,
+            arguments,
+            at,
+        } => {
+            let arguments = arguments
+                .iter()
+                .map(|argument| {
+                    lower_expression(argument, environment, definitions, source_name, ids)
+                })
+                .collect::<Result<Vec<_>>>()?;
+            let argument_types = arguments
+                .iter()
+                .map(|argument| CheckedType::from_value(&argument.value_type.to_value()))
+                .collect::<Result<Vec<_>>>()?;
+            let resolved = definitions.resolve_call(function, &argument_types, at)?;
+            let value_type = bhcp_type_from_checked(&resolved.result, source_name, at)?;
+            (value_type, ExpressionForm::Call(resolved.symbol, arguments))
+        }
+        SurfaceExpression::If {
+            condition,
+            consequent,
+            alternative,
+            at,
+        } => {
+            let condition =
+                lower_expression(condition, environment, definitions, source_name, ids)?;
+            if condition.value_type != BhcpType::Primitive("Bool") {
+                return Err(error(
+                    "BHCP2003",
+                    "conditional expression requires a Bool condition",
+                    source_name,
+                    at,
+                ));
+            }
+            let consequent =
+                lower_expression(consequent, environment, definitions, source_name, ids)?;
+            let alternative =
+                lower_expression(alternative, environment, definitions, source_name, ids)?;
+            if consequent.value_type != alternative.value_type {
+                return Err(error(
+                    "BHCP2003",
+                    "conditional expression branches have incompatible types",
+                    source_name,
+                    at,
+                ));
+            }
+            (
+                consequent.value_type.clone(),
+                ExpressionForm::If(
+                    Box::new(condition),
+                    Box::new(consequent),
+                    Box::new(alternative),
+                ),
+            )
         }
     };
     Ok(Expression {
@@ -2568,6 +2618,119 @@ fn lower_effect(
         id: surface.symbol.clone(),
         resource,
         parameters,
+    })
+}
+
+fn bhcp_type_from_checked(
+    value: &CheckedType,
+    source_name: &str,
+    at: &crate::model::Point,
+) -> Result<BhcpType> {
+    fn decode(value: &Value) -> Option<BhcpType> {
+        let Value::Array(parts) = value else {
+            return None;
+        };
+        match parts.as_slice() {
+            [Value::Text(tag), Value::Text(name)] if tag == "primitive" => {
+                let name = match name.as_str() {
+                    "Bool" => "Bool",
+                    "Text" => "Text",
+                    "Bytes" => "Bytes",
+                    "Unit" => "Unit",
+                    "Timestamp" => "Timestamp",
+                    "Duration" => "Duration",
+                    _ => return None,
+                };
+                Some(BhcpType::Primitive(name))
+            }
+            [Value::Text(tag), Value::Text(name)] if tag == "exact-number" => {
+                let name = match name.as_str() {
+                    "Integer" => "Integer",
+                    "Rational" => "Rational",
+                    "Decimal" => "Decimal",
+                    _ => return None,
+                };
+                Some(BhcpType::ExactNumber(name))
+            }
+            [
+                Value::Text(tag),
+                Value::Text(symbol),
+                Value::Array(arguments),
+            ] if tag == "nominal" => Some(BhcpType::Nominal(
+                symbol.clone(),
+                arguments.iter().map(decode).collect::<Option<_>>()?,
+            )),
+            [Value::Text(tag), element] if tag == "list" => {
+                Some(BhcpType::List(Box::new(decode(element)?)))
+            }
+            [Value::Text(tag), element] if tag == "option" => {
+                Some(BhcpType::Option(Box::new(decode(element)?)))
+            }
+            [Value::Text(tag), output] if tag == "verdict" => {
+                Some(BhcpType::Verdict(Box::new(decode(output)?)))
+            }
+            [Value::Text(tag), output] if tag == "execution-result" => {
+                Some(BhcpType::ExecutionResult(Box::new(decode(output)?)))
+            }
+            [Value::Text(tag), output] if tag == "reduction" => {
+                Some(BhcpType::Reduction(Box::new(decode(output)?)))
+            }
+            [Value::Text(tag), Value::Array(classes)] if tag == "evidence" => {
+                Some(BhcpType::Evidence(
+                    classes
+                        .iter()
+                        .map(|value| match value {
+                            Value::Text(value) => Some(value.clone()),
+                            _ => None,
+                        })
+                        .collect::<Option<_>>()?,
+                ))
+            }
+            [Value::Text(tag), Value::Bool(false), Value::Array(fields)] if tag == "record" => {
+                let fields = fields
+                    .iter()
+                    .map(|field| match field {
+                        Value::Array(parts) => match parts.as_slice() {
+                            [Value::Text(name), value_type, Value::Bool(false)] => {
+                                Some(FieldType {
+                                    name: name.clone(),
+                                    value_type: decode(value_type)?,
+                                })
+                            }
+                            _ => None,
+                        },
+                        _ => None,
+                    })
+                    .collect::<Option<_>>()?;
+                Some(BhcpType::Record(fields))
+            }
+            [Value::Text(tag), Value::Array(cases)] if tag == "variant" => {
+                let cases = cases
+                    .iter()
+                    .map(|case| match case {
+                        Value::Array(parts) => match parts.as_slice() {
+                            [Value::Text(name), Value::Array(payload)] => Some(VariantCaseType {
+                                tag: name.clone(),
+                                payload: payload.iter().map(decode).collect::<Option<_>>()?,
+                            }),
+                            _ => None,
+                        },
+                        _ => None,
+                    })
+                    .collect::<Option<_>>()?;
+                Some(BhcpType::Variant(cases))
+            }
+            _ => None,
+        }
+    }
+
+    decode(&value.to_value()).ok_or_else(|| {
+        error(
+            "BHCP2004",
+            "checked pure-definition result type is outside the executable goal slice",
+            source_name,
+            at,
+        )
     })
 }
 

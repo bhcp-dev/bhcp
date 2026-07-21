@@ -533,7 +533,7 @@ fn validate_type_applications(
     Ok(())
 }
 
-fn surface_type(value: &SurfaceType, parameters: &[String]) -> Result<CheckedType> {
+pub(crate) fn surface_type(value: &SurfaceType, parameters: &[String]) -> Result<CheckedType> {
     let wire = match value {
         SurfaceType::Primitive(name) => array([text("primitive"), text(name)]),
         SurfaceType::Exact(name) => array([text("exact-number"), text(name)]),

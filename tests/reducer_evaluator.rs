@@ -104,6 +104,8 @@ fn ir(
         type_mode: bhcp::policy::TypeMode::InferStrict,
         types: vec![],
         functions: vec![reducer],
+        pure_functions: vec![],
+        predicates: vec![],
         goals,
         entrypoints: vec!["goal-parent".to_owned()],
         effective_policy: None,
@@ -395,10 +397,10 @@ fn unreachable_unsupported_calls_and_runtime_output_mismatch_fail_closed() {
     let error = KernelRuntime::new(&invalid_ir)
         .reduce("network-1", Value::owned_map(vec![]), &[])
         .unwrap_err();
-    assert_eq!(error.code, "BHCP4101");
+    assert_eq!(error.code, "BHCP4001");
     assert_eq!(
         error.message,
-        "reducer call is not a registered total pure kernel primitive: example/ambient-callback@0"
+        "IR function call does not resolve to a retained definition or closed kernel primitive"
     );
 
     let observations = expression(
