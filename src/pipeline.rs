@@ -1261,6 +1261,13 @@ fn lower_derived_extension(
             &spec.at,
         )
     })?;
+    if !reducer_signature_matches(reducer_source, &spec.input, &observations, &spec.output) {
+        return Err(extension_error(
+            "derived extension reducer signature does not match its specialization",
+            source_name,
+            &spec.at,
+        ));
+    }
     let reducer_symbol = specialized_reducer_symbol(
         &shape.reducer,
         &spec.input,
@@ -2612,6 +2619,12 @@ fn instantiate_reducer(
         output,
         gate_condition,
     } = specialization;
+    if !reducer_signature_matches(source, &input, &observations, &output) {
+        return Err(Diagnostic::plain(
+            "BHCP3001",
+            "reducer signature does not match its specialization",
+        ));
+    }
     let parent = Binding {
         id: ids.next("parameter"),
         name: source.parameters[0].name.clone(),
@@ -2648,6 +2661,115 @@ fn instantiate_reducer(
         result,
         definition,
     })
+}
+
+fn reducer_signature_matches(
+    source: &SurfaceFunction,
+    input: &BhcpType,
+    observations: &BhcpType,
+    output: &BhcpType,
+) -> bool {
+    let [parent, observed] = source.parameters.as_slice() else {
+        return false;
+    };
+    let SurfaceType::Reduction(result) = &source.result else {
+        return false;
+    };
+    let parameters = source
+        .type_parameters
+        .iter()
+        .cloned()
+        .collect::<HashSet<_>>();
+    let mut substitutions = HashMap::new();
+    surface_type_matches_specialization(&parent.value_type, input, &parameters, &mut substitutions)
+        && surface_type_matches_specialization(
+            &observed.value_type,
+            observations,
+            &parameters,
+            &mut substitutions,
+        )
+        && surface_type_matches_specialization(result, output, &parameters, &mut substitutions)
+}
+
+fn surface_type_matches_specialization(
+    declared: &SurfaceType,
+    actual: &BhcpType,
+    parameters: &HashSet<String>,
+    substitutions: &mut HashMap<String, BhcpType>,
+) -> bool {
+    match (declared, actual) {
+        (SurfaceType::Parameter(name), actual) if parameters.contains(name) => {
+            match substitutions.get(name) {
+                Some(previous) => previous == actual,
+                None => {
+                    substitutions.insert(name.clone(), actual.clone());
+                    true
+                }
+            }
+        }
+        (SurfaceType::Primitive(left), BhcpType::Primitive(right)) => left == right,
+        (SurfaceType::Exact(left), BhcpType::ExactNumber(right)) => left == right,
+        (SurfaceType::Record(left), BhcpType::Record(right)) if left.len() == right.len() => {
+            left.iter().all(|field| {
+                right
+                    .iter()
+                    .find(|candidate| candidate.name == field.name)
+                    .is_some_and(|candidate| {
+                        surface_type_matches_specialization(
+                            &field.value_type,
+                            &candidate.value_type,
+                            parameters,
+                            substitutions,
+                        )
+                    })
+            })
+        }
+        (
+            SurfaceType::Nominal {
+                symbol: left_symbol,
+                arguments: left_arguments,
+            },
+            BhcpType::Nominal(right_symbol, right_arguments),
+        ) if left_symbol == right_symbol && left_arguments.len() == right_arguments.len() => {
+            left_arguments
+                .iter()
+                .zip(right_arguments)
+                .all(|(left, right)| {
+                    surface_type_matches_specialization(left, right, parameters, substitutions)
+                })
+        }
+        (SurfaceType::Reduction(left), BhcpType::Reduction(right))
+        | (SurfaceType::List(left), BhcpType::List(right))
+        | (SurfaceType::Option(left), BhcpType::Option(right)) => {
+            surface_type_matches_specialization(left, right, parameters, substitutions)
+        }
+        (
+            SurfaceType::Handle {
+                ownership,
+                access,
+                usage,
+                lifetime,
+                value_type,
+            },
+            BhcpType::Handle(actual),
+        ) => {
+            ownership == &actual.ownership
+                && access.as_deref().unwrap_or(if ownership == "shared" {
+                    "read"
+                } else {
+                    "write"
+                }) == actual.access
+                && usage.as_deref().unwrap_or("unrestricted") == actual.usage
+                && lifetime.as_deref().unwrap_or("goal") == actual.lifetime
+                && surface_type_matches_specialization(
+                    value_type,
+                    &actual.value_type,
+                    parameters,
+                    substitutions,
+                )
+        }
+        _ => false,
+    }
 }
 
 fn lower_reducer_expression(

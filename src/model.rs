@@ -898,6 +898,49 @@ impl ExtensionNode {
             ("must_understand", Value::Bool(self.must_understand)),
         ])
     }
+
+    fn validate_payload(&self) -> Result<()> {
+        let Value::Map(entries) = &self.payload else {
+            return Err(Diagnostic::plain(
+                "BHCP4001",
+                "native extension payload must contain a descriptor and value envelope",
+            ));
+        };
+        let mut keys = HashSet::new();
+        if entries.len() != 2
+            || entries.iter().any(|(key, _)| {
+                !matches!(key.as_str(), "descriptor" | "value") || !keys.insert(key.as_str())
+            })
+        {
+            return Err(Diagnostic::plain(
+                "BHCP4001",
+                "native extension payload envelope must contain exactly descriptor and value",
+            ));
+        }
+        let descriptor = self
+            .payload
+            .get("descriptor")
+            .expect("validated envelope key");
+        crate::schema::validate_root(descriptor, "extension-descriptor").map_err(|diagnostic| {
+            Diagnostic::plain(
+                "BHCP4001",
+                format!(
+                    "native extension descriptor is invalid: {}",
+                    diagnostic.message
+                ),
+            )
+        })?;
+        if descriptor.get("symbol") != Some(&Value::Text(self.extension.clone()))
+            || descriptor.get("extension_kind") != Some(&Value::Text("native".to_owned()))
+            || descriptor.get("must_understand") != Some(&Value::Bool(self.must_understand))
+        {
+            return Err(Diagnostic::plain(
+                "BHCP4001",
+                "native extension descriptor does not agree with its retained node",
+            ));
+        }
+        Ok(())
+    }
 }
 
 impl PredicateVerifierBinding {
@@ -1244,6 +1287,7 @@ impl SemanticIrDocument {
         let mut extension_symbols = HashSet::new();
         for extension in &self.extensions {
             add_id(&extension.id, &mut ids)?;
+            extension.validate_payload()?;
             if !is_symbol(&extension.extension)
                 || !extension.must_understand
                 || !extension_symbols.insert(extension.extension.clone())

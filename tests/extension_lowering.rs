@@ -123,6 +123,25 @@ fn missing_or_core_overriding_derived_extensions_fail_before_ir() {
 }
 
 #[test]
+fn derived_extension_reducer_declaration_must_match_the_specialization() {
+    for (name, changed) in [
+        ("parent", DERIVED.replace("parent: Unit", "parent: Text")),
+        (
+            "observations",
+            DERIVED.replace("observations: {}", "observations: { forged: Text }"),
+        ),
+        (
+            "result",
+            DERIVED.replace("): Reduction<Unit> =", "): Reduction<Text> ="),
+        ),
+    ] {
+        let diagnostic = compile_source(&changed, &format!("wrong-{name}.bhcp")).unwrap_err();
+        assert_eq!(diagnostic.code, "BHCP5003", "{name}: {diagnostic}");
+        assert!(diagnostic.message.contains("reducer signature"));
+    }
+}
+
+#[test]
 fn supported_native_extension_retains_exact_schema_payload_and_identity() {
     let mut registry = ExtensionRegistry::new();
     registry
@@ -272,6 +291,39 @@ fn native_nodes_are_source_order_independent_inspectable_and_fail_closed_when_ta
     let mut optional = forward.ir.clone();
     optional.extensions[0].must_understand = false;
     assert_eq!(optional.validate().unwrap_err().code, "BHCP4001");
+
+    let mut forged = forward.ir.clone();
+    forged.extensions[0].payload = Value::Text("forged".to_owned());
+    assert_eq!(forged.validate().unwrap_err().code, "BHCP4001");
+
+    let mut wrong_symbol = forward.ir.clone();
+    let Value::Map(envelope) = &mut wrong_symbol.extensions[0].payload else {
+        unreachable!()
+    };
+    let Value::Map(descriptor) = &mut envelope
+        .iter_mut()
+        .find(|(key, _)| key == "descriptor")
+        .unwrap()
+        .1
+    else {
+        unreachable!()
+    };
+    descriptor
+        .iter_mut()
+        .find(|(key, _)| key == "symbol")
+        .unwrap()
+        .1 = Value::Text("example/forged@0".to_owned());
+    assert_eq!(wrong_symbol.validate().unwrap_err().code, "BHCP4001");
+
+    let mut extra_envelope_field = forward.ir.clone();
+    let Value::Map(envelope) = &mut extra_envelope_field.extensions[0].payload else {
+        unreachable!()
+    };
+    envelope.push(("forged".to_owned(), Value::Bool(true)));
+    assert_eq!(
+        extra_envelope_field.validate().unwrap_err().code,
+        "BHCP4001"
+    );
 }
 
 #[test]
