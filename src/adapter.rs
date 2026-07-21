@@ -105,6 +105,50 @@ impl VerifierProcessRunner {
         })
     }
 
+    pub(crate) fn registered_executable_reference(
+        &self,
+        declaration: &VerifierAdapterDeclaration,
+    ) -> Result<ContentReference> {
+        let executable = self
+            .resolve_executable(&declaration.executable)
+            .map_err(|error| match error {
+                ResolveError::Missing => invalid("registered adapter executable is missing"),
+                ResolveError::Escape => {
+                    invalid("registered adapter executable escapes the project root")
+                }
+                ResolveError::Unreadable(message) => invalid(message),
+            })?;
+        let metadata = fs::metadata(&executable).map_err(|error| {
+            invalid(format!(
+                "cannot inspect registered adapter executable: {error}"
+            ))
+        })?;
+        if metadata.len() > MAX_ADAPTER_EXECUTABLE_BYTES {
+            return Err(invalid(
+                "registered adapter executable exceeds the artifact limit",
+            ));
+        }
+        let identity = ExecutableIdentity::from_metadata(&metadata);
+        let bytes = fs::read(&executable).map_err(|error| {
+            invalid(format!(
+                "cannot read registered adapter executable: {error}"
+            ))
+        })?;
+        let captured = fs::metadata(&executable)
+            .map(|metadata| ExecutableIdentity::from_metadata(&metadata))
+            .map_err(|error| {
+                invalid(format!(
+                    "registered adapter executable changed during capture: {error}"
+                ))
+            })?;
+        if captured != identity || bytes.len() as u64 != metadata.len() {
+            return Err(invalid(
+                "registered adapter executable changed while its artifact was captured",
+            ));
+        }
+        Ok(reference(EXECUTABLE_MEDIA_TYPE, &bytes))
+    }
+
     pub fn run(
         &self,
         declaration: &VerifierAdapterDeclaration,

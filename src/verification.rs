@@ -239,9 +239,15 @@ impl VerifierRegistry {
             RegisteredVerifier::InProcess { artifact, .. } => {
                 Ok(item.verifier_artifact == *artifact && item.provenance_source.is_none())
             }
-            RegisteredVerifier::Adapter { declaration, .. } => {
+            RegisteredVerifier::Adapter {
+                runner,
+                declaration,
+                ..
+            } => {
                 let registration = crate::adapter::registration_reference(declaration)?;
-                Ok(item.provenance_source.as_ref() == Some(&registration))
+                let executable = runner.registered_executable_reference(declaration)?;
+                Ok(item.provenance_source.as_ref() == Some(&registration)
+                    && item.verifier_artifact == executable)
             }
         }
     }
@@ -1167,7 +1173,9 @@ fn verify(
             .expect("contract target map covers every contract clause");
         let payload_value = Value::map([
             ("goal", Value::Text(goal.id.clone())),
+            ("input", request.input.clone()),
             ("obligation", Value::Text(obligation.clone())),
+            ("output", request.output.clone()),
             ("result", Value::Bool(accepted)),
         ]);
         builder.evidence(

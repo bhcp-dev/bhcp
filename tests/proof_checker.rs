@@ -1,15 +1,23 @@
+use std::fs;
+use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicUsize, Ordering};
+
+use bhcp::adapter::{CancellationToken, VerifierProcessRunner};
 use bhcp::graph::GraphDocument;
 use bhcp::hash::{HashAlgorithm, artifact_hash_with, semantic_hash_with};
 use bhcp::kernel::{
     ChildObservation, ExecutionResult, KernelRuntime, OperationalFault, Reason, Reduction, Verdict,
 };
+use bhcp::manifest::{VerifierAdapterDeclaration, WorkingScope};
 use bhcp::model::{BhcpType, ClauseKind, ContentReference};
 use bhcp::obligation::build_obligation_graph;
 use bhcp::pipeline::{
     Compilation, compile_source, compile_source_with_policy, parse_policy_source,
 };
 use bhcp::policy::compose_policies;
-use bhcp::proof::{ObligationProofRequest, ProofState, verify_obligation_proof};
+use bhcp::proof::{
+    ObligationProofRequest, ProofEvaluationContext, ProofState, verify_obligation_proof,
+};
 use bhcp::value::Value;
 use bhcp::verification::{
     EvidenceBundle, PayloadArtifact, VerificationRequest, VerificationState, Verifier,
@@ -30,6 +38,34 @@ const SOURCE: &str = r#"
     };
 }
 "#;
+
+static NEXT_ADAPTER_PROJECT: AtomicUsize = AtomicUsize::new(1);
+
+struct AdapterProject {
+    root: PathBuf,
+}
+
+impl AdapterProject {
+    fn new() -> Self {
+        let root = std::env::temp_dir().join(format!(
+            "bhcp-proof-adapter-{}-{}",
+            std::process::id(),
+            NEXT_ADAPTER_PROJECT.fetch_add(1, Ordering::Relaxed)
+        ));
+        fs::create_dir_all(root.join("tools")).unwrap();
+        let source = Path::new(env!("CARGO_BIN_EXE_bhcp-verifier-fixture"));
+        let target = root.join("tools/verifier-fixture");
+        fs::copy(source, &target).unwrap();
+        fs::set_permissions(&target, fs::metadata(source).unwrap().permissions()).unwrap();
+        Self { root }
+    }
+}
+
+impl Drop for AdapterProject {
+    fn drop(&mut self) {
+        fs::remove_dir_all(&self.root).unwrap();
+    }
+}
 
 #[derive(Clone)]
 struct AuditVerifier {
@@ -197,6 +233,29 @@ fn accepted_verifier() -> AuditVerifier {
     }
 }
 
+fn adapter_registry(project: &AdapterProject) -> VerifierRegistry {
+    let mut registry = VerifierRegistry::new();
+    registry
+        .register_adapter(
+            VerifierProcessRunner::new(&project.root).unwrap(),
+            VerifierAdapterDeclaration {
+                symbol: "example/verifier.audit@0".to_owned(),
+                executable: PathBuf::from("tools/verifier-fixture"),
+                argv: vec!["accepted".to_owned()],
+                working_scope: WorkingScope::Project,
+                input_media_type: "application/vnd.bhcp.verification-request+cbor".to_owned(),
+                output_media_type: "application/vnd.bhcp.verifier-result+cbor".to_owned(),
+                timeout_ms: 2_000,
+                allowed_effects: vec!["bhcp-effect/process@0".to_owned()],
+                evidence_kind: "static".to_owned(),
+            },
+            vec!["bhcp-effect/process@0".to_owned()],
+            CancellationToken::new(),
+        )
+        .unwrap();
+    registry
+}
+
 fn faulted_verifier() -> AuditVerifier {
     AuditVerifier {
         execution: VerifierExecution::Faulted(Reason {
@@ -339,6 +398,11 @@ fn proof(
     let claimed = KernelRuntime::new(&compilation.ir)
         .reduce("network-1", parent.clone(), &observations)
         .unwrap();
+    let evaluation_contexts = [ProofEvaluationContext {
+        goal: "example/Child@0".to_owned(),
+        input: Value::owned_map(vec![]),
+        output: Value::map([("value", Value::Bool(true))]),
+    }];
     let checked = verify_obligation_proof(ObligationProofRequest {
         compilation,
         obligation_graph: graph,
@@ -348,6 +412,7 @@ fn proof(
         claimed: &claimed,
         evidence: bundle,
         payloads,
+        evaluation_contexts: &evaluation_contexts,
         verifier_registry,
         candidate: &candidate(),
         candidate_bytes: b"candidate-v1",
@@ -429,6 +494,142 @@ fn complete_graph_proofs_preserve_satisfied_refuted_unresolved_and_faulted() {
         }),
     );
     assert_eq!(checked.unwrap().state, ProofState::Faulted);
+}
+
+#[test]
+fn observed_child_result_must_match_its_aggregate_obligation_evidence() {
+    let compilation = compilation(true);
+    let graph = build_obligation_graph(&compilation).unwrap();
+    let mut registry = VerifierRegistry::new();
+    registry.register(accepted_verifier()).unwrap();
+    let report = verification(&compilation, &registry);
+    let mut contradicted = report.bundle.clone();
+    let original_claim = contradicted
+        .claims
+        .iter()
+        .find(|claim| {
+            claim.status == "accepted"
+                && claim.polarity == "supports"
+                && claim.predicate == "example/verifier.audit@0"
+        })
+        .unwrap()
+        .clone();
+    let original_item = contradicted
+        .items
+        .iter()
+        .find(|item| item.claims.contains(&original_claim.id))
+        .unwrap()
+        .clone();
+    let mut refuting_claim = original_claim.clone();
+    refuting_claim.id = "contradicting-refuting-claim".to_owned();
+    refuting_claim.polarity = "refutes".to_owned();
+    let mut refuting_item = original_item;
+    refuting_item.id = "contradicting-refuting-item".to_owned();
+    refuting_item.claims = vec![refuting_claim.id.clone()];
+    contradicted
+        .obligation_status
+        .insert(original_claim.obligation.clone(), "refuted".to_owned());
+    contradicted.claims.push(refuting_claim.clone());
+    contradicted.items.push(refuting_item.clone());
+    contradicted.edges.push(bhcp::verification::EvidenceEdge {
+        id: "contradicting-refuting-edge".to_owned(),
+        from: refuting_item.id,
+        to: refuting_claim.id,
+        kind: "produces".to_owned(),
+    });
+    rematerialize(&mut contradicted);
+
+    let (_, checked) = proof(
+        &compilation,
+        &graph,
+        &contradicted,
+        &report.payloads,
+        &registry,
+        ExecutionResult::Completed(Verdict::Satisfied {
+            output: Value::map([("value", Value::Bool(true))]),
+            evidence: accepted_claims(&report.bundle, "supports"),
+        }),
+    );
+    assert_eq!(checked.unwrap_err().code, "BHCP7302");
+}
+
+#[test]
+fn refuting_expression_evidence_requires_deterministic_re_evaluation() {
+    let compilation = compilation(true);
+    let graph = build_obligation_graph(&compilation).unwrap();
+    let registry = VerifierRegistry::new();
+    let report = verification(&compilation, &registry);
+    let mut forged = report.bundle.clone();
+    let expression_claim = forged
+        .claims
+        .iter_mut()
+        .find(|claim| claim.predicate == "bhcp.verifier/expression@0")
+        .unwrap();
+    expression_claim.polarity = "refutes".to_owned();
+    let claim_id = expression_claim.id.clone();
+    forged
+        .obligation_status
+        .insert(expression_claim.obligation.clone(), "refuted".to_owned());
+    let mut payloads = report.payloads.clone();
+    let expression_item = forged
+        .items
+        .iter()
+        .find(|item| item.verifier == "bhcp.verifier/expression@0")
+        .unwrap();
+    let expression_payload = payloads
+        .iter()
+        .find(|payload| payload.reference == expression_item.payload)
+        .unwrap();
+    let mut value = bhcp::cbor::decode_deterministic(&expression_payload.bytes).unwrap();
+    let Value::Map(fields) = &mut value else {
+        unreachable!()
+    };
+    fields
+        .iter_mut()
+        .find(|(field, _)| field == "result")
+        .unwrap()
+        .1 = Value::Bool(false);
+    replace_expression_payload(&mut forged, &mut payloads, value);
+
+    let (claimed, checked) = proof(
+        &compilation,
+        &graph,
+        &forged,
+        &payloads,
+        &registry,
+        ExecutionResult::Completed(Verdict::Refuted {
+            counter_evidence: vec![claim_id.clone()],
+        }),
+    );
+    assert_eq!(checked.unwrap_err().code, "BHCP7301");
+
+    let parent = Value::owned_map(vec![]);
+    let observations = [ChildObservation {
+        child: "child-1".to_owned(),
+        result: ExecutionResult::Completed(Verdict::Refuted {
+            counter_evidence: vec![claim_id],
+        }),
+    }];
+    assert_eq!(
+        verify_obligation_proof(ObligationProofRequest {
+            compilation: &compilation,
+            obligation_graph: &graph,
+            network: "network-1",
+            parent: &parent,
+            observations: &observations,
+            claimed: &claimed,
+            evidence: &forged,
+            payloads: &payloads,
+            evaluation_contexts: &[],
+            verifier_registry: &registry,
+            candidate: &candidate(),
+            candidate_bytes: b"candidate-v1",
+            produced_at: "2026-07-21T09:30:00Z",
+        })
+        .unwrap_err()
+        .code,
+        "BHCP7301"
+    );
 }
 
 #[test]
@@ -610,6 +811,55 @@ fn candidate_payload_producer_and_derivation_identity_are_not_substitutable() {
 }
 
 #[test]
+fn adapter_executable_artifact_is_bound_to_the_registered_authority() {
+    let project = AdapterProject::new();
+    let compilation = compilation(true);
+    let graph = build_obligation_graph(&compilation).unwrap();
+    let registry = adapter_registry(&project);
+    let report = verification(&compilation, &registry);
+    let child_result = ExecutionResult::Completed(Verdict::Satisfied {
+        output: Value::map([("value", Value::Bool(true))]),
+        evidence: accepted_claims(&report.bundle, "supports"),
+    });
+    proof(
+        &compilation,
+        &graph,
+        &report.bundle,
+        &report.payloads,
+        &registry,
+        child_result.clone(),
+    )
+    .1
+    .unwrap();
+
+    let mut substituted = report.bundle.clone();
+    substituted
+        .items
+        .iter_mut()
+        .find(|item| item.verifier == "example/verifier.audit@0")
+        .unwrap()
+        .verifier_artifact = reference(
+        "application/vnd.bhcp.executable",
+        b"attacker-selected-executable",
+    );
+    rematerialize(&mut substituted);
+    assert_eq!(
+        proof(
+            &compilation,
+            &graph,
+            &substituted,
+            &report.payloads,
+            &registry,
+            child_result,
+        )
+        .1
+        .unwrap_err()
+        .code,
+        "BHCP7301"
+    );
+}
+
+#[test]
 fn reducer_re_evaluation_rejects_hidden_output_or_premise_choice() {
     let compilation = compilation(true);
     let graph = build_obligation_graph(&compilation).unwrap();
@@ -632,6 +882,11 @@ fn reducer_re_evaluation_rejects_hidden_output_or_premise_choice() {
         unreachable!()
     };
     derivation.premises.reverse();
+    let evaluation_contexts = [ProofEvaluationContext {
+        goal: "example/Child@0".to_owned(),
+        input: Value::owned_map(vec![]),
+        output: Value::map([("value", Value::Bool(true))]),
+    }];
     assert_eq!(
         verify_obligation_proof(ObligationProofRequest {
             compilation: &compilation,
@@ -645,6 +900,7 @@ fn reducer_re_evaluation_rejects_hidden_output_or_premise_choice() {
             claimed: &claimed,
             evidence: &report.bundle,
             payloads: &report.payloads,
+            evaluation_contexts: &evaluation_contexts,
             verifier_registry: &registry,
             candidate: &candidate(),
             candidate_bytes: b"candidate-v1",
@@ -848,6 +1104,18 @@ fn decisive_any_proof_keeps_an_unused_dependency_unresolved() {
     let claimed = KernelRuntime::new(&compilation.ir)
         .reduce("network-1", parent.clone(), &observations)
         .unwrap();
+    let evaluation_contexts = [
+        ProofEvaluationContext {
+            goal: "example/ChildA@0".to_owned(),
+            input: Value::owned_map(vec![]),
+            output: Value::map([("value", Value::Bool(true))]),
+        },
+        ProofEvaluationContext {
+            goal: "example/ChildB@0".to_owned(),
+            input: Value::owned_map(vec![]),
+            output: Value::map([("value", Value::Bool(true))]),
+        },
+    ];
     let checked = verify_obligation_proof(ObligationProofRequest {
         compilation: &compilation,
         obligation_graph: &graph,
@@ -857,6 +1125,7 @@ fn decisive_any_proof_keeps_an_unused_dependency_unresolved() {
         claimed: &claimed,
         evidence: &bundle,
         payloads: &payloads,
+        evaluation_contexts: &evaluation_contexts,
         verifier_registry: &registry,
         candidate: &candidate(),
         candidate_bytes: b"candidate-v1",
@@ -951,6 +1220,7 @@ fn policy_minimum_counts_distinct_producers_not_duplicated_items() {
             claimed: &claimed,
             evidence: &duplicated,
             payloads: &report.payloads,
+            evaluation_contexts: &[],
             verifier_registry: &registry,
             candidate: &candidate(),
             candidate_bytes: b"candidate-v1",
@@ -980,6 +1250,7 @@ fn policy_minimum_counts_distinct_producers_not_duplicated_items() {
             claimed: &claimed,
             evidence: &forged_producer,
             payloads: &report.payloads,
+            evaluation_contexts: &[],
             verifier_registry: &registry,
             candidate: &candidate(),
             candidate_bytes: b"candidate-v1",
@@ -1010,6 +1281,7 @@ fn policy_minimum_counts_distinct_producers_not_duplicated_items() {
             claimed: &claimed,
             evidence: &unbound_producer,
             payloads: &report.payloads,
+            evaluation_contexts: &[],
             verifier_registry: &registry,
             candidate: &candidate(),
             candidate_bytes: b"candidate-v1",
@@ -1033,6 +1305,7 @@ fn policy_minimum_counts_distinct_producers_not_duplicated_items() {
             claimed: &claimed,
             evidence: &forged_provenance,
             payloads: &report.payloads,
+            evaluation_contexts: &[],
             verifier_registry: &registry,
             candidate: &candidate(),
             candidate_bytes: b"candidate-v1",

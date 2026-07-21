@@ -43,10 +43,18 @@ pub struct ObligationProofRequest<'a> {
     pub claimed: &'a Reduction,
     pub evidence: &'a EvidenceBundle,
     pub payloads: &'a [PayloadArtifact],
+    pub evaluation_contexts: &'a [ProofEvaluationContext],
     pub verifier_registry: &'a VerifierRegistry,
     pub candidate: &'a ContentReference,
     pub candidate_bytes: &'a [u8],
     pub produced_at: &'a str,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ProofEvaluationContext {
+    pub goal: String,
+    pub input: Value,
+    pub output: Value,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -139,13 +147,12 @@ pub fn verify_obligation_proof(request: ObligationProofRequest<'_>) -> Result<Pr
     )?;
 
     let mut statuses = checked_leaf_statuses(request.evidence, &evidence_targets)?;
-    derive_dependency_statuses(
-        result,
-        derivation.premises.as_slice(),
-        &claims,
+    derive_dependency_statuses(request.obligation_graph, &closure, &mut statuses)?;
+    validate_observation_statuses(
+        request.observations,
         request.obligation_graph,
         &closure,
-        &mut statuses,
+        &statuses,
     )?;
     validate_dependency_premises(
         derivation.premises.as_slice(),
@@ -335,7 +342,7 @@ fn validate_evidence_bindings(
         .iter()
         .map(|claim| (claim.id.as_str(), claim))
         .collect::<HashMap<_, _>>();
-    let contexts = goal_contexts(request, parent_goal)?;
+    let contexts = goal_contexts(request, parent_goal, targets)?;
     let items = request
         .evidence
         .items
@@ -549,15 +556,20 @@ fn validate_expression_payload(
             "expression evidence payload does not match its structural target",
         ));
     }
-    if let Some((input, output)) = contexts.get(&goal.symbol) {
-        for source in texts(target.value(), "source_clauses") {
-            let actual =
-                crate::verification::evaluate_contract_condition(goal, source, input, output)?;
-            if actual != expected_result {
-                return Err(invalid_input(
-                    "total-condition evidence disagrees with deterministic re-evaluation",
-                ));
-            }
+    let (input, output) = contexts.get(&goal.symbol).ok_or_else(|| {
+        invalid_input("expression evidence has no sealed input and output evaluation context")
+    })?;
+    if value.get("input") != Some(input) || value.get("output") != Some(output) {
+        return Err(invalid_input(
+            "expression evidence payload does not match its sealed evaluation context",
+        ));
+    }
+    for source in texts(target.value(), "source_clauses") {
+        let actual = crate::verification::evaluate_contract_condition(goal, source, input, output)?;
+        if actual != expected_result {
+            return Err(invalid_input(
+                "total-condition evidence disagrees with deterministic re-evaluation",
+            ));
         }
     }
     Ok(())
@@ -566,24 +578,50 @@ fn validate_expression_payload(
 fn goal_contexts(
     request: &ObligationProofRequest<'_>,
     parent_goal: &GoalDefinition,
+    targets: &BTreeSet<String>,
 ) -> Result<HashMap<String, (Value, Value)>> {
     let (_, network) = resolve_network(request.compilation, request.network)?;
+    let mut allowed = targets
+        .iter()
+        .flat_map(|target| node_goals(node(request.obligation_graph, target)))
+        .collect::<BTreeSet<_>>();
+    allowed.insert(parent_goal.symbol.as_str());
     let mut contexts = HashMap::new();
+    for context in request.evaluation_contexts {
+        if !allowed.contains(context.goal.as_str())
+            || contexts
+                .insert(
+                    context.goal.clone(),
+                    (context.input.clone(), context.output.clone()),
+                )
+                .is_some()
+        {
+            return Err(invalid_input(
+                "proof evaluation context is duplicated or outside the network closure",
+            ));
+        }
+    }
+    if contexts
+        .get(&parent_goal.symbol)
+        .is_some_and(|(input, _)| input != request.parent)
+    {
+        return Err(invalid_input(
+            "parent evaluation context does not match the sealed network input",
+        ));
+    }
     if let Reduction::Concluded {
         result: ExecutionResult::Completed(Verdict::Satisfied { output, .. }),
         ..
     } = request.claimed
     {
-        contexts.insert(
-            parent_goal.symbol.clone(),
-            (request.parent.clone(), output.clone()),
-        );
+        insert_or_match_context(
+            &mut contexts,
+            parent_goal,
+            request.parent.clone(),
+            output.clone(),
+        )?;
     }
     for observation in request.observations {
-        let ExecutionResult::Completed(Verdict::Satisfied { output, .. }) = &observation.result
-        else {
-            continue;
-        };
         let child = network
             .children
             .iter()
@@ -597,9 +635,37 @@ fn goal_contexts(
             .find(|goal| goal.id == child.goal)
             .expect("validated semantic IR resolves every child goal");
         let input = child_input(network, child, request.parent, request.observations)?;
-        contexts.insert(child_goal.symbol.clone(), (input, output.clone()));
+        if contexts
+            .get(&child_goal.symbol)
+            .is_some_and(|(expected, _)| expected != &input)
+        {
+            return Err(invalid_input(
+                "child evaluation context does not match its retained data edges",
+            ));
+        }
+        if let ExecutionResult::Completed(Verdict::Satisfied { output, .. }) = &observation.result {
+            insert_or_match_context(&mut contexts, child_goal, input, output.clone())?;
+        }
     }
     Ok(contexts)
+}
+
+fn insert_or_match_context(
+    contexts: &mut HashMap<String, (Value, Value)>,
+    goal: &GoalDefinition,
+    input: Value,
+    output: Value,
+) -> Result<()> {
+    if let Some(expected) = contexts.get(&goal.symbol) {
+        if expected != &(input, output) {
+            return Err(invalid_input(
+                "proof evaluation context does not match the reconstructed execution value",
+            ));
+        }
+    } else {
+        contexts.insert(goal.symbol.clone(), (input, output));
+    }
+    Ok(())
 }
 
 fn child_input(
@@ -900,9 +966,6 @@ fn checked_leaf_statuses(
 }
 
 fn derive_dependency_statuses(
-    result: &ExecutionResult,
-    premises: &[String],
-    claims: &HashMap<&str, &EvidenceClaim>,
     graph: &GraphDocument,
     closure: &BTreeSet<String>,
     statuses: &mut BTreeMap<String, CheckedStatus>,
@@ -945,25 +1008,6 @@ fn derive_dependency_statuses(
             } else {
                 CheckedStatus::Discharged
             };
-            let used = premises.iter().any(|premise| {
-                claims
-                    .get(premise.as_str())
-                    .is_some_and(|claim| dependencies.contains(&claim.obligation.as_str()))
-            });
-            let status = if used {
-                match result {
-                    ExecutionResult::Completed(Verdict::Satisfied { .. }) => {
-                        CheckedStatus::Discharged
-                    }
-                    ExecutionResult::Completed(Verdict::Refuted { .. }) => CheckedStatus::Refuted,
-                    ExecutionResult::Completed(Verdict::Unresolved { .. }) => {
-                        CheckedStatus::Unresolved
-                    }
-                    ExecutionResult::Faulted(_) => CheckedStatus::Faulted,
-                }
-            } else {
-                status
-            };
             statuses.insert(id.clone(), status);
             changed = true;
         }
@@ -974,6 +1018,65 @@ fn derive_dependency_statuses(
         }
     }
     Ok(())
+}
+
+fn validate_observation_statuses(
+    observations: &[ChildObservation],
+    graph: &GraphDocument,
+    closure: &BTreeSet<String>,
+    statuses: &BTreeMap<String, CheckedStatus>,
+) -> Result<()> {
+    let discharge = closure
+        .iter()
+        .filter(|id| node(graph, id).kind == "discharge")
+        .collect::<Vec<_>>();
+    for observation in observations {
+        let matches = discharge
+            .iter()
+            .filter(|id| {
+                texts(node(graph, id).value(), "source_clauses")
+                    .contains(&observation.child.as_str())
+            })
+            .collect::<Vec<_>>();
+        let [discharge] = matches.as_slice() else {
+            return Err(invalid_input(
+                "child observation does not have one exact structural discharge",
+            ));
+        };
+        let dependencies = graph
+            .edges()
+            .iter()
+            .filter(|edge| edge.kind == "depends-on" && edge.from.as_str() == discharge.as_str())
+            .map(|edge| {
+                statuses
+                    .get(&edge.to)
+                    .copied()
+                    .ok_or_else(|| invalid_input("child obligation status is missing"))
+            })
+            .collect::<Result<Vec<_>>>()?;
+        if dependencies.is_empty() || !result_matches_statuses(&observation.result, &dependencies) {
+            return Err(invalid_proof(
+                "child observation does not match its aggregate obligation evidence",
+            ));
+        }
+    }
+    Ok(())
+}
+
+fn result_matches_statuses(result: &ExecutionResult, statuses: &[CheckedStatus]) -> bool {
+    let has = |status| statuses.contains(&status);
+    match result {
+        ExecutionResult::Completed(Verdict::Satisfied { .. }) => statuses
+            .iter()
+            .all(|status| *status == CheckedStatus::Discharged),
+        ExecutionResult::Completed(Verdict::Refuted { .. }) => has(CheckedStatus::Refuted),
+        ExecutionResult::Completed(Verdict::Unresolved { .. }) => {
+            !has(CheckedStatus::Refuted)
+                && !has(CheckedStatus::Faulted)
+                && has(CheckedStatus::Unresolved)
+        }
+        ExecutionResult::Faulted(_) => !has(CheckedStatus::Refuted) && has(CheckedStatus::Faulted),
+    }
 }
 
 fn validate_dependency_premises(

@@ -680,7 +680,10 @@ network reducer over its parent input and sealed observations, and binds derivat
 premises to matching child dependency edges and accepted evidence or
 counter-evidence. Candidate and payload bytes, producers, timestamps, contract
 expressions, policy evidence minima, derivation identities, and unresolved/fault
-reasons fail closed on substitution. The checked report preserves satisfied,
+reasons fail closed on substitution. Built-in expression evidence MUST bind the
+sealed typed input/output context used for deterministic re-evaluation, including
+for refuting outcomes, and an observed child result MUST agree with the aggregate
+statuses of its structural prerequisites. The checked report preserves satisfied,
 refuted, unresolved, and faulted states. Execution-graph construction, runtime
 enforcement, and final evidence-graph assembly remain separate stages.
 
