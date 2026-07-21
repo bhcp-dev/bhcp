@@ -121,7 +121,10 @@ The Rust implementation also has a strongly typed `evidence-bundle-document` mod
 for the registered verifier slice. It validates claim/item/gap references,
 per-obligation status justification, evidence classes, verifier and trust symbols,
 content references, deterministic artifact identity, and canonical timestamp tags
-before emission. Process-produced items retain the captured executable as
+before emission. Claims, producing items, and required gaps optionally retain the
+exact network or child `execution_instance`; the proof boundary requires it and
+rejects cross-instance claim/item/gap substitution. Process-produced items retain
+the captured executable as
 `verifier_artifact` and the normalized local adapter declaration as the optional
 provenance `source`; the local manifest remains deployment configuration rather than
 a new root document. The process-integration suite validates exact structural target

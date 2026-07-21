@@ -188,6 +188,26 @@ fn repeated_goal_compilation() -> Compilation {
     compile_source(source, "proof-checker-repeated-goal.bhcp").unwrap()
 }
 
+fn repeated_goal_any_compilation() -> Compilation {
+    let source = r#"
+§goal example/Child@0 {
+    §output value: Bool;
+    §requires "ready": true;
+    §verify "audit": with example/verifier.audit@0 for "ready";
+}
+
+§goal example/Parent@0 {
+    §output output: { value: Bool };
+    §output tag: Text;
+    §any {
+        first = example/Child@0();
+        second = example/Child@0();
+    };
+}
+"#;
+    compile_source(source, "proof-checker-repeated-goal-any.bhcp").unwrap()
+}
+
 fn policy_compilation() -> Compilation {
     let source = r#"
 §goal example/Child@0 {
@@ -904,6 +924,98 @@ fn repeated_goal_instances_may_have_distinct_results() {
             }));
         }
     }
+}
+
+#[test]
+fn repeated_goal_any_uses_instance_results_not_the_global_leaf_disposition() {
+    let compilation = repeated_goal_any_compilation();
+    let graph = build_obligation_graph(&compilation).unwrap();
+    let mut accepted_registry = VerifierRegistry::new();
+    accepted_registry.register(accepted_verifier()).unwrap();
+    let mut rejected_registry = VerifierRegistry::new();
+    rejected_registry.register(rejected_verifier()).unwrap();
+    let accepted = verification_for(
+        &compilation,
+        &accepted_registry,
+        "example/Child@0",
+        "child-1",
+    );
+    let rejected = verification_for(
+        &compilation,
+        &rejected_registry,
+        "example/Child@0",
+        "child-2",
+    );
+    let (bundle, payloads) = merge_evidence(accepted, rejected);
+    assert!(
+        bundle
+            .obligation_status
+            .values()
+            .any(|status| status == "refuted")
+    );
+    let claims = |polarity: &str, instance: &str| {
+        bundle
+            .claims
+            .iter()
+            .filter(|claim| {
+                claim.status == "accepted"
+                    && claim.polarity == polarity
+                    && claim.execution_instance.as_deref() == Some(instance)
+            })
+            .map(|claim| claim.id.clone())
+            .collect()
+    };
+    let child_output = Value::map([("value", Value::Bool(true))]);
+    let observations = [
+        ChildObservation {
+            child: "child-1".to_owned(),
+            result: ExecutionResult::Completed(Verdict::Satisfied {
+                output: child_output.clone(),
+                evidence: claims("supports", "child-1"),
+            }),
+        },
+        ChildObservation {
+            child: "child-2".to_owned(),
+            result: ExecutionResult::Completed(Verdict::Refuted {
+                counter_evidence: claims("refutes", "child-2"),
+            }),
+        },
+    ];
+    let parent = Value::owned_map(vec![]);
+    let claimed = KernelRuntime::new(&compilation.ir)
+        .reduce("network-1", parent.clone(), &observations)
+        .unwrap();
+    let evaluation_contexts = [
+        ProofEvaluationContext {
+            instance: "child-1".to_owned(),
+            goal: "example/Child@0".to_owned(),
+            input: Value::owned_map(vec![]),
+            output: child_output.clone(),
+        },
+        ProofEvaluationContext {
+            instance: "child-2".to_owned(),
+            goal: "example/Child@0".to_owned(),
+            input: Value::owned_map(vec![]),
+            output: child_output,
+        },
+    ];
+    let checked = verify_obligation_proof(ObligationProofRequest {
+        compilation: &compilation,
+        obligation_graph: &graph,
+        network: "network-1",
+        parent: &parent,
+        observations: &observations,
+        claimed: &claimed,
+        evidence: &bundle,
+        payloads: &payloads,
+        evaluation_contexts: &evaluation_contexts,
+        verifier_registry: &accepted_registry,
+        candidate: &candidate(),
+        candidate_bytes: b"candidate-v1",
+        produced_at: "2026-07-21T09:30:00Z",
+    })
+    .unwrap();
+    assert_eq!(checked.state, ProofState::Satisfied);
 }
 
 #[test]
