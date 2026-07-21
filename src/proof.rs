@@ -1371,48 +1371,28 @@ fn validate_outcome(
         .filter_map(|id| statuses.get(id))
         .copied()
         .collect::<Vec<_>>();
-    let discharge = closure
-        .iter()
-        .filter(|id| node(graph, id).kind == "discharge")
-        .filter_map(|id| statuses.get(id))
-        .copied()
-        .collect::<Vec<_>>();
     let local_has = |status| local.contains(&status);
-    let discharge_has = |status| discharge.contains(&status);
-    let state = match result {
-        ExecutionResult::Completed(Verdict::Satisfied { .. })
-            if local
-                .iter()
-                .all(|status| *status == CheckedStatus::Discharged) =>
-        {
-            ProofState::Satisfied
-        }
-        ExecutionResult::Completed(Verdict::Refuted { .. })
-            if local_has(CheckedStatus::Refuted) || discharge_has(CheckedStatus::Refuted) =>
-        {
-            ProofState::Refuted
-        }
-        ExecutionResult::Completed(Verdict::Unresolved { .. })
-            if !local_has(CheckedStatus::Refuted)
-                && !local_has(CheckedStatus::Faulted)
-                && (local_has(CheckedStatus::Unresolved)
-                    || discharge_has(CheckedStatus::Unresolved)) =>
-        {
-            ProofState::Unresolved
-        }
-        ExecutionResult::Faulted(_)
-            if !local_has(CheckedStatus::Refuted)
-                && (local_has(CheckedStatus::Faulted) || discharge_has(CheckedStatus::Faulted)) =>
-        {
-            ProofState::Faulted
-        }
-        _ => {
-            return Err(invalid_proof(
-                "claimed execution outcome does not match checked obligation dispositions",
-            ));
-        }
+    let result_state = match result {
+        ExecutionResult::Completed(Verdict::Satisfied { .. }) => ProofState::Satisfied,
+        ExecutionResult::Completed(Verdict::Refuted { .. }) => ProofState::Refuted,
+        ExecutionResult::Completed(Verdict::Unresolved { .. }) => ProofState::Unresolved,
+        ExecutionResult::Faulted(_) => ProofState::Faulted,
     };
-    Ok(state)
+    let required_state = if local_has(CheckedStatus::Refuted) {
+        ProofState::Refuted
+    } else if local_has(CheckedStatus::Faulted) {
+        ProofState::Faulted
+    } else if local_has(CheckedStatus::Unresolved) {
+        ProofState::Unresolved
+    } else {
+        result_state
+    };
+    if required_state != result_state {
+        return Err(invalid_proof(
+            "claimed execution outcome does not match checked parent obligation dispositions",
+        ));
+    }
+    Ok(result_state)
 }
 
 fn evidence_identity_collision(evidence: &EvidenceBundle, derivation: &str) -> bool {

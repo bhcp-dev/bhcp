@@ -1952,6 +1952,27 @@ fn generic_checker_accepts_counter_evidence_as_a_none_reducer_premise() {
 }
 
 #[test]
+fn none_refutation_is_derived_from_a_satisfied_child() {
+    let compilation = none_compilation(true);
+    let graph = build_obligation_graph(&compilation).unwrap();
+    let mut registry = VerifierRegistry::new();
+    registry.register(accepted_verifier()).unwrap();
+    let report = verification(&compilation, &registry);
+    let (_, checked) = proof(
+        &compilation,
+        &graph,
+        &report.bundle,
+        &report.payloads,
+        &registry,
+        ExecutionResult::Completed(Verdict::Satisfied {
+            output: Value::map([("value", Value::Bool(true))]),
+            evidence: accepted_claims(&report.bundle, "supports"),
+        }),
+    );
+    assert_eq!(checked.unwrap().state, ProofState::Refuted);
+}
+
+#[test]
 fn decisive_any_proof_keeps_an_unused_dependency_unresolved() {
     let compilation = any_compilation();
     let graph = build_obligation_graph(&compilation).unwrap();
