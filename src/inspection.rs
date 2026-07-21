@@ -372,6 +372,17 @@ fn render_semantic_ir(artifact: &Value, output: &mut String) {
             }
         }
     }
+    if let Some(Value::Array(extensions)) = artifact.get("extensions") {
+        for extension in extensions {
+            let id = text_field(extension, "id").unwrap_or("?");
+            let symbol = text_field(extension, "extension").unwrap_or("?");
+            let required = match extension.get("must_understand") {
+                Some(Value::Bool(true)) => "must-understand",
+                _ => "optional",
+            };
+            writeln!(output, "extension {id} {symbol} {required}").unwrap();
+        }
+    }
     let Some(Value::Array(goals)) = artifact.get("goals") else {
         return;
     };

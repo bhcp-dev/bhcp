@@ -104,6 +104,23 @@ impl Prelude {
         Ok(prelude)
     }
 
+    pub(crate) fn with_project_functions(mut self, program: &ParsedProgram) -> Result<Self> {
+        for function in &program.functions {
+            if self.functions.contains_key(&function.symbol) {
+                return Err(Diagnostic::plain(
+                    "BHCP5003",
+                    format!(
+                        "project definition attempts to override core function {:?}",
+                        function.symbol
+                    ),
+                ));
+            }
+            self.functions
+                .insert(function.symbol.clone(), function.clone());
+        }
+        Ok(self)
+    }
+
     pub fn lower(&self, symbol: &str, form: DerivedForm) -> Result<NetworkShape> {
         let function = self
             .functions

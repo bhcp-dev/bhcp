@@ -179,7 +179,7 @@ retention-lowering stages land.
 | `§type` / `§predicate` / `§refines` | Complete parsing plus checked type/refinement lowering and parsed predicate elaboration: every v0 wire type normalizes, local generics enforce arity/bounds, total refinements retain candidate-bound evidence, and canonical predicate verifier interfaces/configuration materialize in semantic IR | Source-expression grammar beyond the current parsed slice and its complete source-to-IR audit |
 | `§policy` | Complete canonical source parsing for layer, `§extends`, six closed typed rules, scopes/parameters, waivability, and issuers; composition, inspection, policy-aware elaboration, and no-waiver conformance fixtures | Expression-valued policy clauses and enforcement beyond the compile-time/evidence boundary |
 | `§syntax` / `§profile` | Complete closed source-definition parsing into typed deterministic artifacts; fixed byte-level selection, exact one-parent resolution, monotonic attached overlays, resolved-profile inspection, span-aware custom-source compilation, and deterministic profile-aware formatting | Applying newly parsed definitions as source-local registry inputs remains the profile-lowering stage |
-| `§waiver` / `§extension` | Complete closed source-definition parsing for all six typed waiver changes, canonical scopes/targets, authority/time fields, and wire-compatible derived/native descriptors; materialized references round-trip through the v0 wire boundary while frozen exact-symbol references remain deferred | Resolving symbolic artifact references, waiver application, and extension checking/lowering remain governed semantic stages |
+| `§waiver` / `§extension` | Complete closed source-definition parsing for all six typed waiver changes, canonical scopes/targets, authority/time fields, and wire-compatible derived/native descriptors. Derived extensions execute one concrete total pure BHCP lowerer and disappear into checked core IR; explicitly registered native extensions retain an exact-schema, must-understand node, while unsupported or core-overriding extensions fail before IR. | Resolving symbolic waiver references and waiver application remain governed stages. Native support is closed to exact host registrations; planning and execution do not interpret unknown native payloads. |
 | Other S7 definitions | None | `§use` declarations |
 
 The Phase 4 decision boundary admits only one-token keyword, punctuation, and symbol
@@ -598,6 +598,15 @@ duplicates with restrictive waiver governance, and emits canonical source-layer 
 rule provenance plus semantic/artifact identities. The policy CLI composes ordered
 source or CBOR inputs into validated deterministic bytes and human inspection names
 every source, effective rule, type mode, identity, and tightening provenance.
+
+The executable extension stage resolves derived descriptors to a source-defined
+`Meta<DerivedForm,I,O> -> Meta<NetworkShape,I,O>` function, runs it in the restricted
+total-pure evaluator, specializes its reducer, and retains only the resulting checked
+kernel goal. Lowerer names, descriptor presentation, and generated IDs do not survive
+semantic projection. Native descriptors require an exact symbol/schema registration;
+their descriptor and deterministic payload remain visible in inspection and semantic
+identity as a sorted unique must-understand node. Unsupported, schema-mismatched,
+mixed, policy-override, and reserved-core forms fail before graph construction.
 
 The Rust policy-aware compilation API applies a validated effective document before
 semantic IR emission. It rejects source type mode below the effective minimum,

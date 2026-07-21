@@ -125,6 +125,12 @@ impl DefinitionElaborator {
     ) -> Result<Self> {
         let mut templates = BTreeMap::new();
         for definition in &program.functions {
+            if matches!(
+                definition.result,
+                SurfaceType::Meta { .. } | SurfaceType::Reduction(_)
+            ) {
+                continue;
+            }
             templates.insert(
                 definition.symbol.clone(),
                 Template::Function(definition.clone()),

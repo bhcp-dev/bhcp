@@ -228,8 +228,10 @@ The machine-checked
 turns this scope into a closed implementation inventory: 99 normative scenario
 instances, 17 wire roots, ten observable pipeline stages, and one nontrivial
 reference program are assigned to stable milestone-7 issue keys. The manifest and
-reference program are a planned acceptance contract; current fail-closed rejection
-of unsupported definitions remains correct until the assigned implementation lands.
+reference program are a planned acceptance contract. Its isolated derived extension
+now lowers through checked core IR and the native boundary is closed to exact
+must-understand registrations; current fail-closed rejection of all other unsupported
+definitions remains correct until their assigned implementations land.
 
 The first useful runtime remains a constrained coding-agent backend: it accepts an
 issue and repository, enforces capabilities, captures changes, runs independent

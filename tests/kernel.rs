@@ -292,6 +292,7 @@ fn semantic_ir_resolves_network_reducers_as_bhcp_functions() {
         pure_functions: vec![],
         predicates: vec![],
         goals: vec![child, parent],
+        extensions: vec![],
         entrypoints: vec!["goal-parent".to_owned()],
         effective_policy: None,
         semantic_id: None,

@@ -6,19 +6,22 @@ use crate::diagnostic::{Diagnostic, Result};
 use crate::effects::{
     EFFECT_ANALYSIS_FEATURE, analyze as analyze_effects, canonicalize as canonicalize_effects,
 };
+use crate::extensions::ExtensionRegistry;
 use crate::hash::{HashAlgorithm, artifact_hash_with, semantic_hash_with};
 use crate::kernel::{ArgumentMode, KernelArgument, KernelChild, KernelNetwork};
 use crate::model::{
     BhcpType, Binding, CanonicalAstDocument, Clause, ClauseKind, ContentReference, Effect,
-    EffectRow, EffectivePolicyReference, Expression, ExpressionForm, FieldType, FunctionDefinition,
-    GoalDefinition, HandleType, HashId, PolicyDecision, SemanticIrDocument, VariantCaseType,
-    VerifierBinding, data_edge_type_compatible, features_for, is_symbol,
+    EffectRow, EffectivePolicyReference, Expression, ExpressionForm, ExtensionNode, FieldType,
+    FunctionDefinition, GoalDefinition, HandleType, HashId, Point, PolicyDecision,
+    SemanticIrDocument, VariantCaseType, VerifierBinding, data_edge_type_compatible, features_for,
+    is_symbol,
 };
 use crate::ownership::analyze_program;
 use crate::parser::{
     CANONICAL_PROFILE, ParsedProgram, SurfaceArgumentMode, SurfaceClauseKind, SurfaceComposition,
-    SurfaceEffect, SurfaceExpression, SurfaceFunction, SurfaceGoal, SurfaceLiteral, SurfaceType,
-    parse_canonical, parse_with_syntax, scan_profile_preamble, validate_effective_syntax,
+    SurfaceEffect, SurfaceExpression, SurfaceExtension, SurfaceExtensionKind, SurfaceFunction,
+    SurfaceGoal, SurfaceLiteral, SurfaceType, parse_canonical, parse_with_syntax,
+    scan_profile_preamble, validate_effective_syntax,
 };
 use crate::policy::{
     EffectivePolicyDocument, ExactNumber, PolicyDocument, PolicyScope, SourcePolicyDocument,
@@ -34,6 +37,7 @@ use crate::typecheck::{CheckedType, check_type_definitions};
 use crate::value::Value;
 
 const OWNERSHIP_FEATURE: &str = "bhcp/feature.ownership-analysis@0";
+const EXTENSION_FEATURE: &str = "bhcp/feature.extension-resolution@0";
 
 #[derive(Clone, Debug)]
 pub struct Compilation {
@@ -221,6 +225,21 @@ pub fn compile_source(source: &str, source_name: &str) -> Result<Compilation> {
     compile_source_with_algorithm(source, source_name, HashAlgorithm::default())
 }
 
+pub fn compile_source_with_extension_registry(
+    source: &str,
+    source_name: &str,
+    extensions: &ExtensionRegistry,
+) -> Result<Compilation> {
+    compile_source_internal(
+        source.as_bytes(),
+        source_name,
+        HashAlgorithm::default(),
+        None,
+        None,
+        Some(extensions),
+    )
+}
+
 pub fn compile_source_with_policy(
     source: &str,
     source_name: &str,
@@ -248,6 +267,7 @@ pub fn compile_source_with_policy_and_algorithm(
         algorithm,
         Some(policy),
         None,
+        None,
     )
 }
 
@@ -268,7 +288,7 @@ pub fn compile_source_bytes_with_algorithm(
     source_name: &str,
     algorithm: HashAlgorithm,
 ) -> Result<Compilation> {
-    compile_source_internal(source, source_name, algorithm, None, None)
+    compile_source_internal(source, source_name, algorithm, None, None, None)
 }
 
 pub fn compile_source_bytes_with_profiles(
@@ -298,7 +318,7 @@ pub fn compile_source_bytes_with_profiles_and_algorithm(
     profiles: &ProfileSyntaxRegistry,
     algorithm: HashAlgorithm,
 ) -> Result<Compilation> {
-    compile_source_internal(source, source_name, algorithm, None, Some(profiles))
+    compile_source_internal(source, source_name, algorithm, None, Some(profiles), None)
 }
 
 pub fn compile_source_bytes_with_profile_registry(
@@ -322,7 +342,7 @@ pub fn compile_source_bytes_with_profile_registry_and_algorithm(
 ) -> Result<Compilation> {
     let selected = scan_profile_preamble(source, source_name)?;
     if selected.profile == CANONICAL_PROFILE {
-        return compile_source_internal(source, source_name, algorithm, None, None);
+        return compile_source_internal(source, source_name, algorithm, None, None, None);
     }
     let resolved = registry.resolve(&selected.profile, algorithm)?;
     let mut syntaxes = ProfileSyntaxRegistry::new();
@@ -335,6 +355,7 @@ pub fn compile_source_bytes_with_profile_registry_and_algorithm(
         algorithm,
         Some(&resolved.effective_policy),
         Some(resolved.type_mode),
+        None,
     )
 }
 
@@ -344,9 +365,18 @@ fn compile_source_internal(
     algorithm: HashAlgorithm,
     policy: Option<&EffectivePolicyDocument>,
     profiles: Option<&ProfileSyntaxRegistry>,
+    extensions: Option<&ExtensionRegistry>,
 ) -> Result<Compilation> {
     let (ast, program) = parse_internal(source, source_name, algorithm, profiles)?;
-    finish_compilation(ast, program, source_name, algorithm, policy, None)
+    finish_compilation(
+        ast,
+        program,
+        source_name,
+        algorithm,
+        policy,
+        None,
+        extensions,
+    )
 }
 
 fn finish_compilation(
@@ -356,8 +386,9 @@ fn finish_compilation(
     algorithm: HashAlgorithm,
     policy: Option<&EffectivePolicyDocument>,
     profile_mode: Option<TypeMode>,
+    extensions: Option<&ExtensionRegistry>,
 ) -> Result<Compilation> {
-    let mut ir = elaborate(&program, source_name, algorithm)?;
+    let mut ir = elaborate(&program, source_name, algorithm, extensions)?;
     ir.type_mode = profile_mode.unwrap_or(TypeMode::InferStrict);
     for goal in &mut ir.goals {
         goal.type_mode = ir.type_mode;
@@ -716,6 +747,9 @@ fn parse_internal(
     if uses_effect_analysis(&program) {
         features.push(EFFECT_ANALYSIS_FEATURE.to_owned());
     }
+    if !program.extensions.is_empty() {
+        features.push(EXTENSION_FEATURE.to_owned());
+    }
     let mut ast = CanonicalAstDocument {
         features,
         profile: selected.profile,
@@ -770,6 +804,7 @@ fn elaborate(
     program: &ParsedProgram,
     source_name: &str,
     algorithm: HashAlgorithm,
+    extension_registry: Option<&ExtensionRegistry>,
 ) -> Result<SemanticIrDocument> {
     let checked_types = check_type_definitions(program)?;
     analyze_program(program, source_name)?;
@@ -780,7 +815,6 @@ fn elaborate(
         || !program.syntaxes.is_empty()
         || !program.profiles.is_empty()
         || !program.waivers.is_empty()
-        || !program.extensions.is_empty()
     {
         let at = program
             .policies
@@ -789,7 +823,6 @@ fn elaborate(
             .chain(program.syntaxes.iter().map(|definition| &definition.at))
             .chain(program.profiles.iter().map(|definition| &definition.at))
             .chain(program.waivers.iter().map(|definition| &definition.at))
-            .chain(program.extensions.iter().map(|definition| &definition.at))
             .min_by_key(|point| point.byte)
             .expect("governance definition was present");
         return Err(error(
@@ -803,6 +836,7 @@ fn elaborate(
         && program.types.is_empty()
         && program.functions.is_empty()
         && program.predicates.is_empty()
+        && program.extensions.is_empty()
     {
         return Err(Diagnostic::new(
             "BHCP1001",
@@ -841,10 +875,39 @@ fn elaborate(
         signatures.insert(goal.symbol.clone(), signature);
     }
     resolve_gate_outputs(program, &mut signatures, source_name)?;
-    let prelude = Prelude::load()?;
+    let prelude = Prelude::load()?.with_project_functions(program)?;
     let mut ids = Ids::new();
     let mut goals = Vec::new();
     let mut functions = Vec::new();
+    let extension_specs = derived_extension_specs(program, source_name)?;
+    for (index, spec) in extension_specs.iter().enumerate() {
+        if !symbols.insert(&spec.symbol) || signatures.contains_key(&spec.symbol) {
+            return Err(extension_error(
+                format!("duplicate extension semantic symbol {:?}", spec.symbol),
+                source_name,
+                &spec.at,
+            ));
+        }
+        signatures.insert(
+            spec.symbol.clone(),
+            GoalSignature {
+                id: format!("extension-goal-{}", index + 1),
+                input: spec.input.clone(),
+                output: spec.output.clone(),
+            },
+        );
+    }
+    for (index, spec) in extension_specs.iter().enumerate() {
+        goals.push(lower_derived_extension(
+            spec,
+            index,
+            source_name,
+            &signatures,
+            &prelude,
+            &mut functions,
+            &mut ids,
+        )?);
+    }
     for (index, goal) in program.goals.iter().enumerate() {
         let mut state = GoalLoweringState {
             definitions: &mut definitions,
@@ -860,8 +923,18 @@ fn elaborate(
             &mut state,
         )?);
     }
-    let (pure_functions, predicates) = definitions.finish();
-    let entrypoints = goals.iter().map(|goal| goal.id.clone()).collect();
+    let (mut pure_functions, predicates) = definitions.finish();
+    let executed_lowerers = extension_specs
+        .iter()
+        .map(|spec| spec.lowering.as_str())
+        .collect::<HashSet<_>>();
+    pure_functions.retain(|function| !executed_lowerers.contains(function.symbol.as_str()));
+    let entrypoints = program
+        .goals
+        .iter()
+        .map(|goal| signatures[&goal.symbol].id.clone())
+        .collect();
+    let extensions = native_extension_nodes(program, extension_registry, source_name, &mut ids)?;
     let mut features = features_for(algorithm);
     if uses_self_hosted_all(program) {
         features.push(ALL_FEATURE.to_owned());
@@ -884,6 +957,9 @@ fn elaborate(
     if uses_effect_analysis(program) {
         features.push(EFFECT_ANALYSIS_FEATURE.to_owned());
     }
+    if !program.extensions.is_empty() {
+        features.push(EXTENSION_FEATURE.to_owned());
+    }
     Ok(SemanticIrDocument {
         features,
         type_mode: TypeMode::InferStrict,
@@ -892,11 +968,416 @@ fn elaborate(
         pure_functions,
         predicates,
         goals,
+        extensions,
         entrypoints,
         effective_policy: None,
         semantic_id: None,
         artifact_id: None,
     })
+}
+
+#[derive(Clone)]
+struct DerivedExtensionSpec {
+    symbol: String,
+    lowering: String,
+    input: BhcpType,
+    output: BhcpType,
+    children: Vec<String>,
+    at: Point,
+}
+
+fn derived_extension_specs(
+    program: &ParsedProgram,
+    source_name: &str,
+) -> Result<Vec<DerivedExtensionSpec>> {
+    let mut specs = program
+        .extensions
+        .iter()
+        .filter(|extension| extension.extension_kind == SurfaceExtensionKind::Derived)
+        .map(|extension| derived_extension_spec(extension, program, source_name))
+        .collect::<Result<Vec<_>>>()?;
+    specs.sort_by(|left, right| left.symbol.cmp(&right.symbol));
+    for pair in specs.windows(2) {
+        if pair[0].symbol == pair[1].symbol {
+            return Err(extension_error(
+                format!("duplicate derived extension {:?}", pair[0].symbol),
+                source_name,
+                &pair[1].at,
+            ));
+        }
+    }
+    Ok(specs)
+}
+
+fn derived_extension_spec(
+    extension: &SurfaceExtension,
+    program: &ParsedProgram,
+    source_name: &str,
+) -> Result<DerivedExtensionSpec> {
+    if extension.symbol.starts_with("bhcp/") {
+        return Err(extension_error(
+            "extension cannot override a core semantic name",
+            source_name,
+            &extension.at,
+        ));
+    }
+    let lowering = extension_field_text(extension, "lowering").ok_or_else(|| {
+        extension_error(
+            "derived extension is missing its lowering function",
+            source_name,
+            &extension.at,
+        )
+    })?;
+    let function = program
+        .functions
+        .iter()
+        .find(|function| function.symbol == lowering)
+        .ok_or_else(|| {
+            extension_error(
+                format!("derived extension lowering {lowering:?} does not resolve"),
+                source_name,
+                &extension.at,
+            )
+        })?;
+    if !function.type_parameters.is_empty() || function.parameters.len() != 1 {
+        return Err(extension_error(
+            "derived extension lowering must be one concrete total pure function",
+            source_name,
+            &function.at,
+        ));
+    }
+    let SurfaceType::Meta {
+        kind: "derived-form",
+        input,
+        output,
+    } = &function.parameters[0].value_type
+    else {
+        return Err(extension_error(
+            "derived extension lowering input must be Meta<DerivedForm,I,O>",
+            source_name,
+            &function.at,
+        ));
+    };
+    let SurfaceType::Meta {
+        kind: "network-shape",
+        input: result_input,
+        output: result_output,
+    } = &function.result
+    else {
+        return Err(extension_error(
+            "derived extension lowering result must be Meta<NetworkShape,I,O>",
+            source_name,
+            &function.at,
+        ));
+    };
+    let input = lower_type(input, source_name, &function.at)?;
+    let output = lower_type(output, source_name, &function.at)?;
+    if input != lower_type(result_input, source_name, &function.at)?
+        || output != lower_type(result_output, source_name, &function.at)?
+    {
+        return Err(extension_error(
+            "derived extension lowering meta input and result types differ",
+            source_name,
+            &function.at,
+        ));
+    }
+    if let Some(declared) = extension_field_text(extension, "input")
+        && input != legacy_extension_type(declared, source_name, &extension.at)?
+    {
+        return Err(extension_error(
+            "derived extension input does not match its lowering signature",
+            source_name,
+            &extension.at,
+        ));
+    }
+    if let Some(declared) = extension_field_text(extension, "output")
+        && output != legacy_extension_type(declared, source_name, &extension.at)?
+    {
+        return Err(extension_error(
+            "derived extension output does not match its lowering signature",
+            source_name,
+            &extension.at,
+        ));
+    }
+    let mut children = extension
+        .fields
+        .iter()
+        .find(|field| field.name == "children")
+        .map(|field| match &field.value {
+            Value::Array(values) => values
+                .iter()
+                .map(|value| match value {
+                    Value::Text(symbol) if is_symbol(symbol) => Ok(symbol.clone()),
+                    _ => Err(extension_error(
+                        "derived extension child is not an exact symbol-id",
+                        source_name,
+                        &field.at,
+                    )),
+                })
+                .collect::<Result<Vec<_>>>(),
+            _ => Err(extension_error(
+                "derived extension children are not an array",
+                source_name,
+                &field.at,
+            )),
+        })
+        .transpose()?
+        .unwrap_or_default();
+    children.sort();
+    if children.windows(2).any(|pair| pair[0] == pair[1]) {
+        return Err(extension_error(
+            "derived extension children must be unique",
+            source_name,
+            &extension.at,
+        ));
+    }
+    Ok(DerivedExtensionSpec {
+        symbol: extension.symbol.clone(),
+        lowering: lowering.to_owned(),
+        input,
+        output,
+        children,
+        at: extension.at.clone(),
+    })
+}
+
+fn extension_field_text<'a>(extension: &'a SurfaceExtension, name: &str) -> Option<&'a str> {
+    extension
+        .fields
+        .iter()
+        .find(|field| field.name == name)
+        .and_then(|field| match &field.value {
+            Value::Text(value) => Some(value.as_str()),
+            _ => None,
+        })
+}
+
+fn legacy_extension_type(value: &str, source_name: &str, at: &Point) -> Result<BhcpType> {
+    let value_type = match value {
+        "Bool" | "Bytes" | "Duration" | "Text" | "Timestamp" | "Unit" => {
+            BhcpType::Primitive(match value {
+                "Bool" => "Bool",
+                "Bytes" => "Bytes",
+                "Duration" => "Duration",
+                "Text" => "Text",
+                "Timestamp" => "Timestamp",
+                "Unit" => "Unit",
+                _ => unreachable!(),
+            })
+        }
+        "Decimal" | "Integer" | "Rational" => BhcpType::ExactNumber(match value {
+            "Decimal" => "Decimal",
+            "Integer" => "Integer",
+            "Rational" => "Rational",
+            _ => unreachable!(),
+        }),
+        symbol if is_symbol(symbol) => BhcpType::Nominal(symbol.to_owned(), vec![]),
+        _ => {
+            return Err(extension_error(
+                "legacy extension type is not canonical",
+                source_name,
+                at,
+            ));
+        }
+    };
+    Ok(value_type)
+}
+
+fn lower_derived_extension(
+    spec: &DerivedExtensionSpec,
+    index: usize,
+    source_name: &str,
+    signatures: &HashMap<String, GoalSignature>,
+    prelude: &Prelude,
+    functions: &mut Vec<FunctionDefinition>,
+    ids: &mut Ids,
+) -> Result<GoalDefinition> {
+    let signature = signatures
+        .get(&spec.symbol)
+        .expect("derived extension signature was indexed");
+    let children = spec
+        .children
+        .iter()
+        .enumerate()
+        .map(|(child_index, symbol)| {
+            let child = signatures.get(symbol).ok_or_else(|| {
+                extension_error(
+                    format!("derived extension child {symbol:?} does not resolve"),
+                    source_name,
+                    &spec.at,
+                )
+            })?;
+            Ok(DerivedChild {
+                tag: format!("extension-child-{}", child_index + 1),
+                goal: child.id.clone(),
+                output: child.output.clone(),
+                arguments: vec![],
+            })
+        })
+        .collect::<Result<Vec<_>>>()?;
+    let shape = prelude
+        .lower(
+            &spec.lowering,
+            DerivedForm {
+                input: spec.input.clone(),
+                output: spec.output.clone(),
+                children,
+                condition: None,
+            },
+        )
+        .map_err(|diagnostic| {
+            extension_error(
+                format!("derived extension lowering failed: {}", diagnostic.message),
+                source_name,
+                &spec.at,
+            )
+        })?;
+    if shape.output != spec.output {
+        return Err(extension_error(
+            "derived extension lowering returned the wrong output type",
+            source_name,
+            &spec.at,
+        ));
+    }
+    let mut observation_fields = shape
+        .children
+        .iter()
+        .map(|child| FieldType {
+            name: child.tag.clone(),
+            value_type: BhcpType::Option(Box::new(BhcpType::ExecutionResult(Box::new(
+                child.output.clone(),
+            )))),
+        })
+        .collect::<Vec<_>>();
+    observation_fields.sort_by(|left, right| left.name.cmp(&right.name));
+    let observations = BhcpType::Record(observation_fields);
+    let reducer_source = prelude.reducer(&shape.reducer).map_err(|_| {
+        extension_error(
+            format!(
+                "derived extension reducer {:?} does not resolve",
+                shape.reducer
+            ),
+            source_name,
+            &spec.at,
+        )
+    })?;
+    let reducer_symbol = specialized_reducer_symbol(
+        &shape.reducer,
+        &spec.input,
+        &observations,
+        &spec.output,
+        None,
+    )?;
+    if !functions
+        .iter()
+        .any(|function| function.symbol == reducer_symbol)
+    {
+        functions.push(instantiate_reducer(
+            reducer_source,
+            reducer_symbol.clone(),
+            ReducerSpecialization {
+                input: spec.input.clone(),
+                observations,
+                output: spec.output.clone(),
+                gate_condition: None,
+            },
+            source_name,
+            ids,
+        )?);
+    }
+    let body = KernelNetwork {
+        id: ids.next("network"),
+        output: spec.output.clone(),
+        children: shape
+            .children
+            .into_iter()
+            .map(|child| KernelChild {
+                id: ids.next("child"),
+                tag: child.tag,
+                goal: child.goal,
+                arguments: child.arguments,
+            })
+            .collect(),
+        reducer: reducer_symbol,
+    };
+    Ok(GoalDefinition {
+        id: format!("extension-goal-{}", index + 1),
+        symbol: spec.symbol.clone(),
+        type_mode: TypeMode::InferStrict,
+        input: signature.input.clone(),
+        output: signature.output.clone(),
+        effects: EffectRow::empty(),
+        evidence: BhcpType::Evidence(vec!["unresolved".to_owned()]),
+        clauses: vec![],
+        policy_decision: None,
+        body: Some(body),
+    })
+}
+
+fn native_extension_nodes(
+    program: &ParsedProgram,
+    registry: Option<&ExtensionRegistry>,
+    source_name: &str,
+    ids: &mut Ids,
+) -> Result<Vec<ExtensionNode>> {
+    let mut native = program
+        .extensions
+        .iter()
+        .filter(|extension| extension.extension_kind == SurfaceExtensionKind::Native)
+        .collect::<Vec<_>>();
+    native.sort_by(|left, right| left.symbol.cmp(&right.symbol));
+    let mut nodes = Vec::with_capacity(native.len());
+    for extension in native {
+        if extension.symbol.starts_with("bhcp/") {
+            return Err(extension_error(
+                "extension cannot override a core semantic name",
+                source_name,
+                &extension.at,
+            ));
+        }
+        let registration = registry
+            .and_then(|registry| registry.native(&extension.symbol))
+            .ok_or_else(|| {
+                extension_error(
+                    format!("unsupported native extension {:?}", extension.symbol),
+                    source_name,
+                    &extension.at,
+                )
+            })?;
+        let descriptor = extension.descriptor.as_ref().ok_or_else(|| {
+            extension_error(
+                "native extension descriptor was not materialized",
+                source_name,
+                &extension.at,
+            )
+        })?;
+        if descriptor.get("payload_schema") != Some(&registration.payload_schema) {
+            return Err(extension_error(
+                "native extension payload schema does not match its registration",
+                source_name,
+                &extension.at,
+            ));
+        }
+        nodes.push(ExtensionNode {
+            id: ids.next("extension"),
+            extension: extension.symbol.clone(),
+            payload: Value::map([
+                ("descriptor", descriptor.clone()),
+                ("value", registration.payload.clone()),
+            ]),
+            must_understand: true,
+        });
+    }
+    nodes.sort_by(|left, right| {
+        encode_deterministic(&left.to_value())
+            .expect("typed extension node encodes")
+            .cmp(&encode_deterministic(&right.to_value()).expect("typed extension node encodes"))
+    });
+    Ok(nodes)
+}
+
+fn extension_error(message: impl Into<String>, source_name: &str, at: &Point) -> Diagnostic {
+    Diagnostic::new("BHCP5003", message, source_name, at.line, at.column)
 }
 
 fn uses_self_hosted_all(program: &ParsedProgram) -> bool {
@@ -1682,7 +2163,12 @@ fn lower_chain_arguments(
     ids: &mut Ids,
 ) -> Result<Vec<KernelArgument>> {
     let BhcpType::Record(input_fields) = &child.input else {
-        unreachable!("goal inputs are records in the implemented source slice")
+        return Err(error(
+            "BHCP2003",
+            "chain children must expose record inputs",
+            source_name,
+            &branch.at,
+        ));
     };
     let Some(predecessor) = predecessor else {
         if input_fields.is_empty() && branch.arguments.is_empty() {
@@ -1765,7 +2251,12 @@ fn lower_gate_arguments(
     let (BhcpType::Record(child_fields), BhcpType::Record(parent_fields)) =
         (&child.input, parent_input)
     else {
-        unreachable!("goal inputs are records in the implemented source slice")
+        return Err(error(
+            "BHCP2003",
+            "gate parents and children must expose record inputs",
+            source_name,
+            &branch.at,
+        ));
     };
     if branch.arguments.len() != child_fields.len() {
         return Err(error(
