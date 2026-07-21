@@ -202,9 +202,9 @@ write borrows and moves are exclusive; a possible move poisons later use on that
 outcome; linear values must be consumed on every outcome. State retention rejects
 borrows and shared handles without an exact externally supplied persistent-share
 approval. Goal cases are analyzed from independent initial scopes. Rejection occurs
-before any semantic IR is constructed; source forms awaiting later effect,
-recursion, case-execution, or retention lowering may still fail at those later
-front-end boundaries after ownership succeeds.
+before any semantic IR is constructed; source forms awaiting finite-domain or
+case-execution lowering may still fail at those later front-end boundaries after
+ownership succeeds.
 
 ### S4.5 Language mental model
 
@@ -840,6 +840,15 @@ stale-evidence reason unless policy requires an operational fault. Concurrent wr
 serialize or use compare-and-swap over the prior state ID; lost updates are
 forbidden. Storage captures an owned value or a policy-approved persistent share and
 MUST NOT retain an expired borrow.
+
+**Implementation status:** direct recursive child calls require a positive retained
+static bound or a checker-accepted decreasing non-negative Integer measure. That
+evidence is attached to the exact child, revalidated with received semantic IR, and
+materialized as a deterministic open limit node in the obligation graph. The
+versioned standard-prelude retention lowerer and reducer operate only over ordinary
+state-read, candidate, and compare-and-swap child goals; only a satisfied candidate
+can request compare-and-swap. Persistent cells, competing-writer execution, storage,
+and runtime retry enforcement remain assigned to the state/CAS runtime boundary.
 
 Schema anchors: `meta-type`, `derived-form-shape`, `network-shape`,
 `kernel-network`, `child-observation`, `reduction`, `derivation`,

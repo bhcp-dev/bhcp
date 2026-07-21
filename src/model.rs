@@ -1580,7 +1580,9 @@ impl SemanticIrDocument {
                 .iter()
                 .find(|function| function.symbol == network.reducer)
                 .expect("reducer resolution was checked above");
+            validate_recursion_evidence(parent, network)?;
             validate_network_arguments(parent, network, &self.goals)?;
+            validate_retention_network(parent, network)?;
             let mut observation_fields = Vec::with_capacity(network.children.len());
             for child in &network.children {
                 let child_goal = self
@@ -1811,6 +1813,10 @@ fn validate_network_arguments(
                     "kernel child argument does not preserve its input field type",
                 ));
             }
+            if !matches!(argument.value.form, ExpressionForm::Call(_, _)) {
+                validate_closed_parent_data_edge(&argument.value, &parent.input)?;
+                continue;
+            }
             let ExpressionForm::Call(symbol, parameters) = &argument.value.form else {
                 return Err(Diagnostic::plain(
                     "BHCP4001",
@@ -1883,6 +1889,370 @@ fn validate_network_arguments(
         }
     }
     Ok(())
+}
+
+fn validate_closed_parent_data_edge(
+    expression: &Expression,
+    parent_input: &BhcpType,
+) -> Result<()> {
+    match &expression.form {
+        ExpressionForm::Literal(value) if expression.value_type.accepts(value) => Ok(()),
+        ExpressionForm::Call(symbol, parameters) if symbol == "bhcp/kernel.parent-field@0" => {
+            let [parameter] = parameters.as_slice() else {
+                return Err(Diagnostic::plain(
+                    "BHCP4001",
+                    "parent-field data edge has invalid arity",
+                ));
+            };
+            let ExpressionForm::Literal(Value::Text(name)) = &parameter.form else {
+                return Err(Diagnostic::plain(
+                    "BHCP4001",
+                    "parent-field data edge is not literal",
+                ));
+            };
+            let BhcpType::Record(fields) = parent_input else {
+                return Err(Diagnostic::plain(
+                    "BHCP4001",
+                    "recursive parent input must be a record",
+                ));
+            };
+            if parameter.value_type != BhcpType::Primitive("Text")
+                || fields
+                    .iter()
+                    .all(|field| field.name != *name || field.value_type != expression.value_type)
+            {
+                return Err(Diagnostic::plain(
+                    "BHCP4001",
+                    "parent-field data edge has an invalid field type",
+                ));
+            }
+            Ok(())
+        }
+        ExpressionForm::Unary(operator, operand)
+            if ((operator == "-" && expression.value_type == BhcpType::ExactNumber("Integer"))
+                || (operator == "!" && expression.value_type == BhcpType::Primitive("Bool")))
+                && operand.value_type == expression.value_type =>
+        {
+            validate_closed_parent_data_edge(operand, parent_input)
+        }
+        ExpressionForm::Binary(operator, left, right) => {
+            let valid = match operator.as_str() {
+                "+" | "-" | "*" | "/" | "%" => {
+                    expression.value_type == BhcpType::ExactNumber("Integer")
+                        && left.value_type == expression.value_type
+                        && right.value_type == expression.value_type
+                }
+                "<" | "<=" | ">" | ">=" => {
+                    left.value_type == BhcpType::ExactNumber("Integer")
+                        && right.value_type == left.value_type
+                        && expression.value_type == BhcpType::Primitive("Bool")
+                }
+                "==" | "!=" => {
+                    left.value_type == right.value_type
+                        && expression.value_type == BhcpType::Primitive("Bool")
+                }
+                "&&" | "||" => {
+                    left.value_type == BhcpType::Primitive("Bool")
+                        && right.value_type == left.value_type
+                        && expression.value_type == left.value_type
+                }
+                _ => false,
+            };
+            if !valid {
+                return Err(Diagnostic::plain(
+                    "BHCP4001",
+                    "child argument has an ill-typed parent binary expression",
+                ));
+            }
+            validate_closed_parent_data_edge(left, parent_input)?;
+            validate_closed_parent_data_edge(right, parent_input)
+        }
+        ExpressionForm::If(condition, consequent, alternative) => {
+            if condition.value_type != BhcpType::Primitive("Bool")
+                || consequent.value_type != alternative.value_type
+                || expression.value_type != consequent.value_type
+            {
+                return Err(Diagnostic::plain(
+                    "BHCP4001",
+                    "child argument has an ill-typed parent conditional expression",
+                ));
+            }
+            validate_closed_parent_data_edge(condition, parent_input)?;
+            validate_closed_parent_data_edge(consequent, parent_input)?;
+            validate_closed_parent_data_edge(alternative, parent_input)
+        }
+        _ => Err(Diagnostic::plain(
+            "BHCP4001",
+            "child argument is not a closed checked parent expression",
+        )),
+    }
+}
+
+fn validate_recursion_evidence(parent: &GoalDefinition, network: &KernelNetwork) -> Result<()> {
+    for child in &network.children {
+        let recursive = child.goal == parent.id;
+        match (recursive, &child.recursion) {
+            (true, None) => {
+                return Err(Diagnostic::plain(
+                    "BHCP4001",
+                    "recursive kernel child omits checked termination evidence",
+                ));
+            }
+            (false, Some(_)) => {
+                return Err(Diagnostic::plain(
+                    "BHCP4001",
+                    "non-recursive kernel child carries recursion evidence",
+                ));
+            }
+            (false, None) => continue,
+            (true, Some(crate::kernel::RecursionBound::Bounded { maximum })) => {
+                if !retained_static_bound(parent, child, *maximum) {
+                    return Err(Diagnostic::plain(
+                        "BHCP4001",
+                        "recursive child bound does not match a retained static limit",
+                    ));
+                }
+            }
+            (true, Some(crate::kernel::RecursionBound::WellFounded { measure })) => {
+                if !retained_decreasing_measure(parent, child, measure) {
+                    return Err(Diagnostic::plain(
+                        "BHCP4001",
+                        "recursive child measure does not match retained checker evidence",
+                    ));
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
+fn validate_retention_network(parent: &GoalDefinition, network: &KernelNetwork) -> Result<()> {
+    if !network.reducer.starts_with("bhcp/prelude.retain-reducer-") {
+        return Ok(());
+    }
+    let [snapshot, candidate, commit] = network.children.as_slice() else {
+        return Err(Diagnostic::plain(
+            "BHCP4001",
+            "retention network must retain exactly three causal children",
+        ));
+    };
+    if [
+        snapshot.tag.as_str(),
+        candidate.tag.as_str(),
+        commit.tag.as_str(),
+    ] != ["state-read", "candidate", "compare-and-swap"]
+        || snapshot.arguments.len() != 1
+        || candidate.arguments.len() != 2
+        || commit.arguments.len() != 3
+        || network.output != parent.output
+        || !retention_parent_argument(snapshot, "resource", "resource")
+        || !retention_parent_argument(candidate, "resource", "resource")
+        || !retention_predecessor_argument(candidate, "prior", "state-read")
+        || !retention_parent_argument(commit, "resource", "resource")
+        || !retention_predecessor_argument(commit, "expected_version", "state-read")
+        || !retention_predecessor_argument(commit, "new_value", "candidate")
+    {
+        return Err(Diagnostic::plain(
+            "BHCP4001",
+            "retention network does not preserve exact resource, expected-version, and new-value coordinates",
+        ));
+    }
+    Ok(())
+}
+
+fn retention_parent_argument(
+    child: &crate::kernel::KernelChild,
+    name: &str,
+    coordinate: &str,
+) -> bool {
+    child.arguments.iter().any(|argument| {
+        argument.name == name
+            && data_edge_coordinate(&argument.value, "bhcp/kernel.parent-field@0")
+                == Some(coordinate)
+    })
+}
+
+fn retention_predecessor_argument(
+    child: &crate::kernel::KernelChild,
+    name: &str,
+    coordinate: &str,
+) -> bool {
+    child.arguments.iter().any(|argument| {
+        argument.name == name
+            && data_edge_coordinate(&argument.value, "bhcp/kernel.observed-output@0")
+                == Some(coordinate)
+    })
+}
+
+fn data_edge_coordinate<'a>(expression: &'a Expression, symbol: &str) -> Option<&'a str> {
+    let ExpressionForm::Call(candidate, parameters) = &expression.form else {
+        return None;
+    };
+    let [parameter] = parameters.as_slice() else {
+        return None;
+    };
+    let ExpressionForm::Literal(Value::Text(coordinate)) = &parameter.form else {
+        return None;
+    };
+    (candidate == symbol).then_some(coordinate.as_str())
+}
+
+fn retained_static_bound(
+    parent: &GoalDefinition,
+    child: &crate::kernel::KernelChild,
+    maximum: u64,
+) -> bool {
+    parent.clauses.iter().any(|clause| {
+        let ClauseKind::Contract {
+            kind: "limit",
+            condition,
+            ..
+        } = &clause.kind
+        else {
+            return false;
+        };
+        let ExpressionForm::Binary(operator, left, right) = &condition.form else {
+            return false;
+        };
+        let (
+            "<=",
+            ExpressionForm::Reference(binding),
+            ExpressionForm::Literal(Value::Array(values)),
+        ) = (operator.as_str(), &left.form, &right.form)
+        else {
+            return false;
+        };
+        let [Value::Text(kind), Value::Integer(value)] = values.as_slice() else {
+            return false;
+        };
+        if kind != "integer" || *value != maximum as i128 {
+            return false;
+        }
+        let Some(name) = parent_binding_name(parent, binding) else {
+            return false;
+        };
+        child.arguments.iter().any(|argument| {
+            argument.name == name && expression_reads_parent_field(&argument.value, name)
+        })
+    })
+}
+
+fn retained_decreasing_measure(
+    parent: &GoalDefinition,
+    child: &crate::kernel::KernelChild,
+    measure: &Expression,
+) -> bool {
+    let ExpressionForm::Binary(operator, left, right) = &measure.form else {
+        return false;
+    };
+    let ("-", Some(name), ExpressionForm::Literal(Value::Array(values))) = (
+        operator.as_str(),
+        parent_field_coordinate(left),
+        &right.form,
+    ) else {
+        return false;
+    };
+    let [Value::Text(kind), Value::Integer(step)] = values.as_slice() else {
+        return false;
+    };
+    if kind != "integer" || *step <= 0 {
+        return false;
+    }
+    let Some(binding) = parent_binding_id(parent, name) else {
+        return false;
+    };
+    if !child
+        .arguments
+        .iter()
+        .any(|argument| argument.name == name && argument.value == *measure)
+    {
+        return false;
+    }
+    parent.clauses.iter().any(|clause| {
+        let ClauseKind::Contract {
+            kind: "requires",
+            condition,
+            ..
+        } = &clause.kind
+        else {
+            return false;
+        };
+        nonnegative_condition(condition, binding)
+    })
+}
+
+fn nonnegative_condition(condition: &Expression, binding: &str) -> bool {
+    let ExpressionForm::Binary(operator, left, right) = &condition.form else {
+        return false;
+    };
+    (operator == "<"
+        && exact_zero(left)
+        && matches!(&right.form, ExpressionForm::Reference(id) if id == binding))
+        || (operator == ">"
+            && matches!(&left.form, ExpressionForm::Reference(id) if id == binding)
+            && exact_zero(right))
+}
+
+fn exact_zero(expression: &Expression) -> bool {
+    matches!(
+        &expression.form,
+        ExpressionForm::Literal(Value::Array(values))
+            if matches!(values.as_slice(), [Value::Text(kind), Value::Integer(0)] if kind == "integer")
+    )
+}
+
+fn parent_binding_name<'a>(parent: &'a GoalDefinition, id: &str) -> Option<&'a str> {
+    parent.clauses.iter().find_map(|clause| match &clause.kind {
+        ClauseKind::Fact {
+            kind: "input",
+            binding,
+        } if binding.id == id => Some(binding.name.as_str()),
+        _ => None,
+    })
+}
+
+fn parent_binding_id<'a>(parent: &'a GoalDefinition, name: &str) -> Option<&'a str> {
+    parent.clauses.iter().find_map(|clause| match &clause.kind {
+        ClauseKind::Fact {
+            kind: "input",
+            binding,
+        } if binding.name == name => Some(binding.id.as_str()),
+        _ => None,
+    })
+}
+
+fn expression_reads_parent_field(expression: &Expression, name: &str) -> bool {
+    if parent_field_coordinate(expression) == Some(name) {
+        return true;
+    }
+    match &expression.form {
+        ExpressionForm::Unary(_, operand) => expression_reads_parent_field(operand, name),
+        ExpressionForm::Binary(_, left, right) => {
+            expression_reads_parent_field(left, name) || expression_reads_parent_field(right, name)
+        }
+        ExpressionForm::If(condition, consequent, alternative) => {
+            expression_reads_parent_field(condition, name)
+                || expression_reads_parent_field(consequent, name)
+                || expression_reads_parent_field(alternative, name)
+        }
+        ExpressionForm::Call(_, arguments) => arguments
+            .iter()
+            .any(|argument| expression_reads_parent_field(argument, name)),
+        ExpressionForm::Literal(_) | ExpressionForm::Reference(_) => false,
+    }
+}
+
+fn parent_field_coordinate(expression: &Expression) -> Option<&str> {
+    let ExpressionForm::Call(symbol, parameters) = &expression.form else {
+        return None;
+    };
+    let [parameter] = parameters.as_slice() else {
+        return None;
+    };
+    let ExpressionForm::Literal(Value::Text(name)) = &parameter.form else {
+        return None;
+    };
+    (symbol == "bhcp/kernel.parent-field@0").then_some(name.as_str())
 }
 
 pub(crate) fn data_edge_type_compatible(

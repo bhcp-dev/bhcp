@@ -4,7 +4,7 @@ use std::collections::HashMap;
 
 use crate::diagnostic::{Diagnostic, Result};
 use crate::hash::HashAlgorithm;
-use crate::kernel::KernelArgument;
+use crate::kernel::{KernelArgument, RecursionBound};
 use crate::model::{BhcpType, ContentReference, Expression, FieldType, VariantCaseType};
 use crate::parser::{
     ParsedProgram, SurfaceExpression, SurfaceFunction, SurfaceLiteral, SurfaceType, parse_canonical,
@@ -25,6 +25,9 @@ pub const CHAIN_FEATURE: &str = "bhcp/feature.self-hosted-chain@0";
 pub const GATE_LOWERER: &str = "bhcp/prelude.lower-gate@0";
 pub const GATE_REDUCER: &str = "bhcp/prelude.gate-reducer@0";
 pub const GATE_FEATURE: &str = "bhcp/feature.self-hosted-gate@0";
+pub const RETAIN_LOWERER: &str = "bhcp/prelude.lower-retain@0";
+pub const RETAIN_REDUCER: &str = "bhcp/prelude.retain-reducer@0";
+pub const RETAIN_FEATURE: &str = "bhcp/feature.persistent-retention-lowering@0";
 
 const SOURCE_NAME: &str = "prelude/v0/standard.bhcp";
 const SOURCE: &str = concat!(
@@ -36,7 +39,9 @@ const SOURCE: &str = concat!(
     "\n",
     include_str!("../prelude/v0/chain.bhcp"),
     "\n",
-    include_str!("../prelude/v0/gate.bhcp")
+    include_str!("../prelude/v0/gate.bhcp"),
+    "\n",
+    include_str!("../prelude/v0/retain.bhcp")
 );
 const INVALID_PRELUDE: &str = "BHCP3001";
 
@@ -46,6 +51,7 @@ pub struct DerivedChild {
     pub goal: String,
     pub output: BhcpType,
     pub arguments: Vec<KernelArgument>,
+    pub recursion: Option<RecursionBound>,
 }
 
 #[derive(Clone, Debug)]
@@ -101,6 +107,8 @@ impl Prelude {
         prelude.validate_chain_reducer()?;
         prelude.validate_gate_lowerer()?;
         prelude.validate_gate_reducer()?;
+        prelude.validate_retain_lowerer()?;
+        prelude.validate_retain_reducer()?;
         Ok(prelude)
     }
 
@@ -132,6 +140,48 @@ impl Prelude {
             MetaValue::Shape(shape) => Ok(shape),
             _ => Err(invalid("prelude lowerer did not return a network shape")),
         }
+    }
+
+    pub fn lower_retention(&self, form: DerivedForm) -> Result<NetworkShape> {
+        let tags = form
+            .children
+            .iter()
+            .map(|child| child.tag.as_str())
+            .collect::<Vec<_>>();
+        if tags != ["state-read", "candidate", "compare-and-swap"] {
+            return Err(invalid(
+                "retention lowering requires state-read, candidate, and compare-and-swap children in order",
+            ));
+        }
+        if form.children.iter().any(|child| child.recursion.is_some()) {
+            return Err(invalid(
+                "retention lowering children cannot carry recursion evidence",
+            ));
+        }
+        let [snapshot, candidate, commit] = form.children.as_slice() else {
+            unreachable!("retention child count follows from exact tags")
+        };
+        let snapshot_resource = retention_argument(snapshot, "resource")?;
+        let candidate_prior = retention_argument(candidate, "prior")?;
+        let candidate_resource = retention_argument(candidate, "resource")?;
+        let commit_resource = retention_argument(commit, "resource")?;
+        let expected_version = retention_argument(commit, "expected_version")?;
+        let new_value = retention_argument(commit, "new_value")?;
+        if snapshot.arguments.len() != 1
+            || candidate.arguments.len() != 2
+            || commit.arguments.len() != 3
+            || parent_edge(snapshot_resource) != Some("resource")
+            || parent_edge(candidate_resource) != Some("resource")
+            || parent_edge(commit_resource) != Some("resource")
+            || predecessor_edge(candidate_prior) != Some("state-read")
+            || predecessor_edge(expected_version) != Some("state-read")
+            || predecessor_edge(new_value) != Some("candidate")
+        {
+            return Err(invalid(
+                "retention lowering does not preserve exact resource, prior-version, and new-value coordinates",
+            ));
+        }
+        self.lower(RETAIN_LOWERER, form)
     }
 
     pub fn reducer(&self, symbol: &str) -> Result<&SurfaceFunction> {
@@ -187,6 +237,14 @@ impl Prelude {
         self.validate_reducer(GATE_REDUCER, "gate-reducer")
     }
 
+    fn validate_retain_lowerer(&self) -> Result<()> {
+        self.validate_lowerer(RETAIN_LOWERER, "lower-retain")
+    }
+
+    fn validate_retain_reducer(&self) -> Result<()> {
+        self.validate_reducer(RETAIN_REDUCER, "retain-reducer")
+    }
+
     fn validate_lowerer(&self, symbol: &str, name: &str) -> Result<()> {
         let function = self
             .functions
@@ -239,6 +297,37 @@ impl Prelude {
         }
         Ok(())
     }
+}
+
+fn retention_argument<'a>(child: &'a DerivedChild, name: &str) -> Result<&'a KernelArgument> {
+    child
+        .arguments
+        .iter()
+        .find(|argument| argument.name == name)
+        .ok_or_else(|| invalid(format!("retention child {:?} omits {name:?}", child.tag)))
+}
+
+fn parent_edge(argument: &KernelArgument) -> Option<&str> {
+    edge_coordinate(argument, "bhcp/kernel.parent-field@0")
+}
+
+fn predecessor_edge(argument: &KernelArgument) -> Option<&str> {
+    edge_coordinate(argument, "bhcp/kernel.observed-output@0")
+}
+
+fn edge_coordinate<'a>(argument: &'a KernelArgument, expected: &str) -> Option<&'a str> {
+    let crate::model::ExpressionForm::Call(symbol, parameters) = &argument.value.form else {
+        return None;
+    };
+    let [parameter] = parameters.as_slice() else {
+        return None;
+    };
+    let crate::model::ExpressionForm::Literal(crate::value::Value::Text(coordinate)) =
+        &parameter.form
+    else {
+        return None;
+    };
+    (symbol == expected).then_some(coordinate.as_str())
 }
 
 #[derive(Clone, Debug)]

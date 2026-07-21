@@ -181,12 +181,13 @@ generic/refinement declarations, all four fact kinds and initializers, invariant
 limits, authority, preferences, verifier arguments, executable cases, standalone
 goal calls, quantified composition, and recursively nested finite composition.
 These additional goal forms retain deterministic AST structure and fail closed
-before executable IR until their remaining case-execution and recursion or
-retention-lowering stages land.
+before executable IR until their remaining finite-domain and case-execution stages
+land. Direct recursive child calls now require a matching positive static limit or a
+checked decreasing non-negative integer measure before IR emission.
 
 | Canonical definition | Implemented source slice | Explicitly deferred |
 | --- | --- | --- |
-| `§goal` / `§function` | Complete goal and general-function parsing/AST construction; parsed pure function bodies resolve deterministically, type-check, infer bounded generics, monomorphize, and materialize beside the checked executable goal/prelude-function slice; ownership/resource flow plus effect propagation, authority/prohibition ceilings, direct exact limits, and compatible preference groups are checked before IR emission | Source-expression grammar beyond the current parsed slice, finite-domain proof, case execution, recursion semantics, state/execution graph construction, and planner allocation/retry decisions |
+| `§goal` / `§function` | Complete goal and general-function parsing/AST construction; parsed pure function bodies resolve deterministically, type-check, infer bounded generics, monomorphize, and materialize beside the checked executable goal/prelude-function slice; ownership/resource flow, bounded or well-founded direct recursion, effect propagation, authority/prohibition ceilings, direct exact limits, and compatible preference groups are checked before IR emission | Source-expression grammar beyond the current parsed slice, finite-domain proof, case execution, mutual-recursion analysis, state/execution graph construction, and planner allocation/retry decisions |
 | `§type` / `§predicate` / `§refines` | Complete parsing plus checked type/refinement lowering and parsed predicate elaboration: every v0 wire type normalizes, local generics enforce arity/bounds, total refinements retain candidate-bound evidence, and canonical predicate verifier interfaces/configuration materialize in semantic IR | Source-expression grammar beyond the current parsed slice and its complete source-to-IR audit |
 | `§policy` | Complete canonical source parsing for layer, `§extends`, six closed typed rules, scopes/parameters, waivability, and issuers; inline and explicit composition, inspection, policy-aware elaboration, and governed semantic IR | Expression-valued policy clauses and enforcement beyond the compile-time/evidence boundary |
 | `§syntax` / `§profile` | Complete closed source-definition parsing into typed deterministic artifacts; fixed byte-level selection, exact one-parent resolution, monotonic attached overlays, resolved-profile inspection, span-aware custom-source compilation, and deterministic profile-aware formatting | Applying newly parsed definitions as source-local registry inputs remains the profile-lowering stage |
@@ -699,9 +700,12 @@ scheduling order, or parallelism hint. Quantifiers expand to finite children bef
 IR; recursive bounds belong to the recursive child call; and budget/concurrency
 decisions live in execution graphs. Pending reducers name stable child tags, which the
 kernel resolves through the network; reducers never allocate child or derivation IDs.
-The next executable prelude boundary is retained-value behavior over explicit
-state-read and compare-and-swap capabilities, without adding behavior kinds or
-stateful callbacks to Rust or semantic IR.
+The versioned `lower-retain@0` / `retain-reducer@0` prelude boundary now derives
+retained-value behavior as a causal state-read, candidate, and compare-and-swap
+network. Refuted, unresolved, faulted, stale, and CAS-conflict outcomes stop before a
+write; only the satisfied path reaches compare-and-swap. The kernel gains no
+retention, retry, state, or freshness behavior kind. Persistent storage, state-graph
+construction, and runtime retry enforcement remain later stages.
 
 ## Practical v0 completion contract
 

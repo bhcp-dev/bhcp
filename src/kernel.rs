@@ -203,21 +203,58 @@ impl Derivation {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
+pub enum RecursionBound {
+    Bounded { maximum: u64 },
+    WellFounded { measure: Expression },
+}
+
+impl RecursionBound {
+    pub fn to_value(&self) -> Value {
+        match self {
+            Self::Bounded { maximum } => Value::map([
+                ("kind", Value::Text("bounded".to_owned())),
+                ("maximum", Value::Integer(*maximum as i128)),
+            ]),
+            Self::WellFounded { measure } => Value::map([
+                ("kind", Value::Text("well-founded".to_owned())),
+                ("measure", measure.to_value()),
+            ]),
+        }
+    }
+
+    fn validate(&self) -> Result<()> {
+        match self {
+            Self::Bounded { maximum: 0 } => Err(invalid("recursive child bound must be positive")),
+            Self::Bounded { .. } => Ok(()),
+            Self::WellFounded { measure }
+                if measure.value_type == BhcpType::ExactNumber("Integer") =>
+            {
+                Ok(())
+            }
+            Self::WellFounded { .. } => {
+                Err(invalid("well-founded recursion measure must be Integer"))
+            }
+        }
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct KernelChild {
     pub id: String,
     pub tag: String,
     pub goal: String,
     pub arguments: Vec<KernelArgument>,
+    pub recursion: Option<RecursionBound>,
 }
 
 impl KernelChild {
-    fn to_value(&self) -> Value {
-        Value::map([
-            ("id", Value::Text(self.id.clone())),
-            ("tag", Value::Text(self.tag.clone())),
-            ("goal", Value::Text(self.goal.clone())),
+    pub fn to_value(&self) -> Value {
+        let mut entries = vec![
+            ("id".to_owned(), Value::Text(self.id.clone())),
+            ("tag".to_owned(), Value::Text(self.tag.clone())),
+            ("goal".to_owned(), Value::Text(self.goal.clone())),
             (
-                "arguments",
+                "arguments".to_owned(),
                 Value::owned_map(
                     self.arguments
                         .iter()
@@ -225,7 +262,11 @@ impl KernelChild {
                         .collect(),
                 ),
             ),
-        ])
+        ];
+        if let Some(recursion) = &self.recursion {
+            entries.push(("recursion".to_owned(), recursion.to_value()));
+        }
+        Value::owned_map(entries)
     }
 }
 
@@ -330,6 +371,9 @@ impl KernelNetwork {
                 return Err(invalid(
                     "network argument names must be unique and non-empty",
                 ));
+            }
+            if let Some(recursion) = &child.recursion {
+                recursion.validate()?;
             }
         }
         Ok(())

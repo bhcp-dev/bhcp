@@ -268,7 +268,7 @@ fn obligation_node_fields(value: &Value) -> Result<()> {
     validate_map_fields(
         value,
         &["id", "kind", "clause", "status"],
-        &["evidence", "goals", "source_clauses", "policy"],
+        &["evidence", "goals", "source_clauses", "recursion", "policy"],
         "obligation node",
     )?;
     required_ref(value, "id")?;
@@ -296,10 +296,36 @@ fn obligation_node_fields(value: &Value) -> Result<()> {
     validate_optional_ref_array(value, "evidence", "obligation node")?;
     validate_nonempty_symbol_array(value, "goals", "obligation node")?;
     validate_optional_nonempty_ref_array(value, "source_clauses", "obligation node")?;
+    if let Some(recursion) = value.get("recursion") {
+        if text_field(value, "kind") != Some("limit") {
+            return Err(invalid_schema(
+                "only a limit obligation may carry recursion evidence",
+            ));
+        }
+        validate_recursion_bound(recursion)?;
+    }
     if let Some(policy) = value.get("policy") {
         validate_policy_obligation(policy, text_field(value, "kind").unwrap())?;
     }
     Ok(())
+}
+
+fn validate_recursion_bound(value: &Value) -> Result<()> {
+    match text_field(value, "kind") {
+        Some("bounded") => {
+            validate_map_fields(value, &["kind", "maximum"], &[], "recursion bound")?;
+            require_unsigned(value, "maximum", "recursion bound")?;
+            if matches!(value.get("maximum"), Some(Value::Integer(0))) {
+                return Err(invalid_schema("recursion maximum must be positive"));
+            }
+            Ok(())
+        }
+        Some("well-founded") => {
+            validate_map_fields(value, &["kind", "measure"], &[], "recursion bound")?;
+            validate_expression(value.get("measure").unwrap())
+        }
+        _ => Err(invalid_schema("recursion bound has invalid kind")),
+    }
 }
 
 fn validate_policy_obligation(value: &Value, node_kind: &str) -> Result<()> {

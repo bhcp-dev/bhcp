@@ -759,46 +759,103 @@ fn child_input(
 ) -> Result<Value> {
     let mut fields = Vec::new();
     for argument in &child.arguments {
-        let crate::model::ExpressionForm::Call(symbol, parameters) = &argument.value.form else {
-            return Err(invalid_input(
-                "child proof input is not a retained data edge",
-            ));
-        };
-        let [parameter] = parameters.as_slice() else {
-            return Err(invalid_input("child proof data edge has invalid arity"));
-        };
-        let crate::model::ExpressionForm::Literal(Value::Text(coordinate)) = &parameter.form else {
-            return Err(invalid_input("child proof data edge is not literal"));
-        };
-        let value = match symbol.as_str() {
-            "bhcp/kernel.parent-field@0" => parent
-                .get(coordinate)
-                .cloned()
-                .ok_or_else(|| invalid_input("parent proof input field is missing"))?,
-            "bhcp/kernel.observed-output@0" => {
-                let predecessor = network
-                    .children
-                    .iter()
-                    .find(|candidate| candidate.tag == *coordinate)
-                    .expect("validated data edge resolves predecessor tag");
-                let observation = observations
-                    .iter()
-                    .find(|observation| observation.child == predecessor.id)
-                    .ok_or_else(|| invalid_input("proof data-edge observation is missing"))?;
-                let ExecutionResult::Completed(Verdict::Satisfied { output, .. }) =
-                    &observation.result
-                else {
-                    return Err(invalid_input(
-                        "proof data-edge predecessor is not satisfied",
-                    ));
-                };
-                output.clone()
-            }
-            _ => return Err(invalid_input("child proof data-edge symbol is unsupported")),
-        };
+        let value = evaluate_child_data_edge(network, &argument.value, parent, observations)?;
         fields.push((argument.name.clone(), value));
     }
     Ok(Value::owned_map(fields))
+}
+
+fn evaluate_child_data_edge(
+    network: &crate::kernel::KernelNetwork,
+    expression: &crate::model::Expression,
+    parent: &Value,
+    observations: &[ChildObservation],
+) -> Result<Value> {
+    use crate::model::ExpressionForm;
+
+    match &expression.form {
+        ExpressionForm::Literal(value) => Ok(value.clone()),
+        ExpressionForm::Call(symbol, parameters) => {
+            let [parameter] = parameters.as_slice() else {
+                return Err(invalid_input("child proof data edge has invalid arity"));
+            };
+            let ExpressionForm::Literal(Value::Text(coordinate)) = &parameter.form else {
+                return Err(invalid_input("child proof data edge is not literal"));
+            };
+            match symbol.as_str() {
+                "bhcp/kernel.parent-field@0" => parent
+                    .get(coordinate)
+                    .cloned()
+                    .ok_or_else(|| invalid_input("parent proof input field is missing")),
+                "bhcp/kernel.observed-output@0" => {
+                    let predecessor = network
+                        .children
+                        .iter()
+                        .find(|candidate| candidate.tag == *coordinate)
+                        .expect("validated data edge resolves predecessor tag");
+                    let observation = observations
+                        .iter()
+                        .find(|observation| observation.child == predecessor.id)
+                        .ok_or_else(|| invalid_input("proof data-edge observation is missing"))?;
+                    let ExecutionResult::Completed(Verdict::Satisfied { output, .. }) =
+                        &observation.result
+                    else {
+                        return Err(invalid_input(
+                            "proof data-edge predecessor is not satisfied",
+                        ));
+                    };
+                    Ok(output.clone())
+                }
+                _ => Err(invalid_input("child proof data-edge symbol is unsupported")),
+            }
+        }
+        ExpressionForm::Unary(operator, operand) if operator == "-" => {
+            let value = evaluate_child_data_edge(network, operand, parent, observations)?;
+            let integer = exact_integer(&value)
+                .ok_or_else(|| invalid_input("unary data edge is not Integer"))?;
+            Ok(integer_value(integer.checked_neg().ok_or_else(|| {
+                invalid_input("unary data edge overflows Integer")
+            })?))
+        }
+        ExpressionForm::Binary(operator, left, right) => {
+            let left = evaluate_child_data_edge(network, left, parent, observations)?;
+            let right = evaluate_child_data_edge(network, right, parent, observations)?;
+            let left = exact_integer(&left)
+                .ok_or_else(|| invalid_input("binary data edge is not Integer"))?;
+            let right = exact_integer(&right)
+                .ok_or_else(|| invalid_input("binary data edge is not Integer"))?;
+            let value = match operator.as_str() {
+                "+" => left.checked_add(right),
+                "-" => left.checked_sub(right),
+                "*" => left.checked_mul(right),
+                "/" if right != 0 && left % right == 0 => left.checked_div(right),
+                "%" if right != 0 => left.checked_rem(right),
+                _ => None,
+            }
+            .ok_or_else(|| invalid_input("binary data edge is not total"))?;
+            Ok(integer_value(value))
+        }
+        _ => Err(invalid_input(
+            "child proof input is not a retained data edge",
+        )),
+    }
+}
+
+fn exact_integer(value: &Value) -> Option<i128> {
+    let Value::Array(values) = value else {
+        return None;
+    };
+    match values.as_slice() {
+        [Value::Text(kind), Value::Integer(value)] if kind == "integer" => Some(*value),
+        _ => None,
+    }
+}
+
+fn integer_value(value: i128) -> Value {
+    Value::Array(vec![
+        Value::Text("integer".to_owned()),
+        Value::Integer(value),
+    ])
 }
 
 fn verifier_bindings<'a>(

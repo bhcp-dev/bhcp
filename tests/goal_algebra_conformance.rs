@@ -6,7 +6,9 @@ use bhcp::capability::build_capability_graph;
 use bhcp::cbor::{decode_deterministic, encode_deterministic};
 use bhcp::obligation::build_obligation_graph;
 use bhcp::pipeline::compile_source;
-use bhcp::prelude::{ALL_FEATURE, ANY_FEATURE, CHAIN_FEATURE, GATE_FEATURE, NONE_FEATURE};
+use bhcp::prelude::{
+    ALL_FEATURE, ANY_FEATURE, CHAIN_FEATURE, GATE_FEATURE, NONE_FEATURE, RETAIN_FEATURE,
+};
 use bhcp::schema::{parse_diagnostic, validate_root};
 use bhcp::value::Value;
 
@@ -141,6 +143,7 @@ fn feature_manifest_negotiates_completed_graph_builders_and_bounded_non_goals() 
         NONE_FEATURE,
         CHAIN_FEATURE,
         GATE_FEATURE,
+        RETAIN_FEATURE,
         "bhcp/feature.extension-resolution@0",
     ] {
         assert_eq!(

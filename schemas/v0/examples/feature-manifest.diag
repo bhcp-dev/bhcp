@@ -12,6 +12,11 @@
     {"feature": "bhcp/feature.self-hosted-none@0", "level": "supported"},
     {"feature": "bhcp/feature.self-hosted-chain@0", "level": "supported"},
     {"feature": "bhcp/feature.self-hosted-gate@0", "level": "supported"},
+    {
+      "feature": "bhcp/feature.persistent-retention-lowering@0",
+      "level": "supported",
+      "notes": "Prelude lowering is supported; persistent storage and state-graph execution remain separate."
+    },
     {"feature": "bhcp/feature.extension-resolution@0", "level": "supported"},
     {"feature": "bhcp/feature.shared-typed-graph-model@0", "level": "supported"},
     {
