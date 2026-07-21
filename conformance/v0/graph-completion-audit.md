@@ -28,7 +28,7 @@ a self-reported success record.
 | Boundary | Executable check |
 | --- | --- |
 | Common input | Revalidate the typed IR, retained bytes, semantic/artifact identities, effective policy, waiver decisions, and then rebuild all three graphs from that one exact compilation before correlating any received graph. |
-| Obligation/checker | Match nodes by structural clause/policy meaning and exact goal set rather than array position; retain the complete generic-checker target map and reject missing, substituted, unknown-goal, or identity-rematerialized obligations. |
+| Obligation/checker | Match nodes by structural clause/policy meaning and exact goal set rather than array position; retain the generic proof checker's exact transitive `depends-on` closure for every reported goal; reject missing, substituted, unknown-goal, or identity-rematerialized obligations. |
 | Effects/decisions | Require a bijection from every execution-eligible IR effect to exactly one request and one final `allow` decision with the exact goal, typed resource, operation, and opaque parameters, plus the exact request edge. |
 | Typed resources | Resolve capability and state resources through the full IR source coordinate—goal, binding/source clause, name, and canonical type bytes. Raw graph-local node-ID equality is never used as resource equivalence. |
 | State authority | Require every authority node to name a capability node of kind `decision`, retain the identical effect/goal/operation, and join its state resource to the capability resource at the full typed coordinate. |

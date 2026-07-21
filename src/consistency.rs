@@ -9,6 +9,7 @@ use crate::graph::{GraphDocument, GraphKind, GraphNode};
 use crate::model::{ClauseKind, Effect};
 use crate::obligation::{build_obligation_graph, validate_compilation, validate_obligation_graph};
 use crate::pipeline::Compilation;
+use crate::proof::checker_obligation_closure;
 use crate::state::{STATE_FEATURE, build_state_graph, validate_state_graph};
 use crate::value::Value;
 
@@ -214,7 +215,7 @@ fn correlate_obligations(
         .iter()
         .map(|goal| goal.symbol.as_str())
         .collect::<BTreeSet<_>>();
-    let mut checker = BTreeMap::<String, BTreeSet<String>>::new();
+    let mut checker_goals = BTreeSet::new();
     for node in graph.nodes() {
         let node_goals = texts(node.value(), "goals")?;
         if node_goals.is_empty() || node_goals.iter().any(|goal| !goals.contains(goal.as_str())) {
@@ -225,11 +226,17 @@ fn correlate_obligations(
         let checker_claim = node.kind != "case"
             && (node.kind != "verification" || node.value().get("policy").is_some());
         if checker_claim {
-            for goal in node_goals {
-                checker.entry(goal).or_default().insert(node.id.clone());
-            }
+            checker_goals.extend(node_goals);
         }
     }
+    let checker = checker_goals
+        .into_iter()
+        .map(|goal| {
+            checker_obligation_closure(graph, &goal)
+                .map(|closure| (goal, closure))
+                .map_err(|error| obligation_mismatch(error.message))
+        })
+        .collect::<Result<_>>()?;
     Ok(checker)
 }
 

@@ -93,7 +93,7 @@ pub fn verify_obligation_proof(request: ObligationProofRequest<'_>) -> Result<Pr
     }
 
     let (goal, _) = resolve_network(request.compilation, request.network)?;
-    let closure = obligation_closure(request.obligation_graph, &goal.symbol)?;
+    let closure = checker_obligation_closure(request.obligation_graph, &goal.symbol)?;
     let evidence_targets = closure
         .iter()
         .filter(|id| node(request.obligation_graph, id).kind != "discharge")
@@ -201,7 +201,10 @@ fn resolve_network<'a>(
         .ok_or_else(|| invalid_input("proof network does not resolve in semantic IR"))
 }
 
-fn obligation_closure(graph: &GraphDocument, goal: &str) -> Result<BTreeSet<String>> {
+pub(crate) fn checker_obligation_closure(
+    graph: &GraphDocument,
+    goal: &str,
+) -> Result<BTreeSet<String>> {
     let mut closure = graph
         .nodes()
         .iter()

@@ -48,6 +48,20 @@ const RETENTION: &str = r#"
 }
 "#;
 
+const PARENT_CHILD: &str = r#"
+§goal example/Child@0 {
+    §output value: Bool;
+    §requires "ready": true;
+}
+§goal example/Parent@0 {
+    §output child: { value: Bool };
+    §requires "parent-ready": true;
+    §all {
+        child = example/Child@0();
+    };
+}
+"#;
+
 fn repository() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
 }
@@ -146,6 +160,13 @@ fn governed_reference_emits_one_exact_mutually_consistent_graph_set() {
         ),
         "reference obligation inventory is disconnected from checker goals"
     );
+    for (goal, obligations) in report.checker_obligations() {
+        assert_eq!(
+            obligations,
+            &checker_closure(&canonical_graphs.obligation, goal),
+            "governed report differs from the generic checker closure for {goal}"
+        );
+    }
     for graph in canonical_graphs.iter() {
         assert!(graph.semantic_id().is_some());
         assert!(graph.artifact_id().is_some());
@@ -167,6 +188,32 @@ fn governed_reference_emits_one_exact_mutually_consistent_graph_set() {
         .join("\n")
         + "\n";
     assert_eq!(reference("graph-identities.txt"), identities);
+}
+
+#[test]
+fn parent_report_includes_transitive_checker_prerequisites() {
+    let compilation = compile_source(PARENT_CHILD, "cross-graph-parent-child.bhcp").unwrap();
+    let graphs = build_analysis_graphs(&compilation).unwrap();
+    let report = validate_analysis_graphs(&compilation, &graphs).unwrap();
+    let goal = "example/Parent@0";
+    let exact = checker_closure(&graphs.obligation, goal);
+    let direct = graphs
+        .obligation
+        .nodes()
+        .iter()
+        .filter(|node| {
+            is_checker_obligation(node)
+                && matches!(
+                    node.value().get("goals"),
+                    Some(Value::Array(goals)) if goals.contains(&Value::Text(goal.to_owned()))
+                )
+        })
+        .map(|node| node.id.clone())
+        .collect::<BTreeSet<_>>();
+
+    assert_eq!(direct.len(), 2, "fixture no longer exposes a dependency");
+    assert_eq!(exact.len(), 3, "generic checker closure drifted");
+    assert_eq!(report.checker_obligations().get(goal), Some(&exact));
 }
 
 #[test]
@@ -399,6 +446,39 @@ fn rematerialize(mut value: Value) -> GraphDocument {
         .materialize_identities(HashAlgorithm::default())
         .unwrap();
     graph
+}
+
+fn checker_closure(graph: &GraphDocument, goal: &str) -> BTreeSet<String> {
+    let mut closure = graph
+        .nodes()
+        .iter()
+        .filter(|node| {
+            is_checker_obligation(node)
+                && matches!(
+                    node.value().get("goals"),
+                    Some(Value::Array(goals)) if goals.contains(&Value::Text(goal.to_owned()))
+                )
+        })
+        .map(|node| node.id.clone())
+        .collect::<BTreeSet<_>>();
+    let mut changed = true;
+    while changed {
+        changed = false;
+        for edge in graph
+            .edges()
+            .iter()
+            .filter(|edge| edge.kind == "depends-on")
+        {
+            if closure.contains(&edge.from) && closure.insert(edge.to.clone()) {
+                changed = true;
+            }
+        }
+    }
+    closure
+}
+
+fn is_checker_obligation(node: &bhcp::graph::GraphNode) -> bool {
+    node.kind != "case" && (node.kind != "verification" || node.value().get("policy").is_some())
 }
 
 fn values<'a>(value: &'a Value, field: &str) -> Vec<&'a Value> {
