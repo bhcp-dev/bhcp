@@ -20,6 +20,50 @@ slice, execution-graph construction, planner budget allocation, and execution re
 roadmap work. Deterministic obligation graph, capability graph, and state-analysis
 graph construction are implemented as separate, exactly reconstructable artifacts.
 
+## OpenAI Build Week judge quickstart
+
+BHCP is submitted in the **Developer Tools** category. The fastest trial needs no
+account, API key, or network access after download:
+
+```sh
+# Download the archive for your platform from the v0.1.0 Build Week release,
+# extract it, and run these commands inside the extracted directory.
+./bhcp inspect canonical-simple.bhcp
+./bhcp hash canonical-simple.bhcp
+```
+
+The release includes archives for macOS 15+ on Apple silicon and Linux on x86-64 or
+ARM64 with glibc 2.39+ (for example, Ubuntu 24.04+). The macOS and Linux binaries and
+the included example were exercised before submission. Source builds use the
+repository's pinned Rust 1.97.1 toolchain:
+
+```sh
+git clone https://github.com/bhcp-dev/bhcp.git
+cd bhcp
+mise trust
+mise install
+cargo build --release
+./target/release/bhcp inspect conformance/v0/fixtures/canonical-simple.bhcp
+./target/release/bhcp hash conformance/v0/fixtures/canonical-simple.bhcp
+```
+
+[Download the Build Week release](https://github.com/bhcp-dev/bhcp/releases/tag/v0.1.0-build-week).
+The executable submission is a working semantic compiler and verification
+foundation, not yet the complete planned parser, planner, runtime, SDK, or proof
+system. Unsupported behavior fails closed rather than being silently accepted.
+
+### How Codex and GPT-5.6 were used
+
+GPT-5.6 was the model collaborator across every phase: brainstorming the premise,
+refining the language and product direction, prototyping executable slices,
+structuring the wiki and issue roadmap, and implementing and testing the Rust
+compiler, semantic checks, conformance fixtures, and documentation. Codex provided
+the repository-native environment for inspecting the normative contract, turning
+bounded issues into tests, implementing focused slices, running validation, and
+auditing contradictions across code, schemas, and documentation. Human judgment
+retained authority over semantic boundaries, scope, acceptance evidence, and the
+final decision to accept each change.
+
 ## Start here
 
 - [VISION.md](VISION.md) is the short, aspirational description of the project and
@@ -55,6 +99,7 @@ canonical encoding rules, and validation details.
 Install the pinned Rust toolchain, then run the CLI through Cargo:
 
 ```sh
+mise trust
 mise install
 cargo run -- parse conformance/v0/fixtures/canonical-simple.bhcp > /tmp/canonical-simple.ast.cbor
 cargo run -- lower conformance/v0/fixtures/canonical-simple.bhcp > /tmp/canonical-simple.ir.cbor

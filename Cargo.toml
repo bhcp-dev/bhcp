@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2024"
 rust-version = "1.97.1"
 default-run = "bhcp"
-license = "Apache-2.0"
+license = "MIT"
 description = "Executable foundation for BHCP canonical source and v0 artifacts"
 
 [lib]
