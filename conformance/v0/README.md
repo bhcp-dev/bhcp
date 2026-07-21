@@ -110,7 +110,12 @@ The registered verifier slice additionally executes EVD-01 through EVD-06, inclu
 capability-bounded project adapters and their deterministic evidence mapping. The
 obligation builder constructs normalized contract, retained-case, verifier,
 parent/child, and effective-policy nodes with exact audit provenance and open initial
-status. Freshness windows, signatures, and full proof coverage remain unclaimed.
+status. `tests/proof_checker.rs` composes those EVD boundaries with KRN-03, KRN-08,
+and the existing KRN-02/06/09/10/13 kernel evidence: it checks exact reducer,
+observation, dependency, candidate, payload, producer, policy-minimum, and four-state
+bindings, including generic counter-evidence premises for `none`. Freshness windows,
+signatures, execution graphs, and final evidence-graph assembly remain unclaimed;
+full proof coverage remains unclaimed at the v0 runtime boundary.
 
 The manifest at `policy/manifest.txt` makes the complete no-waiver POL-01 through
 POL-08 slice executable. Its canonical sources cover organization, team, repository,
@@ -253,7 +258,7 @@ forms MUST lower to the same meaning.
 | KRN-05 | Reducer state names are inspected. | Only adjectival `pending` and `concluded` states occur. |
 | KRN-06 | A premise-free reducer proves an empty logical identity. | The checker derives and seals the valid derivation ID from the network; that ID supplies the verdict's evidence or counter-evidence token. |
 | KRN-07 | Kernel IR is inspected for derived or planner metadata. | No behavior kind, quantifier family, guard, dependency, budget, scheduling order, or parallelism hint is present. |
-| KRN-08 | A concluded reduction is proof-checked. | The generic checker re-evaluates the referenced BHCP reducer and validates sealed premises; no behavior-specific proof-rule tag is accepted. |
+| KRN-08 | A concluded reduction is proof-checked. | The generic checker re-evaluates the referenced BHCP reducer, validates execution-instance-bound claims, items, gaps, premises, and typed expression contexts, and reconciles each observed child with its instance-specific aggregate structural-obligation status; no behavior-specific proof-rule tag is accepted. |
 | KRN-09 | A network reducer omits the parent input, uses a non-monomorphized observation record, or returns the wrong reduction type. | Static rejection before IR acceptance or execution. |
 | KRN-10 | A reducer branches on an operational trace event, timestamp, or payload. | Static rejection; faults may be discriminated and propagated, but trace contents remain opaque to semantic choice. |
 | KRN-11 | A composition quantifier has a statically finite domain, then a verifier-backed or runtime-only domain. | The static domain expands to explicit children before IR; the other domains are rejected and require bounded/well-founded recursive goals. |

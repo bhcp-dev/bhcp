@@ -371,13 +371,24 @@ available as the replacement boundary; wiring general source-defined
 functions and predicates into semantic IR remains the next stage. Adding derived
 behaviors must not introduce behavior-specific Rust primitives.
 
-The checker in this slice re-evaluates the retained reducer and verifies that every
-derivation premise is sealed evidence from an observed child. The obligation builder
-now emits deterministic open nodes for requirements, guarantees, invariants, limits,
-retained cases, verifier bindings, parent/child discharge dependencies, and effective
-policy requirements/evidence/limits. Generated clause IDs and labels are audit data,
-not structural identity; duplicate policy rules retain every exact source coordinate.
-This runtime still does not claim complete v0 proof checking.
+The obligation-graph proof checker re-evaluates the exact retained reducer and binds
+every derivation premise to the matching observed child, structural dependency, and
+accepted evidence or counter-evidence. It revalidates semantic-IR, graph, candidate,
+payload, producer, decision-time, contract-expression, and policy-minimum boundaries;
+rejects target, identity, premise, reason, and dependency substitution; and preserves
+satisfied, refuted, unresolved, and faulted results without behavior-specific proof
+tags. Every evidence claim, item, and gap carries its sealed execution-instance
+identity; built-in expression evidence additionally carries its typed input/output
+context for deterministic re-evaluation. Every observed child result must agree
+with the instance-specific aggregate statuses of that child's structural
+obligations. The obligation builder
+emits deterministic open nodes for requirements,
+guarantees, invariants, limits, retained cases, verifier bindings, parent/child
+discharge dependencies, and effective policy requirements/evidence/limits. Generated
+clause IDs and labels are audit data, not structural identity; duplicate policy rules
+retain every exact source coordinate. This closes the obligation-graph proof-checker
+slice, not the still-deferred planner, executor, evidence-graph assembler, or complete
+v0 runtime.
 
 The registered verification foundation resolves explicit `§verify ... for "label"`
 targets to structural obligation IDs, re-evaluates total contract expressions over

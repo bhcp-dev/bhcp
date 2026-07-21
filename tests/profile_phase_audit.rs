@@ -113,7 +113,7 @@ fn maturity_and_closed_profile_non_goals_remain_consistent() {
     assert!(profile.contains("Roadmap completion means"));
     assert!(profile.contains("all milestone acceptance outcomes are demonstrable"));
     assert!(conformance.contains("obligation builder constructs normalized"));
-    assert!(conformance.contains("full proof coverage remain unclaimed"));
+    assert!(conformance.contains("full proof coverage remains unclaimed"));
 
     for document in [&readme, &vision, &semantics, &conformance, &report] {
         assert!(

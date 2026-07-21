@@ -115,6 +115,7 @@ fn verify(
     registry.verify(VerificationRequest {
         compilation,
         goal: "example/Review@0",
+        execution_instance: None,
         input: &input,
         output: &output,
         subject: reference("subject"),

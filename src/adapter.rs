@@ -105,6 +105,50 @@ impl VerifierProcessRunner {
         })
     }
 
+    pub(crate) fn registered_executable_reference(
+        &self,
+        declaration: &VerifierAdapterDeclaration,
+    ) -> Result<ContentReference> {
+        let executable = self
+            .resolve_executable(&declaration.executable)
+            .map_err(|error| match error {
+                ResolveError::Missing => invalid("registered adapter executable is missing"),
+                ResolveError::Escape => {
+                    invalid("registered adapter executable escapes the project root")
+                }
+                ResolveError::Unreadable(message) => invalid(message),
+            })?;
+        let metadata = fs::metadata(&executable).map_err(|error| {
+            invalid(format!(
+                "cannot inspect registered adapter executable: {error}"
+            ))
+        })?;
+        if metadata.len() > MAX_ADAPTER_EXECUTABLE_BYTES {
+            return Err(invalid(
+                "registered adapter executable exceeds the artifact limit",
+            ));
+        }
+        let identity = ExecutableIdentity::from_metadata(&metadata);
+        let bytes = fs::read(&executable).map_err(|error| {
+            invalid(format!(
+                "cannot read registered adapter executable: {error}"
+            ))
+        })?;
+        let captured = fs::metadata(&executable)
+            .map(|metadata| ExecutableIdentity::from_metadata(&metadata))
+            .map_err(|error| {
+                invalid(format!(
+                    "registered adapter executable changed during capture: {error}"
+                ))
+            })?;
+        if captured != identity || bytes.len() as u64 != metadata.len() {
+            return Err(invalid(
+                "registered adapter executable changed while its artifact was captured",
+            ));
+        }
+        Ok(reference(EXECUTABLE_MEDIA_TYPE, &bytes))
+    }
+
     pub fn run(
         &self,
         declaration: &VerifierAdapterDeclaration,
@@ -112,7 +156,6 @@ impl VerifierProcessRunner {
         cancellation: &CancellationToken,
     ) -> Result<AdapterRun> {
         validate_request(declaration, request)?;
-        let registration_bytes = encode_deterministic(&declaration_value(declaration))?;
         let request_bytes = encode_deterministic(&request_value(request))?;
         if request_bytes.len() > MAX_ADAPTER_INPUT_BYTES {
             return Err(invalid("encoded adapter request exceeds the input limit"));
@@ -120,7 +163,7 @@ impl VerifierProcessRunner {
         let mut record = AdapterExecutionRecord {
             declaration: declaration.clone(),
             obligations: request.obligations.to_vec(),
-            registration_artifact: reference(REGISTRATION_MEDIA_TYPE, &registration_bytes),
+            registration_artifact: registration_reference(declaration)?,
             executable_artifact: None,
             request_artifact: reference(REQUEST_MEDIA_TYPE, &request_bytes),
             response_artifact: None,
@@ -387,6 +430,13 @@ impl VerifierProcessRunner {
         }
         Ok(resolved)
     }
+}
+
+pub(crate) fn registration_reference(
+    declaration: &VerifierAdapterDeclaration,
+) -> Result<ContentReference> {
+    let bytes = encode_deterministic(&declaration_value(declaration))?;
+    Ok(reference(REGISTRATION_MEDIA_TYPE, &bytes))
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]

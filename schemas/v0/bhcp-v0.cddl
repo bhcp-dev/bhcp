@@ -957,6 +957,7 @@ execution-result-document = {
 
 evidence-claim = {
   "id": ref-id,
+  ? "execution_instance": ref-id,
   "obligation": ref-id,
   "polarity": "supports" / "refutes",
   "subject": content-reference,
@@ -965,6 +966,7 @@ evidence-claim = {
 }
 evidence-item = {
   "id": ref-id,
+  ? "execution_instance": ref-id,
   "class": evidence-class,
   "verifier": symbol-id,
   "verifier_artifact": content-reference,
@@ -977,6 +979,7 @@ evidence-item = {
 }
 evidence-gap = {
   "id": ref-id,
+  ? "execution_instance": ref-id,
   "kind": "unsafe" / "foreign" / "missing" / "stale" / "unsupported" / symbol-id,
   "obligations": [* ref-id],
   "reason": reason,
