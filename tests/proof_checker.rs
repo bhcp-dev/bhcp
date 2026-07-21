@@ -1019,6 +1019,275 @@ fn repeated_goal_any_uses_instance_results_not_the_global_leaf_disposition() {
 }
 
 #[test]
+fn repeated_goal_any_preserves_unresolved_with_an_unrelated_refutation() {
+    let compilation = repeated_goal_any_compilation();
+    let graph = build_obligation_graph(&compilation).unwrap();
+    let mut registry = VerifierRegistry::new();
+    registry.register(rejected_verifier()).unwrap();
+    let rejected = verification_for(&compilation, &registry, "example/Child@0", "child-1");
+    let unresolved = verification_for(
+        &compilation,
+        &VerifierRegistry::new(),
+        "example/Child@0",
+        "child-2",
+    );
+    let (bundle, payloads) = merge_evidence(rejected, unresolved);
+    let unresolved_reason = bundle
+        .gaps
+        .iter()
+        .find(|gap| gap.execution_instance.as_deref() == Some("child-2"))
+        .unwrap()
+        .reason
+        .clone();
+    let claims = |polarity: &str, instance: &str| {
+        bundle
+            .claims
+            .iter()
+            .filter(|claim| {
+                claim.status == "accepted"
+                    && claim.polarity == polarity
+                    && claim.execution_instance.as_deref() == Some(instance)
+            })
+            .map(|claim| claim.id.clone())
+            .collect()
+    };
+    let child_output = Value::map([("value", Value::Bool(true))]);
+    let observations = [
+        ChildObservation {
+            child: "child-1".to_owned(),
+            result: ExecutionResult::Completed(Verdict::Refuted {
+                counter_evidence: claims("refutes", "child-1"),
+            }),
+        },
+        ChildObservation {
+            child: "child-2".to_owned(),
+            result: ExecutionResult::Completed(Verdict::Unresolved {
+                reason: unresolved_reason,
+                partial_evidence: claims("supports", "child-2"),
+            }),
+        },
+    ];
+    let parent = Value::owned_map(vec![]);
+    let claimed = KernelRuntime::new(&compilation.ir)
+        .reduce("network-1", parent.clone(), &observations)
+        .unwrap();
+    let evaluation_contexts = [
+        ProofEvaluationContext {
+            instance: "child-1".to_owned(),
+            goal: "example/Child@0".to_owned(),
+            input: Value::owned_map(vec![]),
+            output: child_output.clone(),
+        },
+        ProofEvaluationContext {
+            instance: "child-2".to_owned(),
+            goal: "example/Child@0".to_owned(),
+            input: Value::owned_map(vec![]),
+            output: child_output,
+        },
+    ];
+    let checked = verify_obligation_proof(ObligationProofRequest {
+        compilation: &compilation,
+        obligation_graph: &graph,
+        network: "network-1",
+        parent: &parent,
+        observations: &observations,
+        claimed: &claimed,
+        evidence: &bundle,
+        payloads: &payloads,
+        evaluation_contexts: &evaluation_contexts,
+        verifier_registry: &registry,
+        candidate: &candidate(),
+        candidate_bytes: b"candidate-v1",
+        produced_at: "2026-07-21T09:30:00Z",
+    })
+    .unwrap();
+    assert_eq!(checked.state, ProofState::Unresolved);
+}
+
+#[test]
+fn repeated_goal_gap_reasons_cannot_cross_execution_instances() {
+    let compilation = repeated_goal_compilation();
+    let graph = build_obligation_graph(&compilation).unwrap();
+    let registry = VerifierRegistry::new();
+    let first = verification_for(&compilation, &registry, "example/Child@0", "child-1");
+    let mut second = verification_for(&compilation, &registry, "example/Child@0", "child-2");
+    second.bundle.gaps[0].reason = Reason {
+        code: "bhcp.reason/second-missing-verifier@0".to_owned(),
+        message: "the second verifier is unavailable".to_owned(),
+        details: None,
+    };
+    rematerialize(&mut second.bundle);
+    let (bundle, payloads) = merge_evidence(first, second);
+    let first_reason = bundle
+        .gaps
+        .iter()
+        .find(|gap| gap.execution_instance.as_deref() == Some("child-1"))
+        .unwrap()
+        .reason
+        .clone();
+    let second_reason = bundle
+        .gaps
+        .iter()
+        .find(|gap| gap.execution_instance.as_deref() == Some("child-2"))
+        .unwrap()
+        .reason
+        .clone();
+    let claims = |instance: &str| {
+        bundle
+            .claims
+            .iter()
+            .filter(|claim| {
+                claim.status == "accepted"
+                    && claim.polarity == "supports"
+                    && claim.execution_instance.as_deref() == Some(instance)
+            })
+            .map(|claim| claim.id.clone())
+            .collect()
+    };
+    let child_output = Value::map([("value", Value::Bool(true))]);
+    let observations = [
+        ChildObservation {
+            child: "child-1".to_owned(),
+            result: ExecutionResult::Completed(Verdict::Unresolved {
+                reason: second_reason,
+                partial_evidence: claims("child-1"),
+            }),
+        },
+        ChildObservation {
+            child: "child-2".to_owned(),
+            result: ExecutionResult::Completed(Verdict::Unresolved {
+                reason: first_reason,
+                partial_evidence: claims("child-2"),
+            }),
+        },
+    ];
+    let parent = Value::owned_map(vec![]);
+    let claimed = KernelRuntime::new(&compilation.ir)
+        .reduce("network-1", parent.clone(), &observations)
+        .unwrap();
+    let evaluation_contexts = [
+        ProofEvaluationContext {
+            instance: "child-1".to_owned(),
+            goal: "example/Child@0".to_owned(),
+            input: Value::owned_map(vec![]),
+            output: child_output.clone(),
+        },
+        ProofEvaluationContext {
+            instance: "child-2".to_owned(),
+            goal: "example/Child@0".to_owned(),
+            input: Value::owned_map(vec![]),
+            output: child_output,
+        },
+    ];
+    assert_eq!(
+        verify_obligation_proof(ObligationProofRequest {
+            compilation: &compilation,
+            obligation_graph: &graph,
+            network: "network-1",
+            parent: &parent,
+            observations: &observations,
+            claimed: &claimed,
+            evidence: &bundle,
+            payloads: &payloads,
+            evaluation_contexts: &evaluation_contexts,
+            verifier_registry: &registry,
+            candidate: &candidate(),
+            candidate_bytes: b"candidate-v1",
+            produced_at: "2026-07-21T09:30:00Z",
+        })
+        .unwrap_err()
+        .code,
+        "BHCP7302"
+    );
+}
+
+#[test]
+fn repeated_goal_fault_reasons_cannot_cross_execution_instances() {
+    let compilation = repeated_goal_compilation();
+    let graph = build_obligation_graph(&compilation).unwrap();
+    let mut registry = VerifierRegistry::new();
+    registry.register(faulted_verifier()).unwrap();
+    let first = verification_for(&compilation, &registry, "example/Child@0", "child-1");
+    let mut second = verification_for(&compilation, &registry, "example/Child@0", "child-2");
+    second.bundle.gaps[0].reason = Reason {
+        code: "bhcp.fault/second-verifier-contract@0".to_owned(),
+        message: "the second verifier contract failed".to_owned(),
+        details: None,
+    };
+    rematerialize(&mut second.bundle);
+    let (bundle, payloads) = merge_evidence(first, second);
+    let first_reason = bundle
+        .gaps
+        .iter()
+        .find(|gap| gap.execution_instance.as_deref() == Some("child-1"))
+        .unwrap()
+        .reason
+        .clone();
+    let second_reason = bundle
+        .gaps
+        .iter()
+        .find(|gap| gap.execution_instance.as_deref() == Some("child-2"))
+        .unwrap()
+        .reason
+        .clone();
+    let observations = [
+        ChildObservation {
+            child: "child-1".to_owned(),
+            result: ExecutionResult::Faulted(OperationalFault {
+                error: second_reason,
+                trace: vec![],
+            }),
+        },
+        ChildObservation {
+            child: "child-2".to_owned(),
+            result: ExecutionResult::Faulted(OperationalFault {
+                error: first_reason,
+                trace: vec![],
+            }),
+        },
+    ];
+    let parent = Value::owned_map(vec![]);
+    let claimed = KernelRuntime::new(&compilation.ir)
+        .reduce("network-1", parent.clone(), &observations)
+        .unwrap();
+    let child_output = Value::map([("value", Value::Bool(true))]);
+    let evaluation_contexts = [
+        ProofEvaluationContext {
+            instance: "child-1".to_owned(),
+            goal: "example/Child@0".to_owned(),
+            input: Value::owned_map(vec![]),
+            output: child_output.clone(),
+        },
+        ProofEvaluationContext {
+            instance: "child-2".to_owned(),
+            goal: "example/Child@0".to_owned(),
+            input: Value::owned_map(vec![]),
+            output: child_output,
+        },
+    ];
+    assert_eq!(
+        verify_obligation_proof(ObligationProofRequest {
+            compilation: &compilation,
+            obligation_graph: &graph,
+            network: "network-1",
+            parent: &parent,
+            observations: &observations,
+            claimed: &claimed,
+            evidence: &bundle,
+            payloads: &payloads,
+            evaluation_contexts: &evaluation_contexts,
+            verifier_registry: &registry,
+            candidate: &candidate(),
+            candidate_bytes: b"candidate-v1",
+            produced_at: "2026-07-21T09:30:00Z",
+        })
+        .unwrap_err()
+        .code,
+        "BHCP7302"
+    );
+}
+
+#[test]
 fn satisfied_child_with_no_structural_requirements_is_vacuously_consistent() {
     let source = r#"
 §goal example/Child@0 {

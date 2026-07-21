@@ -1311,9 +1311,11 @@ fn validate_dependency_premises(
             };
             if let Some((reason, faulted)) = reason
                 && !evidence.gaps.iter().any(|gap| {
-                    gap.obligations
-                        .iter()
-                        .any(|obligation| obligation == target)
+                    gap.execution_instance.as_deref() == Some(observation.child.as_str())
+                        && gap
+                            .obligations
+                            .iter()
+                            .any(|obligation| obligation == target)
                         && (gap.kind == VERIFIER_FAULT_GAP) == faulted
                         && gap.reason == *reason
                 })
@@ -1360,7 +1362,6 @@ fn validate_outcome(
     closure: &BTreeSet<String>,
     statuses: &BTreeMap<String, CheckedStatus>,
 ) -> Result<ProofState> {
-    let has = |status| statuses.values().any(|candidate| *candidate == status);
     let local = closure
         .iter()
         .filter(|id| {
@@ -1370,6 +1371,14 @@ fn validate_outcome(
         .filter_map(|id| statuses.get(id))
         .copied()
         .collect::<Vec<_>>();
+    let discharge = closure
+        .iter()
+        .filter(|id| node(graph, id).kind == "discharge")
+        .filter_map(|id| statuses.get(id))
+        .copied()
+        .collect::<Vec<_>>();
+    let local_has = |status| local.contains(&status);
+    let discharge_has = |status| discharge.contains(&status);
     let state = match result {
         ExecutionResult::Completed(Verdict::Satisfied { .. })
             if local
@@ -1378,18 +1387,22 @@ fn validate_outcome(
         {
             ProofState::Satisfied
         }
-        ExecutionResult::Completed(Verdict::Refuted { .. }) if has(CheckedStatus::Refuted) => {
+        ExecutionResult::Completed(Verdict::Refuted { .. })
+            if local_has(CheckedStatus::Refuted) || discharge_has(CheckedStatus::Refuted) =>
+        {
             ProofState::Refuted
         }
         ExecutionResult::Completed(Verdict::Unresolved { .. })
-            if !has(CheckedStatus::Refuted)
-                && !has(CheckedStatus::Faulted)
-                && has(CheckedStatus::Unresolved) =>
+            if !local_has(CheckedStatus::Refuted)
+                && !local_has(CheckedStatus::Faulted)
+                && (local_has(CheckedStatus::Unresolved)
+                    || discharge_has(CheckedStatus::Unresolved)) =>
         {
             ProofState::Unresolved
         }
         ExecutionResult::Faulted(_)
-            if !has(CheckedStatus::Refuted) && has(CheckedStatus::Faulted) =>
+            if !local_has(CheckedStatus::Refuted)
+                && (local_has(CheckedStatus::Faulted) || discharge_has(CheckedStatus::Faulted)) =>
         {
             ProofState::Faulted
         }
