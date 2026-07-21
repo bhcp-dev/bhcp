@@ -5,7 +5,7 @@ use std::collections::{BTreeMap, BTreeSet, HashMap};
 use crate::cbor::encode_deterministic;
 use crate::diagnostic::{Diagnostic, Result};
 use crate::graph::{GraphDocument, GraphKind};
-use crate::hash::{HashAlgorithm, hash_value};
+use crate::hash::{HashAlgorithm, artifact_hash_with, hash_value};
 use crate::model::ContentReference;
 use crate::model::{ClauseKind, Expression, ExpressionForm, GoalDefinition};
 use crate::pipeline::Compilation;
@@ -123,6 +123,17 @@ pub(crate) fn validate_compilation(compilation: &Compilation) -> Result<HashAlgo
     {
         return Err(invalid_input(
             "semantic IR identity does not match the compilation envelope",
+        ));
+    }
+    let artifact_algorithm = HashAlgorithm::from_id(&compilation.ir_hash.algorithm)
+        .map_err(|error| invalid_input(error.message))?;
+    let artifact_hash = artifact_hash_with(&compilation.ir.to_value(false), artifact_algorithm)?;
+    if artifact_algorithm != algorithm
+        || artifact_hash != compilation.ir_hash
+        || compilation.ir.artifact_id.as_ref() != Some(&compilation.ir_hash)
+    {
+        return Err(invalid_input(
+            "semantic IR artifact identity does not match the compilation envelope",
         ));
     }
 

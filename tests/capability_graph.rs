@@ -142,8 +142,32 @@ fn requests_resources_ceilings_policy_and_decisions_are_complete() {
         array(policy_grant.value().get("policy").unwrap(), "sources").len(),
         1
     );
+    assert_eq!(
+        policy_grant.value().get("capability").unwrap().get("scope"),
+        policy_grant
+            .value()
+            .get("policy")
+            .unwrap()
+            .get("value")
+            .unwrap()
+            .get("scope")
+    );
     let policy_denial = policy_node(&graph, "prohibition");
     assert_eq!(policy_denial.kind, "denial");
+    assert_eq!(
+        policy_denial
+            .value()
+            .get("capability")
+            .unwrap()
+            .get("scope"),
+        policy_denial
+            .value()
+            .get("policy")
+            .unwrap()
+            .get("value")
+            .unwrap()
+            .get("scope")
+    );
     validate_capability_graph(&compilation, &graph).unwrap();
 }
 
@@ -461,6 +485,31 @@ fn retained_policy_decisions_and_compilation_envelopes_are_revalidated() {
     stale_bytes.ir_bytes.push(0);
     assert_eq!(
         build_capability_graph(&stale_bytes).unwrap_err().code,
+        "BHCP7201"
+    );
+
+    let mut stale_artifact_hash = governed();
+    stale_artifact_hash.ir_hash.digest[0] ^= 0xff;
+    assert_eq!(
+        build_capability_graph(&stale_artifact_hash)
+            .unwrap_err()
+            .code,
+        "BHCP7201"
+    );
+
+    let mut stale_typed_artifact_id = governed();
+    stale_typed_artifact_id
+        .ir
+        .artifact_id
+        .as_mut()
+        .unwrap()
+        .digest[0] ^= 0xff;
+    stale_typed_artifact_id.ir_bytes =
+        encode_deterministic(&stale_typed_artifact_id.ir.to_value(true)).unwrap();
+    assert_eq!(
+        build_capability_graph(&stale_typed_artifact_id)
+            .unwrap_err()
+            .code,
         "BHCP7201"
     );
 

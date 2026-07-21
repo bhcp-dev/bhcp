@@ -462,7 +462,12 @@ fn policy_nodes(
                 ("goal", Value::Text(goal.symbol.clone())),
                 (
                     "capability",
-                    capability_value(effect.to_value(), decision_name, source_refs),
+                    scoped_capability_value(
+                        effect.to_value(),
+                        normalized_policy_scope_value(rule.value.scope.as_ref())?,
+                        decision_name,
+                        source_refs,
+                    ),
                 ),
                 (
                     "policy",
@@ -679,15 +684,48 @@ fn graph_effect(effect: &Effect, resources: &HashMap<String, ResourceCoordinate>
 }
 
 fn capability_value(effect: Value, decision: &str, sources: Vec<String>) -> Value {
+    scoped_capability_value(effect, Value::Map(Vec::new()), decision, sources)
+}
+
+fn scoped_capability_value(
+    effect: Value,
+    scope: Value,
+    decision: &str,
+    sources: Vec<String>,
+) -> Value {
     Value::map([
         ("effect", effect),
-        ("scope", Value::Map(Vec::new())),
+        ("scope", scope),
         ("decision", Value::Text(decision.to_owned())),
         (
             "sources",
             Value::Array(sources.into_iter().map(Value::Text).collect()),
         ),
     ])
+}
+
+fn normalized_policy_scope_value(scope: Option<&PolicyScope>) -> Result<Value> {
+    let mut value = scope.map_or_else(|| Value::Map(Vec::new()), PolicyScope::to_value);
+    let Value::Map(entries) = &mut value else {
+        return Ok(value);
+    };
+
+    for (_, field) in entries
+        .iter_mut()
+        .filter(|(key, _)| matches!(key.as_str(), "goals" | "resources" | "operations"))
+    {
+        let Value::Array(items) = field else {
+            continue;
+        };
+        let mut keyed = items
+            .drain(..)
+            .map(|item| Ok((encode_deterministic(&item)?, item)))
+            .collect::<Result<Vec<_>>>()?;
+        keyed.sort_by(|left, right| left.0.cmp(&right.0));
+        items.extend(keyed.into_iter().map(|(_, item)| item));
+    }
+
+    Ok(value)
 }
 
 fn capability_policy_value(value: &crate::policy::CapabilityPolicyValue) -> Value {
