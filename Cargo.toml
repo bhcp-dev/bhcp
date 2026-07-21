@@ -59,6 +59,9 @@ doc = false
 
 [dependencies]
 cddl = { version = "=0.10.6", default-features = false, features = ["additional-controls", "ast-span", "cbor", "json", "std"] }
+num-bigint = { version = "=0.4.6", default-features = false }
+num-integer = { version = "=0.1.46", default-features = false }
+num-traits = { version = "=0.2.19", default-features = false }
 sha3 = { version = "=0.12.0", default-features = false }
 serde_json = { version = "=1.0.150", default-features = false, features = ["std"] }
 unicode-normalization = { version = "=0.1.25", default-features = false }

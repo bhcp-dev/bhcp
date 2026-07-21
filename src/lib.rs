@@ -3,6 +3,7 @@ pub mod cbor;
 pub mod diagnostic;
 pub mod experiment;
 pub mod experiment_codex;
+pub mod expression;
 pub mod formatting;
 pub mod hash;
 pub mod inspection;

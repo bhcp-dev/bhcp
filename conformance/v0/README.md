@@ -178,6 +178,13 @@ model; this evidence does not claim those downstream stages are complete.
 | EFF-02 | Unsafe/foreign execution is allowed by policy. | Capability is visible and an evidence gap is emitted. |
 | EFF-03 | A child allowance exceeds a parent prohibition. | Denied; parent ceiling and deny-wins are preserved. |
 
+`tests/expression_calculus.rs` makes EXP-01 and EXP-02 executable at the closed wire
+calculus boundary. Its tables cover every expression constructor and pattern form,
+both finite-quantifier paths, exact-number families, checked machine overflow,
+invalid selection, failed casts, non-exhaustive matching, duplicate identities, and
+unknown or recursively registered calls. Source definition resolution and complete
+semantic-IR lowering remain separate downstream conformance work.
+
 ## Verification and evidence
 
 | ID | Scenario | Expected result |

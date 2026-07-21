@@ -13,8 +13,8 @@ checks exact and machine values, generic bounds, refinements, nominal/structural
 subtyping, and explicit `Dynamic` boundaries, and materializes checked `§type`
 definitions in semantic IR. Canonical artifacts use deterministic CBOR and
 algorithm-tagged semantic or artifact identities. It is not yet a complete v0
-front end, planner, runtime, or SDK: general expressions, functions, predicates,
-ownership/effects, and graph construction remain roadmap work.
+front end, planner, runtime, or SDK: source-level expression/function/predicate
+elaboration, ownership/effects, and graph construction remain roadmap work.
 
 ## Start here
 
@@ -119,6 +119,15 @@ comparison/Boolean subset and binds its evidence to both the normalized predicat
 and exact candidate value; arithmetic and general function/predicate elaboration
 remain the next definition-stage boundary. Exact integers cover the complete
 deterministic-CBOR `int` domain, including unsigned values above `i64::MAX`.
+Independently of that still-partial source lowering, the closed v0 wire expression
+checker covers every S5 expression and pattern form. It validates the complete tree
+before evaluation; constructs immutable records, tuples, variants, lists, canonical
+sets, and generic-key maps; evaluates exact Integer/Rational/Decimal operations and
+checked machine-integer operations; enforces exhaustive patterns and lexical
+bindings; and makes selection, casts, division, and overflow fault explicitly.
+Pure calls resolve only through retained acyclic checked definitions. Quantifiers
+use a static finite list/set or an exact finite-domain witness attached to a closed
+verifier binding; neither path can invoke an ambient callback.
 The same parser boundary now accepts complete S7 goal headers and clause ordering:
 generic/refinement declarations, all four fact kinds and initializers, invariants,
 limits, authority, preferences, verifier arguments, executable cases, standalone
@@ -310,9 +319,10 @@ an unreachable branch. Every satisfied conclusion is checked against the network
 output type before the generic derivation checker can accept it.
 
 The retained reducer currently calls a small, fixed typed API for sealed-observation
-queries and checked result construction. General S5 pattern matching and immutable
-record/collection operations are the intended source-level replacement; adding the
-next derived behaviors must not introduce behavior-specific Rust primitives.
+queries and checked result construction. The complete checked S5 calculus is now
+available as the replacement boundary; wiring general source-defined
+functions and predicates into semantic IR remains the next stage. Adding derived
+behaviors must not introduce behavior-specific Rust primitives.
 
 The checker in this slice re-evaluates the retained reducer and verifies that every
 derivation premise is sealed evidence from an observed child. Full obligation-graph
