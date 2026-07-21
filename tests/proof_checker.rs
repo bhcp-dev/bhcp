@@ -264,6 +264,20 @@ fn accepted_verifier() -> AuditVerifier {
     }
 }
 
+fn rejected_verifier() -> AuditVerifier {
+    AuditVerifier {
+        execution: VerifierExecution::Completed(VerifierConclusion::Rejected(
+            VerifierEvidence::new(
+                "static",
+                "example/verifier.audit@0",
+                "text/plain",
+                b"rejected".to_vec(),
+                vec!["example/trust.local@0".to_owned()],
+            ),
+        )),
+    }
+}
+
 fn adapter_registry(project: &AdapterProject) -> VerifierRegistry {
     let mut registry = VerifierRegistry::new();
     registry
@@ -366,10 +380,23 @@ fn merge_evidence(
     first.bundle.items.extend(second.bundle.items);
     first.bundle.gaps.extend(second.bundle.gaps);
     first.bundle.edges.extend(second.bundle.edges);
-    first
-        .bundle
-        .obligation_status
-        .extend(second.bundle.obligation_status);
+    for (obligation, status) in second.bundle.obligation_status {
+        first
+            .bundle
+            .obligation_status
+            .entry(obligation)
+            .and_modify(|current| {
+                let rank = |value: &str| match value {
+                    "refuted" => 2,
+                    "unresolved" => 1,
+                    _ => 0,
+                };
+                if rank(&status) > rank(current) {
+                    *current = status.clone();
+                }
+            })
+            .or_insert(status);
+    }
     first.payloads.extend(second.payloads);
     rematerialize(&mut first.bundle);
     (first.bundle, first.payloads)
@@ -627,7 +654,7 @@ fn repeated_goal_invocations_keep_distinct_evaluation_contexts() {
         .filter(|claim| claim.starts_with("second-"))
         .collect();
     let child_output = Value::map([("value", Value::Bool(true))]);
-    let observations = [
+    let mut observations = [
         ChildObservation {
             child: "child-1".to_owned(),
             result: ExecutionResult::Completed(Verdict::Satisfied {
@@ -678,6 +705,204 @@ fn repeated_goal_invocations_keep_distinct_evaluation_contexts() {
     })
     .unwrap();
     assert_eq!(checked.state, ProofState::Satisfied);
+
+    {
+        {
+            let [first, second] = &mut observations;
+            let (
+                ExecutionResult::Completed(Verdict::Satisfied {
+                    evidence: first, ..
+                }),
+                ExecutionResult::Completed(Verdict::Satisfied {
+                    evidence: second, ..
+                }),
+            ) = (&mut first.result, &mut second.result)
+            else {
+                unreachable!()
+            };
+            std::mem::swap(first, second);
+        }
+    }
+    let swapped = KernelRuntime::new(&compilation.ir)
+        .reduce("network-1", parent.clone(), &observations)
+        .unwrap();
+    assert_eq!(
+        verify_obligation_proof(ObligationProofRequest {
+            compilation: &compilation,
+            obligation_graph: &graph,
+            network: "network-1",
+            parent: &parent,
+            observations: &observations,
+            claimed: &swapped,
+            evidence: &bundle,
+            payloads: &payloads,
+            evaluation_contexts: &evaluation_contexts,
+            verifier_registry: &registry,
+            candidate: &candidate(),
+            candidate_bytes: b"candidate-v1",
+            produced_at: "2026-07-21T09:30:00Z",
+        })
+        .unwrap_err()
+        .code,
+        "BHCP7302"
+    );
+
+    {
+        let [first, second] = &mut observations;
+        let (
+            ExecutionResult::Completed(Verdict::Satisfied {
+                evidence: first, ..
+            }),
+            ExecutionResult::Completed(Verdict::Satisfied {
+                evidence: second, ..
+            }),
+        ) = (&mut first.result, &mut second.result)
+        else {
+            unreachable!()
+        };
+        let is_external = |claim_id: &str| {
+            bundle
+                .claims
+                .iter()
+                .find(|claim| claim.id == claim_id)
+                .is_some_and(|claim| claim.predicate == "example/verifier.audit@0")
+        };
+        {
+            let [first, second] = &mut observations;
+            let (
+                ExecutionResult::Completed(Verdict::Satisfied {
+                    evidence: first, ..
+                }),
+                ExecutionResult::Completed(Verdict::Satisfied {
+                    evidence: second, ..
+                }),
+            ) = (&mut first.result, &mut second.result)
+            else {
+                unreachable!()
+            };
+            std::mem::swap(first, second);
+            let first_external = first.iter().position(|claim| is_external(claim)).unwrap();
+            let second_external = second.iter().position(|claim| is_external(claim)).unwrap();
+            let token = first[first_external].clone();
+            first[first_external] = second[second_external].clone();
+            second[second_external] = token;
+        }
+    }
+    let externally_swapped = KernelRuntime::new(&compilation.ir)
+        .reduce("network-1", parent.clone(), &observations)
+        .unwrap();
+    assert_eq!(
+        verify_obligation_proof(ObligationProofRequest {
+            compilation: &compilation,
+            obligation_graph: &graph,
+            network: "network-1",
+            parent: &parent,
+            observations: &observations,
+            claimed: &externally_swapped,
+            evidence: &bundle,
+            payloads: &payloads,
+            evaluation_contexts: &evaluation_contexts,
+            verifier_registry: &registry,
+            candidate: &candidate(),
+            candidate_bytes: b"candidate-v1",
+            produced_at: "2026-07-21T09:30:00Z",
+        })
+        .unwrap_err()
+        .code,
+        "BHCP7302"
+    );
+}
+
+#[test]
+fn repeated_goal_instances_may_have_distinct_results() {
+    let compilation = repeated_goal_compilation();
+    let graph = build_obligation_graph(&compilation).unwrap();
+    let mut accepted_registry = VerifierRegistry::new();
+    accepted_registry.register(accepted_verifier()).unwrap();
+    let mut rejected_registry = VerifierRegistry::new();
+    rejected_registry.register(rejected_verifier()).unwrap();
+    for reverse_bundle_order in [false, true] {
+        let accepted = verification_for(
+            &compilation,
+            &accepted_registry,
+            "example/Child@0",
+            "child-1",
+        );
+        let rejected = verification_for(
+            &compilation,
+            &rejected_registry,
+            "example/Child@0",
+            "child-2",
+        );
+        let (bundle, payloads) = if reverse_bundle_order {
+            merge_evidence(rejected, accepted)
+        } else {
+            merge_evidence(accepted, rejected)
+        };
+        let claims = |polarity: &str, instance: &str| {
+            bundle
+                .claims
+                .iter()
+                .filter(|claim| {
+                    claim.status == "accepted"
+                        && claim.polarity == polarity
+                        && claim.execution_instance.as_deref() == Some(instance)
+                })
+                .map(|claim| claim.id.clone())
+                .collect()
+        };
+        let child_output = Value::map([("value", Value::Bool(true))]);
+        let observations = [
+            ChildObservation {
+                child: "child-1".to_owned(),
+                result: ExecutionResult::Completed(Verdict::Satisfied {
+                    output: child_output.clone(),
+                    evidence: claims("supports", "child-1"),
+                }),
+            },
+            ChildObservation {
+                child: "child-2".to_owned(),
+                result: ExecutionResult::Completed(Verdict::Refuted {
+                    counter_evidence: claims("refutes", "child-2"),
+                }),
+            },
+        ];
+        let parent = Value::owned_map(vec![]);
+        let claimed = KernelRuntime::new(&compilation.ir)
+            .reduce("network-1", parent.clone(), &observations)
+            .unwrap();
+        let evaluation_contexts = [
+            ProofEvaluationContext {
+                instance: "child-1".to_owned(),
+                goal: "example/Child@0".to_owned(),
+                input: Value::owned_map(vec![]),
+                output: child_output.clone(),
+            },
+            ProofEvaluationContext {
+                instance: "child-2".to_owned(),
+                goal: "example/Child@0".to_owned(),
+                input: Value::owned_map(vec![]),
+                output: child_output,
+            },
+        ];
+        let checked = verify_obligation_proof(ObligationProofRequest {
+            compilation: &compilation,
+            obligation_graph: &graph,
+            network: "network-1",
+            parent: &parent,
+            observations: &observations,
+            claimed: &claimed,
+            evidence: &bundle,
+            payloads: &payloads,
+            evaluation_contexts: &evaluation_contexts,
+            verifier_registry: &accepted_registry,
+            candidate: &candidate(),
+            candidate_bytes: b"candidate-v1",
+            produced_at: "2026-07-21T09:30:00Z",
+        })
+        .unwrap();
+        assert_eq!(checked.state, ProofState::Refuted);
+    }
 }
 
 #[test]
@@ -1447,7 +1672,7 @@ fn policy_minimum_counts_distinct_producers_not_duplicated_items() {
         .verify(VerificationRequest {
             compilation: &compilation,
             goal: "example/Parent@0",
-            execution_instance: None,
+            execution_instance: Some("network-1"),
             input: &input,
             output: &output,
             subject: candidate(),

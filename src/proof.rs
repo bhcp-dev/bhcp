@@ -151,9 +151,9 @@ pub fn verify_obligation_proof(request: ObligationProofRequest<'_>) -> Result<Pr
     derive_dependency_statuses(request.obligation_graph, &closure, &mut statuses)?;
     validate_observation_statuses(
         request.observations,
+        request.evidence,
         request.obligation_graph,
         &closure,
-        &statuses,
     )?;
     validate_dependency_premises(
         derivation.premises.as_slice(),
@@ -316,12 +316,19 @@ fn validate_evidence_bindings(
     targets: &BTreeSet<String>,
     payloads: &HashMap<String, &[u8]>,
 ) -> Result<()> {
-    if request
-        .evidence
-        .claims
-        .iter()
-        .any(|claim| claim.subject != *request.candidate || !targets.contains(&claim.obligation))
-    {
+    let instance_goals = execution_instance_goals(request, parent_goal)?;
+    if request.evidence.claims.iter().any(|claim| {
+        let Some(instance) = claim.execution_instance.as_deref() else {
+            return true;
+        };
+        let Some(goal) = instance_goals.get(instance) else {
+            return true;
+        };
+        claim.subject != *request.candidate
+            || !targets.contains(&claim.obligation)
+            || !node_goals(node(request.obligation_graph, &claim.obligation))
+                .contains(goal.as_str())
+    }) {
         return Err(invalid_input(
             "evidence claim does not bind the exact candidate and obligation target",
         ));
@@ -343,6 +350,32 @@ fn validate_evidence_bindings(
         .iter()
         .map(|claim| (claim.id.as_str(), claim))
         .collect::<HashMap<_, _>>();
+    if request.evidence.items.iter().any(|item| {
+        let Some(instance) = item.execution_instance.as_deref() else {
+            return true;
+        };
+        !instance_goals.contains_key(instance)
+            || item.claims.iter().any(|claim| {
+                claims
+                    .get(claim.as_str())
+                    .is_none_or(|claim| claim.execution_instance.as_deref() != Some(instance))
+            })
+    }) || request.evidence.gaps.iter().any(|gap| {
+        let Some(instance) = gap.execution_instance.as_deref() else {
+            return true;
+        };
+        let Some(goal) = instance_goals.get(instance) else {
+            return true;
+        };
+        gap.obligations.iter().any(|obligation| {
+            !targets.contains(obligation)
+                || !node_goals(node(request.obligation_graph, obligation)).contains(goal.as_str())
+        })
+    }) {
+        return Err(invalid_input(
+            "evidence claim, item, or gap does not bind its exact execution instance",
+        ));
+    }
     let contexts = goal_contexts(request, parent_goal, targets)?;
     let items = request
         .evidence
@@ -437,6 +470,11 @@ fn validate_claim_channel(
     contexts: &HashMap<(String, String), (Value, Value)>,
     verifier_registry: &VerifierRegistry,
 ) -> Result<()> {
+    if claim.execution_instance != item.execution_instance {
+        return Err(invalid_input(
+            "evidence claim and producing item bind different execution instances",
+        ));
+    }
     if compilation
         .ir
         .extensions
@@ -559,6 +597,11 @@ fn validate_expression_payload(
     }
     let instance = text(&value, "execution_instance")
         .ok_or_else(|| invalid_input("expression evidence has no execution instance"))?;
+    if claim.execution_instance.as_deref() != Some(instance) {
+        return Err(invalid_input(
+            "expression evidence payload does not match its claim execution instance",
+        ));
+    }
     let (input, output) = contexts
         .get(&(goal.symbol.clone(), instance.to_owned()))
         .ok_or_else(|| {
@@ -666,6 +709,25 @@ fn goal_contexts(
         }
     }
     Ok(contexts)
+}
+
+fn execution_instance_goals(
+    request: &ObligationProofRequest<'_>,
+    parent_goal: &GoalDefinition,
+) -> Result<HashMap<String, String>> {
+    let (_, network) = resolve_network(request.compilation, request.network)?;
+    let mut instances = HashMap::from([(request.network.to_owned(), parent_goal.symbol.clone())]);
+    for child in &network.children {
+        let child_goal = request
+            .compilation
+            .ir
+            .goals
+            .iter()
+            .find(|goal| goal.id == child.goal)
+            .expect("validated semantic IR resolves every child goal");
+        instances.insert(child.id.clone(), child_goal.symbol.clone());
+    }
+    Ok(instances)
 }
 
 fn insert_or_match_context(
@@ -1042,9 +1104,9 @@ fn derive_dependency_statuses(
 
 fn validate_observation_statuses(
     observations: &[ChildObservation],
+    evidence: &EvidenceBundle,
     graph: &GraphDocument,
     closure: &BTreeSet<String>,
-    statuses: &BTreeMap<String, CheckedStatus>,
 ) -> Result<()> {
     let discharge = closure
         .iter()
@@ -1068,12 +1130,7 @@ fn validate_observation_statuses(
             .map(|edge| edge.to.as_str())
             .collect::<BTreeSet<_>>()
             .into_iter()
-            .map(|edge| {
-                statuses
-                    .get(edge)
-                    .copied()
-                    .ok_or_else(|| invalid_input("child obligation status is missing"))
-            })
+            .map(|dependency| instance_leaf_status(evidence, dependency, &observation.child))
             .collect::<Result<Vec<_>>>()?;
         if !result_matches_statuses(&observation.result, &dependencies) {
             return Err(invalid_proof(
@@ -1082,6 +1139,76 @@ fn validate_observation_statuses(
         }
     }
     Ok(())
+}
+
+fn instance_leaf_status(
+    evidence: &EvidenceBundle,
+    obligation: &str,
+    instance: &str,
+) -> Result<CheckedStatus> {
+    let claims = evidence
+        .claims
+        .iter()
+        .filter(|claim| {
+            claim.obligation == obligation && claim.execution_instance.as_deref() == Some(instance)
+        })
+        .collect::<Vec<_>>();
+    let required_gaps = evidence.gaps.iter().filter(|gap| {
+        gap.required
+            && gap.execution_instance.as_deref() == Some(instance)
+            && gap.obligations.iter().any(|target| target == obligation)
+    });
+    if required_gaps
+        .clone()
+        .any(|gap| gap.kind == VERIFIER_FAULT_GAP)
+    {
+        return Ok(CheckedStatus::Faulted);
+    }
+    if claims
+        .iter()
+        .any(|claim| claim.status == "accepted" && claim.polarity == "refutes")
+    {
+        return Ok(CheckedStatus::Refuted);
+    }
+    let supports = claims
+        .iter()
+        .filter(|claim| claim.status == "accepted" && claim.polarity == "supports")
+        .map(|claim| claim.id.as_str())
+        .collect::<BTreeSet<_>>();
+    let unresolved = claims.iter().any(|claim| claim.status == "unresolved")
+        || required_gaps.clone().count() > 0;
+    if let Some(policy) = evidence
+        .policy_obligations
+        .iter()
+        .find(|policy| policy.id == obligation)
+    {
+        let producers = evidence
+            .items
+            .iter()
+            .filter(|item| item.execution_instance.as_deref() == Some(instance))
+            .filter(|item| {
+                policy.classes.contains(&item.evidence_class)
+                    && item
+                        .claims
+                        .iter()
+                        .any(|claim| supports.contains(claim.as_str()))
+            })
+            .map(|item| item.producer.as_str())
+            .collect::<BTreeSet<_>>();
+        if producers.len() >= policy.minimum as usize {
+            return Ok(CheckedStatus::Discharged);
+        }
+    } else if unresolved {
+        return Ok(CheckedStatus::Unresolved);
+    } else if !supports.is_empty() {
+        return Ok(CheckedStatus::Discharged);
+    }
+    if unresolved {
+        return Ok(CheckedStatus::Unresolved);
+    }
+    Err(invalid_input(
+        "child obligation has no evidence for its exact execution instance",
+    ))
 }
 
 fn result_matches_statuses(result: &ExecutionResult, statuses: &[CheckedStatus]) -> bool {
@@ -1118,6 +1245,11 @@ fn validate_dependency_premises(
         let Some(claim) = claims.get(premise.as_str()) else {
             continue;
         };
+        let Some(instance) = claim.execution_instance.as_deref() else {
+            return Err(invalid_input(
+                "reducer premise claim has no execution instance",
+            ));
+        };
         let matching_dependencies = dependencies
             .iter()
             .filter(|(target, _)| *target == claim.obligation)
@@ -1131,7 +1263,8 @@ fn validate_dependency_premises(
         let valid = matching_dependencies.iter().any(|discharge| {
             let child_ids = texts(discharge.value(), "source_clauses");
             observations.iter().any(|observation| {
-                child_ids.contains(&observation.child.as_str())
+                observation.child == instance
+                    && child_ids.contains(&instance)
                     && observation_claim_matches(&observation.result, premise, claim)
             })
         });

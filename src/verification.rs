@@ -287,6 +287,7 @@ pub struct PayloadArtifact {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct EvidenceClaim {
     pub id: String,
+    pub execution_instance: Option<String>,
     pub obligation: String,
     pub polarity: String,
     pub subject: ContentReference,
@@ -296,20 +297,31 @@ pub struct EvidenceClaim {
 
 impl EvidenceClaim {
     fn to_value(&self) -> Value {
-        Value::map([
-            ("id", Value::Text(self.id.clone())),
-            ("obligation", Value::Text(self.obligation.clone())),
-            ("polarity", Value::Text(self.polarity.clone())),
-            ("subject", self.subject.to_value()),
-            ("predicate", Value::Text(self.predicate.clone())),
-            ("status", Value::Text(self.status.clone())),
-        ])
+        let mut entries = vec![
+            ("id".to_owned(), Value::Text(self.id.clone())),
+            (
+                "obligation".to_owned(),
+                Value::Text(self.obligation.clone()),
+            ),
+            ("polarity".to_owned(), Value::Text(self.polarity.clone())),
+            ("subject".to_owned(), self.subject.to_value()),
+            ("predicate".to_owned(), Value::Text(self.predicate.clone())),
+            ("status".to_owned(), Value::Text(self.status.clone())),
+        ];
+        if let Some(instance) = &self.execution_instance {
+            entries.push((
+                "execution_instance".to_owned(),
+                Value::Text(instance.clone()),
+            ));
+        }
+        Value::owned_map(entries)
     }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct EvidenceItem {
     pub id: String,
+    pub execution_instance: Option<String>,
     pub evidence_class: String,
     pub verifier: String,
     pub verifier_artifact: ContentReference,
@@ -330,29 +342,40 @@ impl EvidenceItem {
         if let Some(source) = &self.provenance_source {
             provenance.push(("source".to_owned(), source.to_value()));
         }
-        Value::map([
-            ("id", Value::Text(self.id.clone())),
-            ("class", Value::Text(self.evidence_class.clone())),
-            ("verifier", Value::Text(self.verifier.clone())),
-            ("verifier_artifact", self.verifier_artifact.to_value()),
-            ("payload", self.payload.to_value()),
+        let mut entries = vec![
+            ("id".to_owned(), Value::Text(self.id.clone())),
+            ("class".to_owned(), Value::Text(self.evidence_class.clone())),
+            ("verifier".to_owned(), Value::Text(self.verifier.clone())),
             (
-                "claims",
+                "verifier_artifact".to_owned(),
+                self.verifier_artifact.to_value(),
+            ),
+            ("payload".to_owned(), self.payload.to_value()),
+            (
+                "claims".to_owned(),
                 Value::Array(self.claims.iter().cloned().map(Value::Text).collect()),
             ),
-            ("produced_at", timestamp_value(&self.produced_at)),
-            ("provenance", Value::owned_map(provenance)),
+            ("produced_at".to_owned(), timestamp_value(&self.produced_at)),
+            ("provenance".to_owned(), Value::owned_map(provenance)),
             (
-                "trust",
+                "trust".to_owned(),
                 Value::Array(self.trust.iter().cloned().map(Value::Text).collect()),
             ),
-        ])
+        ];
+        if let Some(instance) = &self.execution_instance {
+            entries.push((
+                "execution_instance".to_owned(),
+                Value::Text(instance.clone()),
+            ));
+        }
+        Value::owned_map(entries)
     }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct EvidenceGap {
     pub id: String,
+    pub execution_instance: Option<String>,
     pub kind: String,
     pub obligations: Vec<String>,
     pub reason: Reason,
@@ -361,16 +384,23 @@ pub struct EvidenceGap {
 
 impl EvidenceGap {
     fn to_value(&self) -> Value {
-        Value::map([
-            ("id", Value::Text(self.id.clone())),
-            ("kind", Value::Text(self.kind.clone())),
+        let mut entries = vec![
+            ("id".to_owned(), Value::Text(self.id.clone())),
+            ("kind".to_owned(), Value::Text(self.kind.clone())),
             (
-                "obligations",
+                "obligations".to_owned(),
                 Value::Array(self.obligations.iter().cloned().map(Value::Text).collect()),
             ),
-            ("reason", reason_value(&self.reason)),
-            ("required", Value::Bool(self.required)),
-        ])
+            ("reason".to_owned(), reason_value(&self.reason)),
+            ("required".to_owned(), Value::Bool(self.required)),
+        ];
+        if let Some(instance) = &self.execution_instance {
+            entries.push((
+                "execution_instance".to_owned(),
+                Value::Text(instance.clone()),
+            ));
+        }
+        Value::owned_map(entries)
     }
 }
 
@@ -593,6 +623,10 @@ impl EvidenceBundle {
             add_id(&claim.id, &mut ids)?;
             claims.insert(claim.id.clone());
             if !obligations.contains(&claim.obligation)
+                || claim
+                    .execution_instance
+                    .as_deref()
+                    .is_some_and(|instance| !is_ref(instance))
                 || !matches!(claim.polarity.as_str(), "supports" | "refutes")
                 || !matches!(
                     claim.status.as_str(),
@@ -609,6 +643,10 @@ impl EvidenceBundle {
             add_id(&item.id, &mut ids)?;
             items.insert(item.id.clone());
             if !is_evidence_class(&item.evidence_class)
+                || item
+                    .execution_instance
+                    .as_deref()
+                    .is_some_and(|instance| !is_ref(instance))
                 || !is_symbol(&item.verifier)
                 || !is_symbol(&item.producer)
                 || item.trust.iter().any(|trust| !is_symbol(trust))
@@ -630,6 +668,10 @@ impl EvidenceBundle {
             add_id(&gap.id, &mut ids)?;
             gaps.insert(gap.id.clone());
             if !is_gap_kind(&gap.kind)
+                || gap
+                    .execution_instance
+                    .as_deref()
+                    .is_some_and(|instance| !is_ref(instance))
                 || gap.obligations.is_empty()
                 || gap
                     .obligations
@@ -748,6 +790,7 @@ impl ClaimDisposition {
 
 struct Builder {
     produced_at: String,
+    execution_instance: Option<String>,
     subject: ContentReference,
     claims: Vec<EvidenceClaim>,
     items: Vec<EvidenceItem>,
@@ -760,11 +803,13 @@ struct Builder {
 impl Builder {
     fn new(
         produced_at: &str,
+        execution_instance: Option<&str>,
         subject: ContentReference,
         obligations: impl IntoIterator<Item = String>,
     ) -> Self {
         Self {
             produced_at: produced_at.to_owned(),
+            execution_instance: execution_instance.map(str::to_owned),
             subject,
             claims: vec![],
             items: vec![],
@@ -803,6 +848,7 @@ impl Builder {
             let claim_id = format!("claim-{}", self.claims.len() + 1);
             self.claims.push(EvidenceClaim {
                 id: claim_id.clone(),
+                execution_instance: self.execution_instance.clone(),
                 obligation: obligation.clone(),
                 polarity: polarity.to_owned(),
                 subject: self.subject.clone(),
@@ -818,6 +864,7 @@ impl Builder {
         let item_id = format!("evidence-{}", self.items.len() + 1);
         self.items.push(EvidenceItem {
             id: item_id.clone(),
+            execution_instance: self.execution_instance.clone(),
             evidence_class: evidence.evidence_class,
             verifier: verifier.to_owned(),
             verifier_artifact,
@@ -848,6 +895,7 @@ impl Builder {
         }
         self.gaps.push(EvidenceGap {
             id: format!("gap-{}", self.gaps.len() + 1),
+            execution_instance: self.execution_instance.clone(),
             kind: kind.to_owned(),
             obligations: obligations.to_vec(),
             reason,
@@ -1094,6 +1142,12 @@ fn verify(
         ));
     }
     validate_timestamp(request.produced_at)?;
+    if request
+        .execution_instance
+        .is_some_and(|instance| !is_ref(instance))
+    {
+        return Err(invalid("verification execution instance is not a ref-id"));
+    }
     request.subject.validate()?;
     if request.subject.size != request.subject_bytes.len()
         || request.subject.digests.iter().any(|digest| {
@@ -1153,6 +1207,7 @@ fn verify(
     let bindings = fact_bindings(goal, request.input, request.output)?;
     let mut builder = Builder::new(
         request.produced_at,
+        request.execution_instance,
         request.subject.clone(),
         obligations.clone(),
     );

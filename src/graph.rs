@@ -716,10 +716,13 @@ fn validate_evidence_shape(value: &Value) -> Result<()> {
                 "predicate",
                 "status",
             ],
-            &[],
+            &["execution_instance"],
             "evidence claim",
         )?;
         required_ref(claim, "id")?;
+        if claim.get("execution_instance").is_some() {
+            required_ref(claim, "execution_instance")?;
+        }
         required_ref(claim, "obligation")?;
         require_one_of(
             claim,
@@ -750,10 +753,13 @@ fn validate_evidence_shape(value: &Value) -> Result<()> {
                 "provenance",
                 "trust",
             ],
-            &["fresh_until"],
+            &["execution_instance", "fresh_until"],
             "evidence item",
         )?;
         required_ref(item, "id")?;
+        if item.get("execution_instance").is_some() {
+            required_ref(item, "execution_instance")?;
+        }
         let evidence_class = text_field(item, "class")
             .ok_or_else(|| invalid_schema("evidence item class must be text"))?;
         validate_evidence_class(evidence_class)?;
@@ -779,10 +785,13 @@ fn validate_evidence_shape(value: &Value) -> Result<()> {
         validate_map_fields(
             gap,
             &["id", "kind", "obligations", "reason", "required"],
-            &[],
+            &["execution_instance"],
             "evidence gap",
         )?;
         required_ref(gap, "id")?;
+        if gap.get("execution_instance").is_some() {
+            required_ref(gap, "execution_instance")?;
+        }
         require_text_value(gap, "kind", "evidence gap")?;
         let gap_kind = text_field(gap, "kind").unwrap();
         if !["unsafe", "foreign", "missing", "stale", "unsupported"].contains(&gap_kind)
