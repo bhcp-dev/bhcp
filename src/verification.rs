@@ -15,7 +15,7 @@ use crate::model::{
     BhcpType, ClauseKind, ContentReference, Expression, ExpressionForm, GoalDefinition, HashId,
     VerifierBinding, is_symbol,
 };
-use crate::obligation::{contract_target_map, policy_obligation_id};
+use crate::obligation::{contract_target_map, policy_obligation_id, validate_policy_decision};
 use crate::pipeline::Compilation;
 use crate::policy::{PolicyCategory, PolicyDocument, PolicyLayer};
 use crate::schema::validate_root;
@@ -854,6 +854,12 @@ fn policy_evidence_obligations(
             "policy evidence document does not match semantic IR identities",
         ));
     }
+    validate_policy_decision(goal, policy).map_err(|diagnostic| {
+        invalid(format!(
+            "verification policy decision is inconsistent: {}",
+            diagnostic.message
+        ))
+    })?;
     let decision = goal
         .policy_decision
         .as_ref()
@@ -891,7 +897,7 @@ fn policy_evidence_obligations(
             });
         }
         obligations.push(PolicyEvidenceObligation {
-            id: policy_obligation_id(PolicyCategory::Evidence, *index, &rule.value.to_value())?,
+            id: policy_obligation_id(PolicyCategory::Evidence, &rule.value.to_value())?,
             symbol: rule.value.obligation.clone(),
             classes: rule.value.classes.clone(),
             minimum: rule.value.minimum,

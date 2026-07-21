@@ -69,7 +69,11 @@ const POLICY: &str = r#"
 "#;
 
 fn policy() -> EffectivePolicyDocument {
-    let parsed = parse_policy_source(POLICY, "policy.bhcp").unwrap();
+    policy_from_source(POLICY)
+}
+
+fn policy_from_source(source: &str) -> EffectivePolicyDocument {
+    let parsed = parse_policy_source(source, "policy.bhcp").unwrap();
     compose_policies(&parsed.documents, Default::default()).unwrap()
 }
 
@@ -164,6 +168,20 @@ fn field_mut<'a>(value: &'a mut Value, field: &str) -> &'a mut Value {
         .find(|(name, _)| name == field)
         .unwrap()
         .1
+}
+
+fn policy_node<'a>(graph: &'a GraphDocument, obligation: &str) -> &'a bhcp::graph::GraphNode {
+    graph
+        .nodes()
+        .iter()
+        .find(|node| {
+            node.value()
+                .get("policy")
+                .and_then(|policy| policy.get("value"))
+                .and_then(|value| value.get("obligation"))
+                == Some(&Value::Text(obligation.to_owned()))
+        })
+        .unwrap()
 }
 
 #[test]
@@ -329,6 +347,145 @@ fn labels_target_order_and_policy_decomposition_are_not_graph_semantics() {
     let duplicate = build_obligation_graph(&compilation()).unwrap();
     assert_eq!(single.semantic_id(), duplicate.semantic_id());
     assert_ne!(single.artifact_id(), duplicate.artifact_id());
+
+    let unrelated_rule = r#"    rule aa-unrelated: evidence add {
+        obligation: example/obligation.aaa@0,
+        classes: [static],
+        minimum: 1
+    } nonwaivable;
+"#;
+    let shifted_policy = POLICY.replace(
+        "    rule b-evidence: evidence add {",
+        &format!("{unrelated_rule}    rule b-evidence: evidence add {{"),
+    );
+    let shifted = with_retained_invariants(
+        compile_source_with_policy(
+            PROGRAM,
+            "shifted-policy.bhcp",
+            &policy_from_source(&shifted_policy),
+        )
+        .unwrap(),
+    );
+    let shifted = build_obligation_graph(&shifted).unwrap();
+    let original = policy_node(&duplicate, "example/obligation.audit@0");
+    let shifted_audit = policy_node(&shifted, "example/obligation.audit@0");
+    assert_ne!(
+        original
+            .value()
+            .get("policy")
+            .unwrap()
+            .get("effective_rule"),
+        shifted_audit
+            .value()
+            .get("policy")
+            .unwrap()
+            .get("effective_rule")
+    );
+    assert_eq!(original.id, shifted_audit.id);
+}
+
+#[test]
+fn retained_policy_decisions_cannot_delete_substitute_or_add_out_of_scope_rules() {
+    let mut deleted = compilation();
+    deleted
+        .ir
+        .goals
+        .iter_mut()
+        .find(|goal| goal.symbol == "example/Parent@0")
+        .unwrap()
+        .policy_decision
+        .as_mut()
+        .unwrap()
+        .evidence
+        .clear();
+    let deleted = rematerialize(deleted);
+    assert_eq!(
+        build_obligation_graph(&deleted).unwrap_err().code,
+        "BHCP7101"
+    );
+
+    let child_only_rule = r#"    rule bb-child-evidence: evidence add {
+        obligation: example/obligation.child-audit@0,
+        classes: [static],
+        minimum: 1,
+        scope: { goals: [example/Child@0] }
+    } nonwaivable;
+"#;
+    let scoped_policy = POLICY.replace(
+        "    rule c-limit: limit tighten {",
+        &format!("{child_only_rule}    rule c-limit: limit tighten {{"),
+    );
+    let mut substituted = with_retained_invariants(
+        compile_source_with_policy(
+            PROGRAM,
+            "scoped-policy.bhcp",
+            &policy_from_source(&scoped_policy),
+        )
+        .unwrap(),
+    );
+    let child_evidence = substituted
+        .ir
+        .goals
+        .iter()
+        .find(|goal| goal.symbol == "example/Child@0")
+        .unwrap()
+        .policy_decision
+        .as_ref()
+        .unwrap()
+        .evidence
+        .clone();
+    let parent_evidence = substituted
+        .ir
+        .goals
+        .iter()
+        .find(|goal| goal.symbol == "example/Parent@0")
+        .unwrap()
+        .policy_decision
+        .as_ref()
+        .unwrap()
+        .evidence
+        .clone();
+    let out_of_scope = child_evidence
+        .into_iter()
+        .find(|index| !parent_evidence.contains(index))
+        .unwrap();
+    let mut replaced = substituted.clone();
+    replaced
+        .ir
+        .goals
+        .iter_mut()
+        .find(|goal| goal.symbol == "example/Parent@0")
+        .unwrap()
+        .policy_decision
+        .as_mut()
+        .unwrap()
+        .evidence = vec![out_of_scope];
+    let replaced = rematerialize(replaced);
+    assert_eq!(
+        build_obligation_graph(&replaced).unwrap_err().code,
+        "BHCP7101"
+    );
+
+    let parent = substituted
+        .ir
+        .goals
+        .iter_mut()
+        .find(|goal| goal.symbol == "example/Parent@0")
+        .unwrap();
+    parent
+        .policy_decision
+        .as_mut()
+        .unwrap()
+        .evidence
+        .push(out_of_scope);
+    parent.policy_decision.as_mut().unwrap().evidence.sort();
+    let out_of_scope_added = rematerialize(substituted);
+    assert_eq!(
+        build_obligation_graph(&out_of_scope_added)
+            .unwrap_err()
+            .code,
+        "BHCP7101"
+    );
 }
 
 #[test]

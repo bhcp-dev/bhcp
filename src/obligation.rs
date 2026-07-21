@@ -94,16 +94,11 @@ pub(crate) fn contract_target_map(goal: &GoalDefinition) -> Result<BTreeMap<Stri
     Ok(contract_index(goal)?.by_source)
 }
 
-pub(crate) fn policy_obligation_id(
-    category: PolicyCategory,
-    effective_rule: usize,
-    value: &Value,
-) -> Result<String> {
+pub(crate) fn policy_obligation_id(category: PolicyCategory, value: &Value) -> Result<String> {
     structural_id(
         "policy",
         &Value::map([
             ("category", Value::Text(category.as_str().to_owned())),
-            ("effective_rule", Value::Integer(effective_rule as i128)),
             ("value", value.clone()),
         ]),
     )
@@ -158,6 +153,9 @@ fn validate_compilation(compilation: &Compilation) -> Result<HashAlgorithm> {
                     "retained effective policy does not match semantic IR identities",
                 ));
             }
+            for goal in &compilation.ir.goals {
+                validate_policy_decision(goal, policy)?;
+            }
         }
         _ => {
             return Err(invalid_input(
@@ -166,6 +164,63 @@ fn validate_compilation(compilation: &Compilation) -> Result<HashAlgorithm> {
         }
     }
     Ok(algorithm)
+}
+
+pub(crate) fn validate_policy_decision(
+    goal: &GoalDefinition,
+    policy: &EffectivePolicyDocument,
+) -> Result<()> {
+    let decision = goal
+        .policy_decision
+        .as_ref()
+        .ok_or_else(|| invalid_input("effective policy requires a goal policy decision"))?;
+    let requirements = applicable_indices(&policy.effective.requirements, &goal.symbol, |rule| {
+        rule.value.scope.as_ref()
+    });
+    let evidence = applicable_indices(&policy.effective.evidence, &goal.symbol, |rule| {
+        rule.value.scope.as_ref()
+    });
+    let prohibitions = applicable_indices(&policy.effective.prohibitions, &goal.symbol, |rule| {
+        rule.value.scope.as_ref()
+    });
+    let capabilities = applicable_indices(&policy.effective.capabilities, &goal.symbol, |rule| {
+        rule.value.scope.as_ref()
+    });
+    let limits = applicable_indices(&policy.effective.limits, &goal.symbol, |rule| {
+        rule.value.scope.as_ref()
+    });
+    if decision.type_mode != goal.type_mode.as_str()
+        || decision.requirements != requirements
+        || decision.evidence != evidence
+        || decision.prohibitions != prohibitions
+        || decision.capabilities != capabilities
+        || decision.limits != limits
+    {
+        return Err(invalid_input(
+            "goal policy decision does not match retained effective policy applicability",
+        ));
+    }
+    Ok(())
+}
+
+fn applicable_indices<T, F>(rules: &[T], goal: &str, scope: F) -> Vec<usize>
+where
+    F: Fn(&T) -> Option<&crate::policy::PolicyScope>,
+{
+    rules
+        .iter()
+        .enumerate()
+        .filter_map(|(index, rule)| {
+            scope(rule)
+                .is_none_or(|scope| {
+                    scope
+                        .goals
+                        .as_ref()
+                        .is_none_or(|goals| goals.iter().any(|candidate| candidate == goal))
+                })
+                .then_some(index)
+        })
+        .collect()
 }
 
 fn add_contract_nodes(
@@ -485,7 +540,7 @@ fn add_policy_node(
     policy: &EffectivePolicyDocument,
     nodes: &mut BTreeMap<String, Value>,
 ) -> Result<()> {
-    let id = policy_obligation_id(category, effective_rule, &value)?;
+    let id = policy_obligation_id(category, &value)?;
     let node_kind = match category {
         PolicyCategory::Requirement => "requirement",
         PolicyCategory::Evidence => "verification",
