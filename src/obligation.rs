@@ -189,7 +189,8 @@ pub(crate) fn validate_policy_decision(
     let limits = applicable_indices(&policy.effective.limits, &goal.symbol, |rule| {
         rule.value.scope.as_ref()
     });
-    if decision.type_mode != goal.type_mode.as_str()
+    if goal.type_mode < policy.effective.type_mode.value
+        || decision.type_mode != goal.type_mode.as_str()
         || decision.requirements != requirements
         || decision.evidence != evidence
         || decision.prohibitions != prohibitions

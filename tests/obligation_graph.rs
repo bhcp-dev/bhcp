@@ -8,7 +8,7 @@ use bhcp::obligation::{build_obligation_graph, validate_obligation_graph};
 use bhcp::pipeline::{
     Compilation, compile_source, compile_source_with_policy, parse_policy_source,
 };
-use bhcp::policy::{EffectivePolicyDocument, compose_policies};
+use bhcp::policy::{EffectivePolicyDocument, TypeMode, compose_policies};
 use bhcp::value::Value;
 
 const PROGRAM: &str = r#"
@@ -486,6 +486,44 @@ fn retained_policy_decisions_cannot_delete_substitute_or_add_out_of_scope_rules(
             .code,
         "BHCP7101"
     );
+}
+
+#[test]
+fn retained_policy_type_mode_floor_cannot_be_weakened_with_the_ir_envelope() {
+    let policy_with_floor = POLICY.replace(
+        "}\n\n§policy example/policy.team@0 {",
+        "    rule d-mode: type-mode strengthen infer-strict nonwaivable;\n}\n\n§policy example/policy.team@0 {",
+    );
+    let governed = with_retained_invariants(
+        compile_source_with_policy(
+            PROGRAM,
+            "type-mode-floor.bhcp",
+            &policy_from_source(&policy_with_floor),
+        )
+        .unwrap(),
+    );
+    assert_eq!(governed.ir.type_mode, TypeMode::InferStrict);
+
+    let mut weakened = governed.clone();
+    weakened.ir.type_mode = TypeMode::Dynamic;
+    for goal in &mut weakened.ir.goals {
+        goal.type_mode = TypeMode::Dynamic;
+        goal.policy_decision.as_mut().unwrap().type_mode = "dynamic".to_owned();
+    }
+    let weakened = rematerialize(weakened);
+    assert_eq!(
+        build_obligation_graph(&weakened).unwrap_err().code,
+        "BHCP7101"
+    );
+
+    let mut stronger = governed;
+    stronger.ir.type_mode = TypeMode::Strict;
+    for goal in &mut stronger.ir.goals {
+        goal.type_mode = TypeMode::Strict;
+        goal.policy_decision.as_mut().unwrap().type_mode = "strict".to_owned();
+    }
+    let stronger = rematerialize(stronger);
+    build_obligation_graph(&stronger).unwrap();
 }
 
 #[test]
