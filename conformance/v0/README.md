@@ -118,9 +118,11 @@ signatures, execution graphs, and final evidence-graph assembly remain unclaimed
 full proof coverage remains unclaimed at the v0 runtime boundary.
 
 The capability graph builder separately constructs exact effect requests, resources,
-grants, denials, gaps, waiver audit, and final decisions. These two supported builders
-do not claim state/execution graph construction, planning, runtime enforcement, or
-final evidence-graph assembly.
+grants, denials, gaps, waiver audit, and final decisions. The state-analysis builder
+then materializes resource, ownership, retention, freshness, and guarded atomic-
+transition dependencies. These three supported builders do not claim execution-graph
+construction, planning, storage/CAS execution, runtime enforcement, or final
+evidence-graph assembly.
 
 `tests/profile_source_lowering.rs` completes the milestone-7 source-profile boundary
 behind SYN-01 through SYN-07. Canonical policy, syntax, and profile definitions lower

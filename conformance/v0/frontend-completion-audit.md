@@ -1,8 +1,8 @@
 # Practical v0 front-end completion audit
 
 This audit closes the completion-manifest source-to-governed-IR boundary. It does
-not claim completion of graph construction, planning, execution, evidence assembly,
-the SDK, the CLI, or certification.
+not claim completion of the cross-graph audit, execution-graph construction,
+planning, execution, evidence assembly, the SDK, the CLI, or certification.
 
 ## Executable evidence
 
@@ -16,6 +16,12 @@ form now compile, together with the derived extension, to byte-identical semanti
 and the same semantic identity. Their canonical AST identities remain different
 because selected profile, source bytes, and spans are artifact provenance rather
 than program meaning. Both AST and IR validate before this comparison is accepted.
+The profiled path resolves the complete source-local registry, including type mode
+and both policy overlays. The exact reviewed waiver is applied at the injected
+decision time to authorize the retained three-attempt limit; the canonical path uses
+that same audited effective policy. The validator requires equal retained policy,
+materialized policy decisions, type mode, semantic identity, and IR bytes rather than
+accepting syntax-only parity.
 
 ## Contradictions resolved
 
@@ -47,7 +53,8 @@ inventory, README, VISION, live milestone-7 issues, and wiki revision
 `85cb604ef6b6579dbad17e2cb897eeaed9b68a3c`. The scan corrected the stale README
 statement left by #105 that still described source-defined function/predicate
 elaboration as future work. No CDDL shape or prior phase result required rewriting:
-they already distinguish accepted semantic IR from graph, planning, runtime, and
+they already distinguish accepted semantic IR and implemented obligation,
+capability, and state-analysis graphs from execution-graph, planning, runtime, and
 evidence roots. Live issues and the wiki still describe #112 as in progress until its
 reviewed head merges; their downstream claims remain correctly blocked and are part
 of the required post-merge consistency update.
@@ -62,6 +69,8 @@ roadmap issue explicitly adds their execution semantics; they are not silently
 counted as completed by this audit. Runtime-only quantification remains a normative
 rejection rather than an implementation gap.
 
-Post-IR work remains visible in the completion manifest: state-graph completion,
-graph audit, planning, execution, evidence, SDK/CLI, end-to-end conformance, security,
-and final completion certification.
+Post-IR work remains visible in the completion manifest: cross-graph audit,
+execution-graph construction, planning, state/CAS storage and execution, evidence,
+SDK/CLI, end-to-end conformance, security, and final completion certification. The
+implemented obligation, capability, and state-analysis graphs remain separate,
+bounded inputs to those stages.

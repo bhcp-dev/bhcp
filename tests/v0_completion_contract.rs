@@ -5,8 +5,8 @@ use std::path::{Component, Path, PathBuf};
 use bhcp::hash::{HashAlgorithm, format_hash};
 use bhcp::model::ContentReference;
 use bhcp::pipeline::{
-    ProfileSyntaxRegistry, compile_source, compile_source_with_profiles, parse_policy_source,
-    parse_profile_source,
+    compile_source, compile_source_bytes_with_profile_registry_and_policy,
+    compile_source_with_policy, parse_policy_source, parse_profile_source,
 };
 use bhcp::policy::{ExactNumber, WaiverDocument, WaiverWeakening, apply_waiver, compose_policies};
 use bhcp::profile::PresentationDocument;
@@ -1686,24 +1686,53 @@ fn validate_reference_semantics(root: &Path) -> Result<(), String> {
     {
         return Err("source-lowered profile roots omit artifact identities".to_owned());
     }
-    let extension_source = read_reference(root, "extension.bhcp")?;
-    let canonical_compilation =
-        compile_source(&format!("{extension_source}\n{canonical}"), "program.bhcp")
-            .map_err(|error| error.to_string())?;
     let resolved_profile = lowered_profiles
         .registry
         .resolve("bhcp.reference/review-profile@0", HashAlgorithm::default())
         .map_err(|error| error.to_string())?;
-    let mut syntax_registry = ProfileSyntaxRegistry::new();
-    syntax_registry
-        .register("bhcp.reference/review-profile@0", resolved_profile.syntax)
+    let waiver_value = parse_diagnostic(&read_reference(root, "waiver.diag")?)
         .map_err(|error| error.to_string())?;
-    let alternate_compilation = compile_source_with_profiles(
-        &format!("{preamble}\n{extension_source}\n{alternate_body}"),
-        "program.words.bhcp",
-        &syntax_registry,
+    validate_root(&waiver_value, "waiver").map_err(|error| error.to_string())?;
+    let waiver = WaiverDocument::from_value(&waiver_value).map_err(|error| error.to_string())?;
+    let waived_policy = apply_waiver(
+        &resolved_profile.effective_policy,
+        &waiver,
+        &registry["waiver-decision-at"],
+        HashAlgorithm::default(),
     )
     .map_err(|error| error.to_string())?;
+    let extension_source = read_reference(root, "extension.bhcp")?;
+    let canonical_compilation = compile_source_with_policy(
+        &format!("{extension_source}\n{canonical}"),
+        "program.bhcp",
+        &waived_policy,
+    )
+    .map_err(|error| error.to_string())?;
+    let alternate_source = format!("{preamble}\n{extension_source}\n{alternate_body}");
+    let alternate_compilation = compile_source_bytes_with_profile_registry_and_policy(
+        alternate_source.as_bytes(),
+        "program.words.bhcp",
+        &lowered_profiles.registry,
+        &waived_policy,
+    )
+    .map_err(|error| error.to_string())?;
+    if canonical_compilation.effective_policy.as_ref() != Some(&waived_policy)
+        || alternate_compilation.effective_policy.as_ref() != Some(&waived_policy)
+        || canonical_compilation.ir.type_mode != resolved_profile.type_mode
+        || alternate_compilation.ir.type_mode != resolved_profile.type_mode
+        || !canonical_compilation
+            .ir
+            .goals
+            .iter()
+            .any(|goal| goal.policy_decision.is_some())
+        || !alternate_compilation
+            .ir
+            .goals
+            .iter()
+            .any(|goal| goal.policy_decision.is_some())
+    {
+        return Err("canonical/profile parity omitted resolved governance".to_owned());
+    }
     if canonical_compilation.semantic_hash != alternate_compilation.semantic_hash
         || canonical_compilation.ast_hash == alternate_compilation.ast_hash
         || canonical_compilation.ir_hash != alternate_compilation.ir_hash
@@ -1716,10 +1745,6 @@ fn validate_reference_semantics(root: &Path) -> Result<(), String> {
         ));
     }
 
-    let waiver_value = parse_diagnostic(&read_reference(root, "waiver.diag")?)
-        .map_err(|error| error.to_string())?;
-    validate_root(&waiver_value, "waiver").map_err(|error| error.to_string())?;
-    let waiver = WaiverDocument::from_value(&waiver_value).map_err(|error| error.to_string())?;
     if waiver.symbol != "bhcp.reference/offline-emergency-waiver@0"
         || waiver.targets.len() != 1
         || waiver.targets[0].rule.policy != "bhcp.reference/repository-policy@0"
@@ -1750,13 +1775,9 @@ fn validate_reference_semantics(root: &Path) -> Result<(), String> {
         .map_err(|error| error.to_string())?;
     let base_policy = compose_policies(&waiver_policy.documents, HashAlgorithm::default())
         .map_err(|error| error.to_string())?;
-    let waived_policy = apply_waiver(
-        &base_policy,
-        &waiver,
-        &registry["waiver-decision-at"],
-        HashAlgorithm::default(),
-    )
-    .map_err(|error| error.to_string())?;
+    if base_policy != resolved_profile.effective_policy {
+        return Err("resolved profile policy differs from the reviewed policy source".to_owned());
+    }
     if !waived_policy.effective.limits.iter().any(|rule| {
         rule.value.dimension == "bhcp.reference/limit.attempts@0"
             && rule.value.maximum == ExactNumber::Integer(3)

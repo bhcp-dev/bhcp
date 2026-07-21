@@ -45,15 +45,16 @@ ordinary stable diagnostics rather than an extension or host-callback mechanism.
 The checked-in `feature-manifest.diag` example declares canonical AST, semantic IR,
 and all five graph-root wire documents, requires the core feature, advertises the
 complete self-hosted `all`/`any`/`none`/`chain`/`gate` algebra and shared typed graph
-model, and advertises deterministic obligation structural construction plus
-capability graph decision construction as supported under the exact
+model, and advertises deterministic obligation graph construction, capability graph
+decision construction, and state-analysis graph construction under the exact
 `bhcp/feature.obligation-graph-builder@0` and
-`bhcp/feature.capability-graph-builder@0` identifiers emitted by those graph
-artifacts. It also advertises `bhcp/feature.profile-source-lowering@0` for the
+`bhcp/feature.capability-graph-builder@0` and
+`bhcp/feature.state-graph-builder@0` identifiers emitted by those graph artifacts. It
+also advertises `bhcp/feature.profile-source-lowering@0` for the
 bounded canonical-definition-to-source-local-registry path; the note explicitly
 keeps grammar extensions unsupported. The graph support notes keep
-execution-time discharge, state/execution graph construction, planning, runtime
-enforcement, and final evidence-graph assembly outside those two builder claims. The
+execution-time discharge, execution-graph construction, planning, storage/CAS runtime
+enforcement, and final evidence-graph assembly outside those three builder claims. The
 goal-algebra conformance harness validates that bounded distinction alongside the
 fixed 17-root inventory.
 

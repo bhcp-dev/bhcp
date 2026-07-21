@@ -1,7 +1,9 @@
 use bhcp::hash::HashAlgorithm;
 use bhcp::inspection::render_profile_resolution;
 use bhcp::pipeline::{
-    compile_source_bytes_with_profile_registry, compile_source_with_policy, parse_policy_source,
+    compile_source_bytes_with_profile_registry,
+    compile_source_bytes_with_profile_registry_and_policy, compile_source_with_policy,
+    parse_policy_source,
 };
 use bhcp::policy::{SourcePolicyDocument, TypeMode};
 use bhcp::profile::{
@@ -231,8 +233,17 @@ fn resolved_profile_compilation_preserves_meaning_and_applies_overlays_before_el
     let custom =
         compile_source_bytes_with_profile_registry(CUSTOM.as_bytes(), "custom.bhcp", &registry)
             .unwrap();
+    let governed_custom = compile_source_bytes_with_profile_registry_and_policy(
+        CUSTOM.as_bytes(),
+        "custom.bhcp",
+        &registry,
+        &resolved.effective_policy,
+    )
+    .unwrap();
 
     assert_eq!(custom.semantic_hash, canonical.semantic_hash);
+    assert_eq!(governed_custom.semantic_hash, canonical.semantic_hash);
+    assert_eq!(governed_custom.ir_hash, custom.ir_hash);
     assert_ne!(custom.ast_hash, canonical.ast_hash);
     assert_eq!(custom.ast.profile, "example/profile.child@0");
     assert_eq!(
@@ -247,6 +258,17 @@ fn resolved_profile_compilation_preserves_meaning_and_applies_overlays_before_el
         custom.effective_policy.as_ref().unwrap(),
         &resolved.effective_policy
     );
+
+    let mut unrelated_policy = resolved.effective_policy.clone();
+    unrelated_policy.source_layers.clear();
+    let diagnostic = compile_source_bytes_with_profile_registry_and_policy(
+        CUSTOM.as_bytes(),
+        "custom.bhcp",
+        &registry,
+        &unrelated_policy,
+    )
+    .unwrap_err();
+    assert_eq!(diagnostic.code, "BHCP9003");
 }
 
 #[test]

@@ -16,9 +16,9 @@ algorithm-tagged semantic or artifact identities. A shared safe-Rust graph bound
 now decodes, validates, normalizes, identifies, and inspects obligation, capability,
 state, execution, and evidence graph documents. It is not yet a complete v0 front
 end, planner, runtime, or SDK: source-expression forms beyond the currently parsed
-slice, state/execution graph construction, planner budget allocation, and execution
-remain roadmap work. Deterministic obligation and capability graph construction are
-implemented as separate, exactly reconstructable artifacts.
+slice, execution-graph construction, planner budget allocation, and execution remain
+roadmap work. Deterministic obligation graph, capability graph, and state-analysis
+graph construction are implemented as separate, exactly reconstructable artifacts.
 
 ## Start here
 
@@ -430,8 +430,8 @@ effective rule index and every originating layer, policy symbol, and source rule
 Missing mappings or registrations remain required unresolved gaps; rejection and
 operational fault behavior is unchanged.
 
-This library boundary builds deterministic obligation and capability graphs, but not
-state or execution graphs. Their common typed wire boundary rejects unknown fields,
+This library boundary builds deterministic obligation, capability, and state-analysis
+graphs, but not execution graphs. Their common typed wire boundary rejects unknown fields,
 duplicate IDs, dangling local references, and cycles in obligation/execution graphs;
 normalizes semantic sets; validates materialized semantic/artifact identities; and
 exposes nodes, edges, references, provenance, and validation errors without a JSON

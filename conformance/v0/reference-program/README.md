@@ -3,8 +3,10 @@
 This directory freezes the milestone-7 end-to-end acceptance subject. It is a
 normative target. The practical front end now compiles its canonical and remapped
 program sources, together with the derived extension, to equivalent governed
-semantic IR. Downstream graph, planner, runtime, evidence, SDK, CLI, and end-to-end
-claims remain assigned to later roadmap issues.
+semantic IR. Both paths retain the resolved profile type mode and policy overlays,
+including the exact reviewed waiver applied at its injected decision time. Downstream
+graph, planner, runtime, evidence, SDK, CLI, and end-to-end claims remain assigned to
+later roadmap issues.
 
 The source inventory deliberately crosses every practical v0 boundary:
 

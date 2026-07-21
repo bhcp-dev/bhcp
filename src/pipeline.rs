@@ -482,6 +482,58 @@ pub fn compile_source_bytes_with_profile_registry(
     )
 }
 
+pub fn compile_source_bytes_with_profile_registry_and_policy(
+    source: &[u8],
+    source_name: &str,
+    registry: &ProfileRegistry,
+    policy: &EffectivePolicyDocument,
+) -> Result<Compilation> {
+    let algorithm = policy
+        .header
+        .semantic_id
+        .as_ref()
+        .map(|identity| HashAlgorithm::from_id(&identity.algorithm))
+        .transpose()?
+        .unwrap_or_default();
+    let selected = scan_profile_preamble(source, source_name)?;
+    if selected.profile == CANONICAL_PROFILE {
+        return compile_source_internal(
+            source,
+            source_name,
+            algorithm,
+            Some(policy),
+            None,
+            None,
+            None,
+        );
+    }
+    let resolved = registry.resolve(&selected.profile, algorithm)?;
+    if policy.source_layers != resolved.effective_policy.source_layers {
+        return Err(Diagnostic::new(
+            "BHCP9003",
+            "supplied effective policy does not belong to the selected profile overlays",
+            source_name,
+            1,
+            1,
+        ));
+    }
+    let mut syntaxes = ProfileSyntaxRegistry::new();
+    syntaxes.register(&selected.profile, resolved.syntax)?;
+    let (ast, program) = parse_internal(source, source_name, algorithm, Some(&syntaxes))?;
+    finish_compilation(
+        ast,
+        program,
+        source_name,
+        algorithm,
+        CompilationContext {
+            policy: Some(policy),
+            profile_mode: Some(resolved.type_mode),
+            extensions: None,
+            waiver_decision_time: None,
+        },
+    )
+}
+
 pub fn compile_source_bytes_with_profile_registry_and_algorithm(
     source: &[u8],
     source_name: &str,
