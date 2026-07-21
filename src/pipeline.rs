@@ -3,11 +3,14 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 use crate::cbor::encode_deterministic;
 use crate::definition::DefinitionElaborator;
 use crate::diagnostic::{Diagnostic, Result};
+use crate::effects::{
+    EFFECT_ANALYSIS_FEATURE, analyze as analyze_effects, canonicalize as canonicalize_effects,
+};
 use crate::hash::{HashAlgorithm, artifact_hash_with, semantic_hash_with};
 use crate::kernel::{ArgumentMode, KernelArgument, KernelChild, KernelNetwork};
 use crate::model::{
     BhcpType, Binding, CanonicalAstDocument, Clause, ClauseKind, ContentReference, Effect,
-    EffectivePolicyReference, Expression, ExpressionForm, FieldType, FunctionDefinition,
+    EffectRow, EffectivePolicyReference, Expression, ExpressionForm, FieldType, FunctionDefinition,
     GoalDefinition, HandleType, HashId, PolicyDecision, SemanticIrDocument, VariantCaseType,
     VerifierBinding, data_edge_type_compatible, features_for, is_symbol,
 };
@@ -359,6 +362,7 @@ fn finish_compilation(
     for goal in &mut ir.goals {
         goal.type_mode = ir.type_mode;
     }
+    analyze_effects(&mut ir.goals, source_name)?;
     if let Some(policy) = policy {
         apply_effective_policy(&mut ir, policy, source_name, algorithm, profile_mode)?;
     }
@@ -435,6 +439,7 @@ fn apply_effective_policy(
 
     let decision_mode = profile_mode.map_or(required_mode, |mode| mode.max(required_mode));
     ir.type_mode = decision_mode;
+    let resource_symbols = binding_resource_symbols(&ir.goals);
     for goal in &mut ir.goals {
         goal.type_mode = decision_mode;
         let requirements =
@@ -456,74 +461,70 @@ fn apply_effective_policy(
             rule.value.scope.as_ref()
         });
 
+        for effect in &goal.effects.effects {
+            if prohibitions.iter().any(|index| {
+                let prohibition = &policy.effective.prohibitions[*index].value;
+                prohibition.effect == effect.id
+                    && request_within_scope(effect, prohibition.scope.as_ref(), &resource_symbols)
+            }) {
+                return Err(policy_enforcement_error(
+                    "BHCP8202",
+                    format!(
+                        "goal {} requests prohibited effect {}",
+                        goal.symbol, effect.id
+                    ),
+                    source_name,
+                ));
+            }
+            let granted = capabilities.iter().any(|index| {
+                let capability = &policy.effective.capabilities[*index].value;
+                capability.effect == effect.id
+                    && request_within_scope(effect, capability.scope.as_ref(), &resource_symbols)
+            });
+            if !granted {
+                return Err(policy_enforcement_error(
+                    "BHCP8203",
+                    format!(
+                        "goal {} has unresolved authority for effect {}",
+                        goal.symbol, effect.id
+                    ),
+                    source_name,
+                ));
+            }
+        }
+
         for clause in &goal.clauses {
-            match &clause.kind {
-                ClauseKind::Authority {
-                    kind: "allows",
-                    effects,
-                } => {
-                    for effect in effects {
-                        if prohibitions.iter().any(|index| {
-                            policy.effective.prohibitions[*index].value.effect == effect.id
-                        }) {
-                            return Err(policy_enforcement_error(
-                                "BHCP8202",
-                                format!(
-                                    "goal {} requests prohibited effect {}",
-                                    goal.symbol, effect.id
-                                ),
-                                source_name,
-                            ));
-                        }
-                        let granted = capabilities.iter().any(|index| {
-                            let capability = &policy.effective.capabilities[*index].value;
-                            capability.effect == effect.id
-                                && request_within_scope(effect, capability.scope.as_ref())
-                        });
-                        if !granted {
-                            return Err(policy_enforcement_error(
-                                "BHCP8203",
-                                format!(
-                                    "goal {} has unresolved authority for effect {}",
-                                    goal.symbol, effect.id
-                                ),
-                                source_name,
-                            ));
-                        }
-                    }
-                }
-                ClauseKind::Contract {
-                    kind: "limit",
-                    dimension: Some(dimension),
-                    condition,
-                } => {
-                    let requested = expression_limit_maximum(condition).ok_or_else(|| {
-                        policy_enforcement_error(
+            if let ClauseKind::Contract {
+                kind: "limit",
+                dimension: Some(dimension),
+                condition,
+            } = &clause.kind
+            {
+                let requested = expression_limit_maximum(condition).ok_or_else(|| {
+                    policy_enforcement_error(
+                        "BHCP8204",
+                        format!(
+                            "goal {} limit {} must use a direct non-negative exact upper bound",
+                            goal.symbol, dimension
+                        ),
+                        source_name,
+                    )
+                })?;
+                for index in &limits {
+                    let ceiling = &policy.effective.limits[*index].value;
+                    if ceiling.dimension == *dimension
+                        && requested.compare(&ceiling.maximum).is_gt()
+                    {
+                        return Err(policy_enforcement_error(
                             "BHCP8204",
                             format!(
-                                "goal {} limit {} must use a direct non-negative exact upper bound",
+                                "goal {} limit {} exceeds the effective policy maximum",
                                 goal.symbol, dimension
                             ),
                             source_name,
-                        )
-                    })?;
-                    for index in &limits {
-                        let ceiling = &policy.effective.limits[*index].value;
-                        if ceiling.dimension == *dimension
-                            && requested.compare(&ceiling.maximum).is_gt()
-                        {
-                            return Err(policy_enforcement_error(
-                                "BHCP8204",
-                                format!(
-                                    "goal {} limit {} exceeds the effective policy maximum",
-                                    goal.symbol, dimension
-                                ),
-                                source_name,
-                            ));
-                        }
+                        ));
                     }
                 }
-                _ => {}
             }
         }
 
@@ -565,7 +566,31 @@ fn scope_matches_goal(scope: &PolicyScope, goal: &str) -> bool {
         .is_none_or(|goals| goals.iter().any(|candidate| candidate == goal))
 }
 
-fn request_within_scope(effect: &Effect, scope: Option<&PolicyScope>) -> bool {
+fn binding_resource_symbols(goals: &[GoalDefinition]) -> HashMap<String, String> {
+    goals
+        .iter()
+        .flat_map(|goal| &goal.clauses)
+        .filter_map(|clause| match &clause.kind {
+            ClauseKind::Fact { binding, .. } => resource_symbol(&binding.value_type)
+                .map(|symbol| (binding.id.clone(), symbol.to_owned())),
+            _ => None,
+        })
+        .collect()
+}
+
+fn resource_symbol(value_type: &BhcpType) -> Option<&str> {
+    match value_type {
+        BhcpType::Handle(handle) => resource_symbol(&handle.value_type),
+        BhcpType::Nominal(symbol, _) => Some(symbol),
+        _ => None,
+    }
+}
+
+fn request_within_scope(
+    effect: &Effect,
+    scope: Option<&PolicyScope>,
+    resource_symbols: &HashMap<String, String>,
+) -> bool {
     let Some(scope) = scope else {
         return true;
     };
@@ -573,6 +598,7 @@ fn request_within_scope(effect: &Effect, scope: Option<&PolicyScope>) -> bool {
         effect
             .resource
             .as_ref()
+            .and_then(|resource| resource_symbols.get(resource))
             .is_some_and(|resource| resources.contains(resource))
     });
     let operation_allowed = scope.operations.as_ref().is_none_or(|operations| {
@@ -686,6 +712,9 @@ fn parse_internal(
     }
     if uses_ownership(&program) {
         features.push(OWNERSHIP_FEATURE.to_owned());
+    }
+    if uses_effect_analysis(&program) {
+        features.push(EFFECT_ANALYSIS_FEATURE.to_owned());
     }
     let mut ast = CanonicalAstDocument {
         features,
@@ -852,6 +881,9 @@ fn elaborate(
     if uses_ownership(program) {
         features.push(OWNERSHIP_FEATURE.to_owned());
     }
+    if uses_effect_analysis(program) {
+        features.push(EFFECT_ANALYSIS_FEATURE.to_owned());
+    }
     Ok(SemanticIrDocument {
         features,
         type_mode: TypeMode::InferStrict,
@@ -947,6 +979,23 @@ fn uses_ownership(program: &ParsedProgram) -> bool {
             .predicates
             .iter()
             .any(|definition| ast_contains_handle(&definition.ast))
+}
+
+fn uses_effect_analysis(program: &ParsedProgram) -> bool {
+    program.goals.iter().any(|goal| {
+        goal.clauses.iter().any(|clause| {
+            matches!(
+                clause.kind,
+                SurfaceClauseKind::Authority { .. }
+                    | SurfaceClauseKind::Contract {
+                        kind: "limit",
+                        dimension: Some(_),
+                        ..
+                    }
+                    | SurfaceClauseKind::Preference { .. }
+            )
+        })
+    })
 }
 
 fn surface_type_contains_handle(value_type: &SurfaceType) -> bool {
@@ -1281,12 +1330,14 @@ fn lower_goal(
                 }
             }
             SurfaceClauseKind::Authority { kind, effects } => {
-                let mut effects: Vec<_> = effects
+                let effects: Vec<_> = effects
                     .iter()
                     .map(|effect| lower_effect(effect, &environment, source_name))
                     .collect::<Result<_>>()?;
-                effects.sort_by(|left, right| left.id.cmp(&right.id));
-                ClauseKind::Authority { kind, effects }
+                ClauseKind::Authority {
+                    kind,
+                    effects: canonicalize_effects(effects)?,
+                }
             }
             SurfaceClauseKind::Preference {
                 priority,
@@ -1395,6 +1446,7 @@ fn lower_goal(
         type_mode: TypeMode::InferStrict,
         input,
         output,
+        effects: EffectRow::empty(),
         evidence: BhcpType::Evidence(vec![evidence.to_owned()]),
         clauses,
         policy_decision: None,
@@ -2726,6 +2778,16 @@ fn lower_effect(
                         at,
                     )
                 })?;
+                if resource_symbol(&binding.value_type).is_none() {
+                    return Err(error(
+                        "BHCP4501",
+                        format!(
+                            "effect resource coordinate {name:?} must reference a nominal resource or handle"
+                        ),
+                        source_name,
+                        at,
+                    ));
+                }
                 if resource.is_some() {
                     return Err(error(
                         "BHCP2004",
