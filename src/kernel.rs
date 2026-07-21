@@ -7,7 +7,7 @@ use crate::diagnostic::{Diagnostic, Result};
 use crate::hash::HashAlgorithm;
 use crate::model::{
     BhcpType, Expression, ExpressionForm, FieldType, FunctionDefinition, SemanticIrDocument,
-    is_symbol,
+    closed_binary_result_type, closed_unary_result_type, is_symbol,
 };
 use crate::value::Value;
 
@@ -203,21 +203,58 @@ impl Derivation {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
+pub enum RecursionBound {
+    Bounded { maximum: u64 },
+    WellFounded { measure: Expression },
+}
+
+impl RecursionBound {
+    pub fn to_value(&self) -> Value {
+        match self {
+            Self::Bounded { maximum } => Value::map([
+                ("kind", Value::Text("bounded".to_owned())),
+                ("maximum", Value::Integer(*maximum as i128)),
+            ]),
+            Self::WellFounded { measure } => Value::map([
+                ("kind", Value::Text("well-founded".to_owned())),
+                ("measure", measure.to_value()),
+            ]),
+        }
+    }
+
+    fn validate(&self) -> Result<()> {
+        match self {
+            Self::Bounded { maximum: 0 } => Err(invalid("recursive child bound must be positive")),
+            Self::Bounded { .. } => Ok(()),
+            Self::WellFounded { measure }
+                if measure.value_type == BhcpType::ExactNumber("Integer") =>
+            {
+                Ok(())
+            }
+            Self::WellFounded { .. } => {
+                Err(invalid("well-founded recursion measure must be Integer"))
+            }
+        }
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct KernelChild {
     pub id: String,
     pub tag: String,
     pub goal: String,
     pub arguments: Vec<KernelArgument>,
+    pub recursion: Option<RecursionBound>,
 }
 
 impl KernelChild {
-    fn to_value(&self) -> Value {
-        Value::map([
-            ("id", Value::Text(self.id.clone())),
-            ("tag", Value::Text(self.tag.clone())),
-            ("goal", Value::Text(self.goal.clone())),
+    pub fn to_value(&self) -> Value {
+        let mut entries = vec![
+            ("id".to_owned(), Value::Text(self.id.clone())),
+            ("tag".to_owned(), Value::Text(self.tag.clone())),
+            ("goal".to_owned(), Value::Text(self.goal.clone())),
             (
-                "arguments",
+                "arguments".to_owned(),
                 Value::owned_map(
                     self.arguments
                         .iter()
@@ -225,7 +262,11 @@ impl KernelChild {
                         .collect(),
                 ),
             ),
-        ])
+        ];
+        if let Some(recursion) = &self.recursion {
+            entries.push(("recursion".to_owned(), recursion.to_value()));
+        }
+        Value::owned_map(entries)
     }
 }
 
@@ -330,6 +371,9 @@ impl KernelNetwork {
                 return Err(invalid(
                     "network argument names must be unique and non-empty",
                 ));
+            }
+            if let Some(recursion) = &child.recursion {
+                recursion.validate()?;
             }
         }
         Ok(())
@@ -719,6 +763,13 @@ fn evaluate_expression(
                 evaluate_expression(operand, function, derivation_id, parent, observations)?;
             match (operator.as_str(), operand) {
                 ("!", RuntimeValue::Bool(value)) => Ok(RuntimeValue::Bool(!value)),
+                ("-", value) => runtime_integer(value)
+                    .and_then(|value| {
+                        value
+                            .checked_neg()
+                            .ok_or_else(|| invalid("reducer Integer operation overflowed"))
+                    })
+                    .map(runtime_integer_value),
                 _ => Err(invalid("reducer unary operation violated its checked type")),
             }
         }
@@ -750,6 +801,31 @@ fn evaluate_expression(
                         "reducer boolean operation violated its checked type",
                     )),
                 },
+                "<" | "<=" | ">" | ">=" => {
+                    let left = runtime_integer(left)?;
+                    let right = runtime_integer(right)?;
+                    Ok(RuntimeValue::Bool(match operator.as_str() {
+                        "<" => left < right,
+                        "<=" => left <= right,
+                        ">" => left > right,
+                        ">=" => left >= right,
+                        _ => unreachable!(),
+                    }))
+                }
+                "+" | "-" | "*" | "/" | "%" => {
+                    let left = runtime_integer(left)?;
+                    let right = runtime_integer(right)?;
+                    let value = match operator.as_str() {
+                        "+" => left.checked_add(right),
+                        "-" => left.checked_sub(right),
+                        "*" => left.checked_mul(right),
+                        "/" if right != 0 && left % right == 0 => left.checked_div(right),
+                        "%" if right != 0 => left.checked_rem(right),
+                        _ => None,
+                    }
+                    .ok_or_else(|| invalid("reducer Integer operation is not total"))?;
+                    Ok(runtime_integer_value(value))
+                }
                 _ => Err(invalid(format!(
                     "unsupported total pure reducer binary operation {operator:?}"
                 ))),
@@ -827,9 +903,8 @@ fn validate_reducer_expression(
         }
         ExpressionForm::Unary(operator, operand) => {
             validate_reducer_expression(operand, function)?;
-            if operator != "!"
-                || operand.value_type != BhcpType::Primitive("Bool")
-                || expression.value_type != BhcpType::Primitive("Bool")
+            if closed_unary_result_type(operator, &operand.value_type)
+                != Some(expression.value_type.clone())
             {
                 return Err(invalid(format!(
                     "unsupported or ill-typed total pure reducer unary operation {operator:?}"
@@ -839,23 +914,14 @@ fn validate_reducer_expression(
         ExpressionForm::Binary(operator, left, right) => {
             validate_reducer_expression(left, function)?;
             validate_reducer_expression(right, function)?;
-            let valid = match operator.as_str() {
-                "==" | "!=" => {
-                    left.value_type == right.value_type
-                        && expression.value_type == BhcpType::Primitive("Bool")
-                        && left.value_type != function.parameters[1].value_type
+            let valid = closed_binary_result_type(operator, &left.value_type, &right.value_type)
+                == Some(expression.value_type.clone())
+                && (!matches!(operator.as_str(), "==" | "!=")
+                    || (left.value_type != function.parameters[1].value_type
                         && !matches!(
                             left.value_type,
                             BhcpType::ExecutionResult(_) | BhcpType::Reduction(_)
-                        )
-                }
-                "&&" | "||" => {
-                    left.value_type == BhcpType::Primitive("Bool")
-                        && right.value_type == BhcpType::Primitive("Bool")
-                        && expression.value_type == BhcpType::Primitive("Bool")
-                }
-                _ => false,
-            };
+                        )));
             if !valid {
                 return Err(invalid(format!(
                     "unsupported or ill-typed total pure reducer binary operation {operator:?}"
@@ -965,6 +1031,9 @@ fn validate_primitive_signature(
         {
             output.as_ref().clone()
         }
+        "bhcp/kernel.unobserved-unit@0" if argument_types == [observations.clone()] => {
+            BhcpType::Primitive("Unit")
+        }
         "bhcp/kernel.unit@0" if argument_types.is_empty() => BhcpType::Primitive("Unit"),
         "bhcp/kernel.pending@0" if argument_types == [refs.clone()] => function.result.clone(),
         "bhcp/kernel.refuted@0" if argument_types == [refs.clone()] => execution.clone(),
@@ -1073,6 +1142,27 @@ fn runtime_equal(left: &RuntimeValue, right: &RuntimeValue) -> Result<bool> {
         (RuntimeValue::Texts(left), RuntimeValue::Texts(right)) => Ok(left == right),
         _ => Err(invalid("reducer equality compared sealed or unlike values")),
     }
+}
+
+fn runtime_integer(value: RuntimeValue) -> Result<i128> {
+    let RuntimeValue::Data(Value::Array(values)) = value else {
+        return Err(invalid(
+            "reducer Integer operation received a non-Integer value",
+        ));
+    };
+    match values.as_slice() {
+        [Value::Text(kind), Value::Integer(value)] if kind == "integer" => Ok(*value),
+        _ => Err(invalid(
+            "reducer Integer operation received a non-Integer value",
+        )),
+    }
+}
+
+fn runtime_integer_value(value: i128) -> RuntimeValue {
+    RuntimeValue::Data(Value::Array(vec![
+        Value::Text("integer".to_owned()),
+        Value::Integer(value),
+    ]))
 }
 
 fn evaluate_primitive(
@@ -1322,6 +1412,15 @@ fn evaluate_primitive(
                 Value::Text("Excluded".to_owned()),
                 Value::Array(vec![Value::Text("unit".to_owned())]),
             ])))
+        }
+        "bhcp/kernel.unobserved-unit@0" => {
+            let observations = take_observations(arguments)?;
+            if observations.iter().any(|slot| slot.result.is_some()) {
+                return Err(invalid("a closed gate cannot observe its unselected child"));
+            }
+            Ok(RuntimeValue::Data(Value::Array(vec![Value::Text(
+                "unit".to_owned(),
+            )])))
         }
         "bhcp/kernel.first-satisfied-evidence@0" => {
             let observations = take_observations(arguments)?;

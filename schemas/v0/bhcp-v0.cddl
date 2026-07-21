@@ -747,6 +747,7 @@ obligation-node = {
   ? "goals": [1* symbol-id],
   ; Generated source IDs are audit links, not structural obligation identity.
   ? "source_clauses": [1* ref-id],
+  ? "recursion": recursion-bound,
   ? "policy": policy-obligation-detail
 }
 policy-obligation-detail = {

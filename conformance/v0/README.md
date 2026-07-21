@@ -297,13 +297,29 @@ forms MUST lower to the same meaning.
 | PLN-04 | Children consume an unallocated shared budget including retries. | Total accounting remains within parent limit or planning refuses. |
 | PLN-05 | Requirements lack parent facts, invariants, or prior guarantees. | Deterministic explicit obligations and dependencies are emitted with open status; none is assumed discharged. |
 
-The complete goal parser fixture covers the authored prerequisites for KRN-11,
-REC-01..03, and PLN-03..05: quantifier domains, recursive goal references, typed
-argument modes, limits, invariants, and nested composition all retain ordered source
-spans in canonical AST. This is syntax evidence only. Static finiteness, decreasing
-measures, chain compatibility, and shared-budget accounting remain assigned to their
-checker, recursion, and planner roadmap owners. Obligation construction is executable
-in `tests/obligation_graph.rs`.
+The complete goal parser fixture covers the authored prerequisites for KRN-11 and
+PLN-03..05: quantifier domains, recursive goal references, typed argument modes,
+limits, invariants, and nested composition all retain ordered source spans in
+canonical AST. Direct REC-01..03 execution is checked by
+`recursive_children_retain_static_bounds_and_decreasing_measure_evidence`,
+`retained_ir_revalidates_recursion_metadata_against_the_recursive_edge`,
+`decreasing_measure_must_prove_the_child_measure_stays_nonnegative`,
+`guarded_nonnegative_reference_measure_is_accepted`, and
+`unbounded_recursion_is_rejected_before_semantic_ir`; bounds also materialize as
+open obligation-graph limit nodes. Static quantified-domain finiteness and
+shared-budget accounting remain assigned to later roadmap owners. Source-defined
+recursive-gate coverage includes a satisfied empty base case and fail-closed rejection
+of every supplied observation for the base branch's unselected recursive child. The
+retention boundary is checked by
+`retention_is_a_versioned_prelude_chain_over_ordinary_child_goals` and
+`only_a_satisfied_candidate_reaches_compare_and_swap`.
+`retention_predecessor_outputs_cannot_bypass_recursive_ownership_checks` rejects
+nested owned, borrowed, and shared predecessor payloads under value, move, borrow,
+or share labels until the state/CAS runtime can retain exact consumption and policy
+approval evidence; `received_ir_rejects_handle_bearing_retention_predecessors`
+revalidates the same fail-closed boundary on received semantic IR. Persistent storage
+and the STA runtime races remain assigned to the state runtime. Obligation construction
+is executable in `tests/obligation_graph.rs`.
 
 ## Policy, waivers, and extensions
 

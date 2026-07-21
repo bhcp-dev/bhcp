@@ -444,6 +444,34 @@ fn add_parent_child_dependencies(
             let child_contracts = contracts
                 .get(&child_goal.symbol)
                 .expect("every goal has a contract index");
+            if let Some(recursion) = &child.recursion {
+                let recursion_key = normalized_recursion(recursion, parent);
+                let recursion = recursion.to_value();
+                let key = Value::map([
+                    ("parent", Value::Text(parent.symbol.clone())),
+                    ("child_tag", Value::Text(child.tag.clone())),
+                    ("child_goal", Value::Text(child_goal.symbol.clone())),
+                    ("recursion", recursion_key),
+                ]);
+                let id = structural_id("recursion", &key)?;
+                nodes.entry(id.clone()).or_insert_with(|| {
+                    Value::map([
+                        ("id", Value::Text(id.clone())),
+                        ("kind", Value::Text("limit".to_owned())),
+                        ("clause", Value::Text(id.clone())),
+                        ("status", Value::Text("open".to_owned())),
+                        (
+                            "goals",
+                            Value::Array(vec![Value::Text(parent.symbol.clone())]),
+                        ),
+                        (
+                            "source_clauses",
+                            Value::Array(vec![Value::Text(child.id.clone())]),
+                        ),
+                        ("recursion", recursion),
+                    ])
+                });
+            }
             for (requirement, kind) in &child_contracts.by_id {
                 if kind != "requirement" {
                     continue;
@@ -476,6 +504,25 @@ fn add_parent_child_dependencies(
         }
     }
     Ok(())
+}
+
+fn normalized_recursion(
+    recursion: &crate::kernel::RecursionBound,
+    parent: &GoalDefinition,
+) -> Value {
+    match recursion {
+        crate::kernel::RecursionBound::Bounded { maximum } => Value::map([
+            ("kind", Value::Text("bounded".to_owned())),
+            ("maximum", Value::Integer(*maximum as i128)),
+        ]),
+        crate::kernel::RecursionBound::WellFounded { measure } => Value::map([
+            ("kind", Value::Text("well-founded".to_owned())),
+            (
+                "measure",
+                expression_key(measure, &fact_coordinates(parent)),
+            ),
+        ]),
+    }
 }
 
 fn add_policy_nodes(

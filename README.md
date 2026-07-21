@@ -181,12 +181,16 @@ generic/refinement declarations, all four fact kinds and initializers, invariant
 limits, authority, preferences, verifier arguments, executable cases, standalone
 goal calls, quantified composition, and recursively nested finite composition.
 These additional goal forms retain deterministic AST structure and fail closed
-before executable IR until their remaining case-execution and recursion or
-retention-lowering stages land.
+before executable IR until their remaining finite-domain and case-execution stages
+land. Direct recursive child calls now require a matching positive static limit or a
+checked decreasing integer measure whose retained requirements or execution guard
+prove the child remains non-negative before IR emission. Direct self-recursive gates
+are supported for the finite Unit-output base-case slice; a closed base branch accepts
+no observation for its unselected recursive child.
 
 | Canonical definition | Implemented source slice | Explicitly deferred |
 | --- | --- | --- |
-| `§goal` / `§function` | Complete goal and general-function parsing/AST construction; parsed pure function bodies resolve deterministically, type-check, infer bounded generics, monomorphize, and materialize beside the checked executable goal/prelude-function slice; ownership/resource flow plus effect propagation, authority/prohibition ceilings, direct exact limits, and compatible preference groups are checked before IR emission | Source-expression grammar beyond the current parsed slice, finite-domain proof, case execution, recursion semantics, state/execution graph construction, and planner allocation/retry decisions |
+| `§goal` / `§function` | Complete goal and general-function parsing/AST construction; parsed pure function bodies resolve deterministically, type-check, infer bounded generics, monomorphize, and materialize beside the checked executable goal/prelude-function slice; ownership/resource flow, bounded or well-founded direct recursion, effect propagation, authority/prohibition ceilings, direct exact limits, and compatible preference groups are checked before IR emission | Source-expression grammar beyond the current parsed slice, finite-domain proof, case execution, mutual-recursion analysis, state/execution graph construction, and planner allocation/retry decisions |
 | `§type` / `§predicate` / `§refines` | Complete parsing plus checked type/refinement lowering and parsed predicate elaboration: every v0 wire type normalizes, local generics enforce arity/bounds, total refinements retain candidate-bound evidence, and canonical predicate verifier interfaces/configuration materialize in semantic IR | Source-expression grammar beyond the current parsed slice and its complete source-to-IR audit |
 | `§policy` | Complete canonical source parsing for layer, `§extends`, six closed typed rules, scopes/parameters, waivability, and issuers; inline and explicit composition, inspection, policy-aware elaboration, and governed semantic IR | Expression-valued policy clauses and enforcement beyond the compile-time/evidence boundary |
 | `§syntax` / `§profile` | Complete closed source-definition lowering into identified typed artifacts and one atomically validated source-local syntax/profile/policy registry; fixed byte-level selection, exact one-parent resolution, monotonic attached overlays, resolved-profile inspection, span-aware custom-source compilation, and deterministic profile-aware formatting | Arbitrary grammars, executable macros, parser plugins, implicit parents, fallback search, and per-definition profile switching remain outside v0 |
@@ -331,8 +335,9 @@ reduction states over factored execution results.
 [`prelude/v0/all.bhcp`](prelude/v0/all.bhcp),
 [`prelude/v0/any.bhcp`](prelude/v0/any.bhcp),
 [`prelude/v0/none.bhcp`](prelude/v0/none.bhcp),
-[`prelude/v0/chain.bhcp`](prelude/v0/chain.bhcp), and
-[`prelude/v0/gate.bhcp`](prelude/v0/gate.bhcp) are parsed and checked as canonical
+[`prelude/v0/chain.bhcp`](prelude/v0/chain.bhcp),
+[`prelude/v0/gate.bhcp`](prelude/v0/gate.bhcp), and
+[`prelude/v0/recursive-gate.bhcp`](prelude/v0/recursive-gate.bhcp) are parsed and checked as canonical
 BHCP source. Their compile-time lowerers construct ID-free network shapes through
 the restricted metamodel, disappear, and leave monomorphized runtime reducers in
 semantic IR. The generic Rust kernel implements only typed sealed-observation
@@ -346,6 +351,12 @@ winner, `Unit`, last-step satisfaction, closed/open gate selection, all four emp
 identities, decisive verdicts, causal early stop, fault/unresolved precedence,
 typed predecessor and parent-field edges, non-observation, and generic
 re-evaluation rejection of tampering:
+
+The current retention lowerer accepts only handle-free predecessor outputs. A
+nested owned, borrowed, or shared resource handle fails before IR, and received IR
+revalidates the same boundary. Consuming moves and policy-approved persistent shares
+remain coupled to the state/CAS runtime work in #124; this slice does not silently
+copy them or treat an edge-mode label as authority.
 
 ```sh
 cargo test --test self_hosted_all
@@ -704,9 +715,12 @@ scheduling order, or parallelism hint. Quantifiers expand to finite children bef
 IR; recursive bounds belong to the recursive child call; and budget/concurrency
 decisions live in execution graphs. Pending reducers name stable child tags, which the
 kernel resolves through the network; reducers never allocate child or derivation IDs.
-The next executable prelude boundary is retained-value behavior over explicit
-state-read and compare-and-swap capabilities, without adding behavior kinds or
-stateful callbacks to Rust or semantic IR.
+The versioned `lower-retain@0` / `retain-reducer@0` prelude boundary now derives
+retained-value behavior as a causal state-read, candidate, and compare-and-swap
+network. Refuted, unresolved, faulted, stale, and CAS-conflict outcomes stop before a
+write; only the satisfied path reaches compare-and-swap. The kernel gains no
+retention, retry, state, or freshness behavior kind. Persistent storage, state-graph
+construction, and runtime retry enforcement remain later stages.
 
 ## Practical v0 completion contract
 

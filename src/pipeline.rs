@@ -8,12 +8,13 @@ use crate::effects::{
 };
 use crate::extensions::ExtensionRegistry;
 use crate::hash::{HashAlgorithm, artifact_hash_with, semantic_hash_with};
-use crate::kernel::{ArgumentMode, KernelArgument, KernelChild, KernelNetwork};
+use crate::kernel::{ArgumentMode, KernelArgument, KernelChild, KernelNetwork, RecursionBound};
 use crate::model::{
     BhcpType, Binding, CanonicalAstDocument, Clause, ClauseKind, ContentReference, Effect,
     EffectRow, EffectivePolicyReference, Expression, ExpressionForm, ExtensionNode, FieldType,
     FunctionDefinition, GoalDefinition, HandleType, HashId, Point, PolicyDecision,
-    SemanticIrDocument, VariantCaseType, VerifierBinding, data_edge_type_compatible, features_for,
+    SemanticIrDocument, VariantCaseType, VerifierBinding, bhcp_type_contains_handle,
+    closed_binary_result_type, closed_unary_result_type, data_edge_type_compatible, features_for,
     is_symbol,
 };
 use crate::ownership::analyze_program;
@@ -30,7 +31,8 @@ use crate::policy::{
 use crate::prelude::{
     ALL_FEATURE, ALL_LOWERER, ALL_REDUCER, ANY_FEATURE, ANY_LOWERER, ANY_REDUCER, CHAIN_FEATURE,
     CHAIN_LOWERER, CHAIN_REDUCER, DerivedChild, DerivedForm, GATE_FEATURE, GATE_LOWERER,
-    NONE_FEATURE, NONE_LOWERER, NONE_REDUCER, NetworkShape, Prelude,
+    NONE_FEATURE, NONE_LOWERER, NONE_REDUCER, NetworkShape, Prelude, RECURSIVE_GATE_REDUCER,
+    RETAIN_FEATURE, RETAIN_REDUCER,
 };
 use crate::profile::{PresentationDocument, ProfileDocument, ProfileRegistry, SyntaxDocument};
 use crate::typecheck::{CheckedType, TypeRelations, check_type_definitions, surface_type};
@@ -981,6 +983,9 @@ fn parse_internal(
     if uses_self_hosted_gate(&program) {
         features.push(GATE_FEATURE.to_owned());
     }
+    if uses_retention_lowering(&program) {
+        features.push(RETAIN_FEATURE.to_owned());
+    }
     if uses_ownership(&program) {
         features.push(OWNERSHIP_FEATURE.to_owned());
     }
@@ -1204,6 +1209,9 @@ fn elaborate(
     }
     if uses_self_hosted_gate(program) {
         features.push(GATE_FEATURE.to_owned());
+    }
+    if uses_retention_lowering(program) {
+        features.push(RETAIN_FEATURE.to_owned());
     }
     if uses_ownership(program) {
         features.push(OWNERSHIP_FEATURE.to_owned());
@@ -1470,6 +1478,7 @@ fn lower_derived_extension(
                 goal: child.id.clone(),
                 output: child.output.clone(),
                 arguments: vec![],
+                recursion: None,
             })
         })
         .collect::<Result<Vec<_>>>()?;
@@ -1568,6 +1577,7 @@ fn lower_derived_extension(
                 tag: child.tag,
                 goal: child.goal,
                 arguments: child.arguments,
+                recursion: None,
             })
             .collect(),
         reducer: reducer_symbol,
@@ -1705,6 +1715,15 @@ fn uses_self_hosted_gate(program: &ParsedProgram) -> bool {
         .goals
         .iter()
         .any(|goal| matches!(&goal.body, Some(SurfaceComposition::DerivedGate { .. })))
+}
+
+fn uses_retention_lowering(program: &ParsedProgram) -> bool {
+    program.goals.iter().any(|goal| {
+        matches!(
+            &goal.body,
+            Some(SurfaceComposition::Compose { reducer, .. }) if reducer == RETAIN_REDUCER
+        )
+    })
 }
 
 fn uses_ownership(program: &ParsedProgram) -> bool {
@@ -1890,6 +1909,12 @@ fn resolve_gate_output(
             source_name,
             at,
         ));
+    }
+    if branch.goal == symbol {
+        visiting.remove(symbol);
+        let output = BhcpType::Primitive("Unit");
+        signatures.get_mut(symbol).expect("signature exists").output = output.clone();
+        return Ok(output);
     }
     let child = goals.get(branch.goal.as_str()).ok_or_else(|| {
         error(
@@ -2201,6 +2226,7 @@ fn lower_goal(
                 source_name,
                 signatures,
                 prelude,
+                &goal.clauses,
                 &mut state,
             )
         })
@@ -2225,6 +2251,7 @@ fn lower_composition(
     source_name: &str,
     signatures: &HashMap<String, GoalSignature>,
     prelude: &Prelude,
+    parent_clauses: &[crate::parser::SurfaceClause],
     state: &mut ReducerLoweringState<'_>,
 ) -> Result<KernelNetwork> {
     let ReducerLoweringState {
@@ -2233,6 +2260,11 @@ fn lower_composition(
         type_relations,
     } = state;
     let is_chain = is_self_hosted_chain_composition(composition);
+    let is_retention = matches!(
+        composition,
+        SurfaceComposition::Compose { reducer, .. } if reducer == RETAIN_REDUCER
+    );
+    let is_sequential = is_chain || is_retention;
     let gate_condition = match composition {
         SurfaceComposition::DerivedGate {
             condition,
@@ -2279,29 +2311,38 @@ fn lower_composition(
                 &branch.at,
             )
         })?;
-        let arguments = if is_chain {
+        let arguments = if is_retention {
+            lower_retention_arguments(branch, child, &parent.input, &children, source_name, ids)?
+        } else if is_sequential {
             lower_chain_arguments(branch, child, children.last(), source_name, ids)?
         } else if gate_condition.is_some() {
             lower_gate_arguments(branch, child, &parent.input, source_name, ids)?
         } else {
-            if child.input != BhcpType::Record(vec![]) || !branch.arguments.is_empty() {
-                return Err(error(
-                    "BHCP2004",
-                    "goal-call arguments are implemented only for chain composition",
-                    source_name,
-                    &branch.at,
-                ));
-            }
-            vec![]
+            lower_parent_arguments(branch, child, &parent.input, source_name, ids)?
+        };
+        let recursion = if child.id == parent.id {
+            Some(check_recursion_bound(
+                branch,
+                &arguments,
+                parent_clauses,
+                match composition {
+                    SurfaceComposition::DerivedGate { condition, .. } => Some(condition),
+                    _ => None,
+                },
+                source_name,
+            )?)
+        } else {
+            None
         };
         children.push(DerivedChild {
             tag: branch.tag.clone(),
             goal: child.id.clone(),
             output: child.output.clone(),
             arguments,
+            recursion,
         });
     }
-    if !is_chain {
+    if !is_sequential {
         children.sort_by(|left, right| left.tag.cmp(&right.tag));
     }
     let shape = match composition {
@@ -2341,6 +2382,23 @@ fn lower_composition(
                 condition: None,
             },
         )?,
+        SurfaceComposition::DerivedGate { .. }
+            if children.iter().any(|child| child.goal == parent.id) =>
+        {
+            if parent.output != BhcpType::Primitive("Unit") {
+                return Err(error(
+                    "BHCP2003",
+                    "recursive gate requires Unit output in the implemented finite slice",
+                    source_name,
+                    composition.at(),
+                ));
+            }
+            NetworkShape {
+                output: parent.output.clone(),
+                children,
+                reducer: RECURSIVE_GATE_REDUCER.to_owned(),
+            }
+        }
         SurfaceComposition::DerivedGate { .. } => prelude.lower(
             GATE_LOWERER,
             DerivedForm {
@@ -2350,6 +2408,13 @@ fn lower_composition(
                 condition: gate_condition.clone(),
             },
         )?,
+        SurfaceComposition::Compose { reducer, .. } if reducer == RETAIN_REDUCER => prelude
+            .lower_retention(DerivedForm {
+                input: parent.input.clone(),
+                output: parent.output.clone(),
+                children,
+                condition: None,
+            })?,
         SurfaceComposition::Compose { reducer, .. } => NetworkShape {
             output: parent.output.clone(),
             children,
@@ -2438,6 +2503,7 @@ fn lower_composition(
                 tag: child.tag,
                 goal: child.goal,
                 arguments: child.arguments,
+                recursion: child.recursion,
             })
             .collect(),
         reducer: reducer_symbol,
@@ -2530,6 +2596,380 @@ fn lower_chain_arguments(
     }])
 }
 
+fn lower_parent_arguments(
+    branch: &crate::parser::SurfaceBranch,
+    child: &GoalSignature,
+    parent_input: &BhcpType,
+    source_name: &str,
+    ids: &mut Ids,
+) -> Result<Vec<KernelArgument>> {
+    let BhcpType::Record(child_fields) = &child.input else {
+        return Err(error(
+            "BHCP2003",
+            "composition children must expose record inputs",
+            source_name,
+            &branch.at,
+        ));
+    };
+    if branch.arguments.len() != child_fields.len() {
+        return Err(error(
+            "BHCP2003",
+            "composition child arguments must exactly cover its typed input fields",
+            source_name,
+            &branch.at,
+        ));
+    }
+    let mut lowered = Vec::with_capacity(child_fields.len());
+    for field in child_fields {
+        let Some(argument) = branch
+            .arguments
+            .iter()
+            .find(|argument| argument.name == field.name)
+        else {
+            return Err(error(
+                "BHCP2001",
+                format!(
+                    "composition argument does not name child input {:?}",
+                    field.name
+                ),
+                source_name,
+                &branch.at,
+            ));
+        };
+        let value = lower_gate_condition(&argument.value, parent_input, source_name, ids)?;
+        if !data_edge_type_compatible(
+            &value.value_type,
+            &field.value_type,
+            kernel_argument_mode(argument.mode),
+        ) {
+            return Err(error(
+                "BHCP2003",
+                "composition argument expression does not match the child input type",
+                source_name,
+                &argument.at,
+            ));
+        }
+        lowered.push(KernelArgument {
+            name: argument.name.clone(),
+            mode: kernel_argument_mode(argument.mode),
+            value,
+        });
+    }
+    lowered.sort_by(|left, right| left.name.cmp(&right.name));
+    Ok(lowered)
+}
+
+fn lower_retention_arguments(
+    branch: &crate::parser::SurfaceBranch,
+    child: &GoalSignature,
+    parent_input: &BhcpType,
+    predecessors: &[DerivedChild],
+    source_name: &str,
+    ids: &mut Ids,
+) -> Result<Vec<KernelArgument>> {
+    let BhcpType::Record(child_fields) = &child.input else {
+        return Err(error(
+            "BHCP2003",
+            "retention children must expose record inputs",
+            source_name,
+            &branch.at,
+        ));
+    };
+    if branch.arguments.len() != child_fields.len() {
+        return Err(error(
+            "BHCP2003",
+            "retention child arguments must exactly cover its typed input fields",
+            source_name,
+            &branch.at,
+        ));
+    }
+    let mut lowered = Vec::with_capacity(child_fields.len());
+    for field in child_fields {
+        let Some(argument) = branch
+            .arguments
+            .iter()
+            .find(|argument| argument.name == field.name)
+        else {
+            return Err(error(
+                "BHCP2001",
+                format!(
+                    "retention argument does not name child input {:?}",
+                    field.name
+                ),
+                source_name,
+                &branch.at,
+            ));
+        };
+        if argument.source == "<expression>" {
+            return Err(error(
+                "BHCP2003",
+                "retention coordinates must be exact parent fields or predecessor outputs",
+                source_name,
+                &argument.at,
+            ));
+        }
+        let (source_type, symbol, predecessor_output) = if let Some(predecessor) = predecessors
+            .iter()
+            .find(|predecessor| predecessor.tag == argument.source)
+        {
+            (
+                predecessor.output.clone(),
+                "bhcp/kernel.observed-output@0",
+                true,
+            )
+        } else if let Some(parent_type) = parent_field_type(parent_input, &argument.source) {
+            (parent_type.clone(), "bhcp/kernel.parent-field@0", false)
+        } else {
+            return Err(error(
+                "BHCP2001",
+                format!(
+                    "retention argument source {:?} is not a parent field or prior child",
+                    argument.source
+                ),
+                source_name,
+                &argument.at,
+            ));
+        };
+        if predecessor_output && bhcp_type_contains_handle(&source_type) {
+            return Err(error(
+                "BHCP4401",
+                "retention predecessor outputs containing resource handles are not executable in this slice",
+                source_name,
+                &argument.at,
+            ));
+        }
+        if !data_edge_type_compatible(
+            &source_type,
+            &field.value_type,
+            kernel_argument_mode(argument.mode),
+        ) {
+            return Err(error(
+                "BHCP2003",
+                "retention data edge does not match the child input type",
+                source_name,
+                &argument.at,
+            ));
+        }
+        let coordinate = Expression {
+            id: ids.next("expr"),
+            value_type: BhcpType::Primitive("Text"),
+            form: ExpressionForm::Literal(Value::Text(argument.source.clone())),
+        };
+        lowered.push(KernelArgument {
+            name: argument.name.clone(),
+            mode: kernel_argument_mode(argument.mode),
+            value: Expression {
+                id: ids.next("expr"),
+                value_type: field.value_type.clone(),
+                form: ExpressionForm::Call(symbol.to_owned(), vec![coordinate]),
+            },
+        });
+    }
+    lowered.sort_by(|left, right| left.name.cmp(&right.name));
+    Ok(lowered)
+}
+
+fn check_recursion_bound(
+    branch: &crate::parser::SurfaceBranch,
+    arguments: &[KernelArgument],
+    clauses: &[crate::parser::SurfaceClause],
+    guard: Option<&SurfaceExpression>,
+    source_name: &str,
+) -> Result<RecursionBound> {
+    let mut static_bounds = Vec::new();
+    for clause in clauses {
+        let SurfaceClauseKind::Contract {
+            kind: "limit",
+            condition:
+                SurfaceExpression::Binary {
+                    operator,
+                    left,
+                    right,
+                    ..
+                },
+            ..
+        } = &clause.kind
+        else {
+            continue;
+        };
+        let (
+            "<=",
+            SurfaceExpression::Reference { name, .. },
+            SurfaceExpression::Literal {
+                value: SurfaceLiteral::Integer(maximum),
+                ..
+            },
+        ) = (operator.as_str(), left.as_ref(), right.as_ref())
+        else {
+            continue;
+        };
+        if *maximum > 0
+            && branch.arguments.iter().any(|argument| {
+                argument.name == *name && surface_expression_references(&argument.value, name)
+            })
+        {
+            static_bounds.push(*maximum as u64);
+        }
+    }
+    if let Some(maximum) = static_bounds.into_iter().min() {
+        return Ok(RecursionBound::Bounded { maximum });
+    }
+
+    let mut measures = branch
+        .arguments
+        .iter()
+        .filter_map(|argument| {
+            let SurfaceExpression::Binary {
+                operator,
+                left,
+                right,
+                ..
+            } = &argument.value
+            else {
+                return None;
+            };
+            let (
+                "-",
+                SurfaceExpression::Reference { name, .. },
+                SurfaceExpression::Literal {
+                    value: SurfaceLiteral::Integer(step),
+                    ..
+                },
+            ) = (operator.as_str(), left.as_ref(), right.as_ref())
+            else {
+                return None;
+            };
+            (*step > 0
+                && argument.name == *name
+                && checked_measure_lower_bound(clauses, guard, name)
+                    .is_some_and(|bound| bound >= *step))
+            .then_some((argument.name.as_str(), name.as_str()))
+        })
+        .collect::<Vec<_>>();
+    measures.sort_unstable();
+    if let Some((argument_name, _)) = measures.first()
+        && let Some(argument) = arguments
+            .iter()
+            .find(|argument| argument.name == *argument_name)
+    {
+        return Ok(RecursionBound::WellFounded {
+            measure: argument.value.clone(),
+        });
+    }
+    Err(error(
+        "BHCP2301",
+        "recursive child requires a static bound or a checked decreasing measure",
+        source_name,
+        &branch.at,
+    ))
+}
+
+fn surface_expression_references(expression: &SurfaceExpression, name: &str) -> bool {
+    match expression {
+        SurfaceExpression::Reference {
+            name: candidate, ..
+        } => candidate == name,
+        SurfaceExpression::Unary { operand, .. } => surface_expression_references(operand, name),
+        SurfaceExpression::Binary { left, right, .. } => {
+            surface_expression_references(left, name) || surface_expression_references(right, name)
+        }
+        SurfaceExpression::If {
+            condition,
+            consequent,
+            alternative,
+            ..
+        } => {
+            surface_expression_references(condition, name)
+                || surface_expression_references(consequent, name)
+                || surface_expression_references(alternative, name)
+        }
+        SurfaceExpression::Call { arguments, .. } => arguments
+            .iter()
+            .any(|argument| surface_expression_references(argument, name)),
+        SurfaceExpression::Literal { .. } => false,
+    }
+}
+
+fn checked_measure_lower_bound(
+    clauses: &[crate::parser::SurfaceClause],
+    guard: Option<&SurfaceExpression>,
+    name: &str,
+) -> Option<i64> {
+    clauses
+        .iter()
+        .filter_map(|clause| {
+            let SurfaceClauseKind::Contract {
+                kind: "requires",
+                condition,
+                ..
+            } = &clause.kind
+            else {
+                return None;
+            };
+            surface_lower_bound(condition, name)
+        })
+        .chain(guard.and_then(|condition| surface_lower_bound(condition, name)))
+        .max()
+}
+
+fn surface_lower_bound(expression: &SurfaceExpression, name: &str) -> Option<i64> {
+    let SurfaceExpression::Binary {
+        operator,
+        left,
+        right,
+        ..
+    } = expression
+    else {
+        return None;
+    };
+    match (operator.as_str(), left.as_ref(), right.as_ref()) {
+        (
+            ">=" | ">",
+            SurfaceExpression::Reference {
+                name: candidate, ..
+            },
+            SurfaceExpression::Literal {
+                value: SurfaceLiteral::Integer(bound),
+                ..
+            },
+        ) if candidate == name => {
+            if operator == ">" {
+                bound.checked_add(1)
+            } else {
+                Some(*bound)
+            }
+        }
+        (
+            "<=" | "<",
+            SurfaceExpression::Literal {
+                value: SurfaceLiteral::Integer(bound),
+                ..
+            },
+            SurfaceExpression::Reference {
+                name: candidate, ..
+            },
+        ) if candidate == name => {
+            if operator == "<" {
+                bound.checked_add(1)
+            } else {
+                Some(*bound)
+            }
+        }
+        ("&&", _, _) => match (
+            surface_lower_bound(left, name),
+            surface_lower_bound(right, name),
+        ) {
+            (Some(left), Some(right)) => Some(left.max(right)),
+            (bound @ Some(_), None) | (None, bound @ Some(_)) => bound,
+            (None, None) => None,
+        },
+        ("||", _, _) => {
+            Some(surface_lower_bound(left, name)?.min(surface_lower_bound(right, name)?))
+        }
+        _ => None,
+    }
+}
+
 fn lower_gate_arguments(
     branch: &crate::parser::SurfaceBranch,
     child: &GoalSignature,
@@ -2569,43 +3009,55 @@ fn lower_gate_arguments(
                 &branch.at,
             ));
         };
-        let Some(parent_field) = parent_fields
-            .iter()
-            .find(|parent_field| parent_field.name == argument.source)
-        else {
-            return Err(error(
-                "BHCP2001",
-                format!(
-                    "gate argument source {:?} is not a parent input",
-                    argument.source
-                ),
-                source_name,
-                &argument.at,
-            ));
-        };
-        if !data_edge_type_compatible(
-            &parent_field.value_type,
-            &field.value_type,
-            kernel_argument_mode(argument.mode),
-        ) {
-            return Err(error(
-                "BHCP2003",
-                "gate parent input does not match the child input type",
-                source_name,
-                &argument.at,
-            ));
-        }
-        let field_name = Expression {
-            id: ids.next("expr"),
-            value_type: BhcpType::Primitive("Text"),
-            form: ExpressionForm::Literal(Value::Text(argument.source.clone())),
-        };
-        let value = Expression {
-            id: ids.next("expr"),
-            value_type: field.value_type.clone(),
-            form: ExpressionForm::Call("bhcp/kernel.parent-field@0".to_owned(), vec![field_name]),
-        };
         let mode = kernel_argument_mode(argument.mode);
+        let value = if argument.source == "<expression>" {
+            let value = lower_gate_condition(&argument.value, parent_input, source_name, ids)?;
+            if !data_edge_type_compatible(&value.value_type, &field.value_type, mode) {
+                return Err(error(
+                    "BHCP2003",
+                    "gate expression does not match the child input type",
+                    source_name,
+                    &argument.at,
+                ));
+            }
+            value
+        } else {
+            let Some(parent_field) = parent_fields
+                .iter()
+                .find(|parent_field| parent_field.name == argument.source)
+            else {
+                return Err(error(
+                    "BHCP2001",
+                    format!(
+                        "gate argument source {:?} is not a parent input",
+                        argument.source
+                    ),
+                    source_name,
+                    &argument.at,
+                ));
+            };
+            if !data_edge_type_compatible(&parent_field.value_type, &field.value_type, mode) {
+                return Err(error(
+                    "BHCP2003",
+                    "gate parent input does not match the child input type",
+                    source_name,
+                    &argument.at,
+                ));
+            }
+            let field_name = Expression {
+                id: ids.next("expr"),
+                value_type: BhcpType::Primitive("Text"),
+                form: ExpressionForm::Literal(Value::Text(argument.source.clone())),
+            };
+            Expression {
+                id: ids.next("expr"),
+                value_type: field.value_type.clone(),
+                form: ExpressionForm::Call(
+                    "bhcp/kernel.parent-field@0".to_owned(),
+                    vec![field_name],
+                ),
+            }
+        };
         lowered.push(KernelArgument {
             name: argument.name.clone(),
             mode,
@@ -2746,16 +3198,16 @@ fn lower_gate_condition(
             at,
         } => {
             let operand = lower_gate_condition(operand, parent, source_name, ids)?;
-            if operator != "!" || operand.value_type != BhcpType::Primitive("Bool") {
+            let Some(value_type) = closed_unary_result_type(operator, &operand.value_type) else {
                 return Err(error(
                     "BHCP2003",
                     "gate unary condition must preserve Bool",
                     source_name,
                     at,
                 ));
-            }
+            };
             (
-                BhcpType::Primitive("Bool"),
+                value_type,
                 ExpressionForm::Unary(operator.clone(), Box::new(operand)),
             )
         }
@@ -2767,24 +3219,18 @@ fn lower_gate_condition(
         } => {
             let left = lower_gate_condition(left, parent, source_name, ids)?;
             let right = lower_gate_condition(right, parent, source_name, ids)?;
-            let valid = match operator.as_str() {
-                "==" | "!=" => left.value_type == right.value_type,
-                "&&" | "||" => {
-                    left.value_type == BhcpType::Primitive("Bool")
-                        && right.value_type == BhcpType::Primitive("Bool")
-                }
-                _ => false,
-            };
-            if !valid {
+            let value_type =
+                closed_binary_result_type(operator, &left.value_type, &right.value_type);
+            let Some(value_type) = value_type else {
                 return Err(error(
                     "BHCP2003",
                     "gate binary condition is not total and consistently typed",
                     source_name,
                     at,
                 ));
-            }
+            };
             (
-                BhcpType::Primitive("Bool"),
+                value_type,
                 ExpressionForm::Binary(operator.clone(), Box::new(left), Box::new(right)),
             )
         }
@@ -3323,6 +3769,11 @@ fn lower_reducer_expression(
                         && gate_type_matches(observations_type, output_type) =>
                 {
                     output_type.as_ref().clone()
+                }
+                "bhcp/kernel.unobserved-unit@0"
+                    if argument_types == [observations_type.clone()] =>
+                {
+                    BhcpType::Primitive("Unit")
                 }
                 "bhcp/kernel.unit@0" if argument_types.is_empty() => BhcpType::Primitive("Unit"),
                 "bhcp/kernel.pending@0" if argument_types == [refs_type.clone()] => {

@@ -143,7 +143,10 @@ effective-rule index, accepted classes, minimum, and sorted source-layer provena
 their claims, items, gaps, and status remain in the ordinary evidence-bundle fields.
 This does not claim the still-deferred execution graph builder or full CDDL instance
 evaluation; deterministic obligation construction is the separate implemented
-analysis boundary described above.
+analysis boundary described above. Recursive child bounds are revalidated from the
+retained goal contracts and data edges and appear on deterministic open limit nodes;
+the versioned retention prelude lowers to ordinary state-read/candidate/CAS children,
+while persistent storage and state-graph execution remain deferred.
 
 Source and effective `policy-document` values also cross a strongly typed Rust
 boundary. It rejects unknown fields and invalid category/operation/value pairings,

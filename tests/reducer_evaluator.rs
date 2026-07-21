@@ -80,6 +80,7 @@ fn ir(
             tag: "only".to_owned(),
             goal: "goal-child".to_owned(),
             arguments: vec![],
+            recursion: None,
         }]
     } else {
         vec![]

@@ -1093,6 +1093,7 @@ pub struct SurfaceGoalArgument {
     pub name: String,
     pub mode: SurfaceArgumentMode,
     pub source: String,
+    pub value: SurfaceExpression,
     pub at: Point,
     pub ast: AstNode,
 }
@@ -3050,13 +3051,15 @@ impl Parser<'_> {
             {
                 if self.extended_composition_follows() {
                     let (composition, ast) = self.syntax_composition(true)?;
-                    validate_goal_uniqueness = true;
-                    self.ensure_unique_goal_items(&bindings, &labels, composition.at())?;
-                    unsupported.get_or_insert(SurfaceUnsupported {
-                        message: "nested composition is outside the implemented vertical slice"
-                            .to_owned(),
-                        at: composition.at().clone(),
-                    });
+                    if matches!(composition, SurfaceComposition::SyntaxOnly { .. }) {
+                        validate_goal_uniqueness = true;
+                        self.ensure_unique_goal_items(&bindings, &labels, composition.at())?;
+                        unsupported.get_or_insert(SurfaceUnsupported {
+                            message: "nested composition is outside the implemented vertical slice"
+                                .to_owned(),
+                            at: composition.at().clone(),
+                        });
+                    }
                     children.push(ast);
                     if body.is_none() {
                         body = Some(composition.clone());
@@ -3304,23 +3307,6 @@ impl Parser<'_> {
     fn extended_composition_follows(&self) -> bool {
         let mut cursor = self.cursor;
         let mut depth = 0usize;
-        let legacy_permits_arguments = match self.current().text.as_str() {
-            "§chain" | "§gate" => true,
-            "§compose" => {
-                let header_end = self.tokens[self.cursor..]
-                    .iter()
-                    .position(|token| token.text == "{")
-                    .map(|offset| self.cursor + offset);
-                header_end.is_some_and(|header_end| {
-                    self.tokens[self.cursor + 2..header_end]
-                        .iter()
-                        .map(|token| token.text.as_str())
-                        .collect::<String>()
-                        == "bhcp/prelude.chain-reducer@0"
-                })
-            }
-            _ => false,
-        };
         while let Some(token) = self.tokens.get(cursor) {
             if matches!(token.text.as_str(), "forall" | "exists") && depth == 0 {
                 return true;
@@ -3332,58 +3318,15 @@ impl Parser<'_> {
                     return false;
                 }
                 depth = depth.saturating_sub(1);
-            } else if (token.kind == TokenKind::Keyword && cursor != self.cursor)
-                || (depth > 0
-                    && token.text == "("
-                    && self
-                        .tokens
-                        .get(cursor + 1)
-                        .is_some_and(|next| next.text != ")")
-                    && (!legacy_permits_arguments || !self.legacy_goal_arguments_follow(cursor)))
+            } else if token.kind == TokenKind::Keyword
+                && token.text.starts_with('§')
+                && cursor != self.cursor
             {
                 return true;
             }
             cursor += 1;
         }
         false
-    }
-
-    fn legacy_goal_arguments_follow(&self, open: usize) -> bool {
-        let mut cursor = open + 1;
-        loop {
-            if self.tokens.get(cursor).is_none_or(|token| {
-                token.kind != TokenKind::Identifier || reserved_goal_binder(&token.text)
-            }) {
-                return false;
-            }
-            cursor += 1;
-            if self
-                .tokens
-                .get(cursor)
-                .is_none_or(|token| token.text != "=")
-            {
-                return false;
-            }
-            cursor += 1;
-            if self
-                .tokens
-                .get(cursor)
-                .is_some_and(|token| matches!(token.text.as_str(), "move" | "borrow" | "share"))
-            {
-                cursor += 1;
-            }
-            if self.tokens.get(cursor).is_none_or(|token| {
-                token.kind != TokenKind::Identifier || reserved_goal_binder(&token.text)
-            }) {
-                return false;
-            }
-            cursor += 1;
-            match self.tokens.get(cursor).map(|token| token.text.as_str()) {
-                Some(")") => return true,
-                Some(",") => cursor += 1,
-                _ => return false,
-            }
-        }
     }
 
     fn syntax_composition(&mut self, terminated: bool) -> Result<(SurfaceComposition, AstNode)> {
@@ -3416,6 +3359,7 @@ impl Parser<'_> {
         let mut branch_nodes = Vec::new();
         let mut branches = Vec::new();
         let mut tags = Vec::new();
+        let mut has_nested = false;
         while !self.matches("}") {
             let tag = self.goal_binder("branch tag")?;
             if tags.contains(&tag.text) {
@@ -3432,6 +3376,7 @@ impl Parser<'_> {
                 self.current().text.as_str(),
                 "§all" | "§any" | "§none" | "§chain" | "§gate" | "§compose"
             ) {
+                has_nested = true;
                 let (_, nested) = self.syntax_composition(false)?;
                 let end = self.expect(";")?.end;
                 branch_nodes.push(self.ast(
@@ -3482,12 +3427,13 @@ impl Parser<'_> {
             end = self.expect(";")?.end;
         }
         let mut attributes = Vec::new();
-        if let Some(reducer) = reducer {
-            attributes.push(("reducer".to_owned(), Value::Text(reducer)));
+        if let Some(reducer) = &reducer {
+            attributes.push(("reducer".to_owned(), Value::Text(reducer.clone())));
         }
-        if let Some(condition) = condition {
-            attributes.push(("condition".to_owned(), surface_expression_value(&condition)));
+        if let Some(condition) = &condition {
+            attributes.push(("condition".to_owned(), surface_expression_value(condition)));
         }
+        let has_quantifier = quantifier.is_some();
         if let Some((kind, binder, domain)) = quantifier {
             attributes.push((
                 "quantifier".to_owned(),
@@ -3506,13 +3452,45 @@ impl Parser<'_> {
             attributes,
             branch_nodes,
         );
-        Ok((
+        let composition = if has_quantifier || has_nested {
             SurfaceComposition::SyntaxOnly {
                 branches,
                 at: keyword.start,
-            },
-            ast,
-        ))
+            }
+        } else if let Some(reducer) = reducer {
+            SurfaceComposition::Compose {
+                reducer,
+                branches,
+                at: keyword.start,
+            }
+        } else if kind == "any" {
+            SurfaceComposition::DerivedAny {
+                branches,
+                at: keyword.start,
+            }
+        } else if kind == "none" {
+            SurfaceComposition::DerivedNone {
+                branches,
+                at: keyword.start,
+            }
+        } else if kind == "chain" {
+            SurfaceComposition::DerivedChain {
+                branches,
+                at: keyword.start,
+            }
+        } else if kind == "gate" {
+            SurfaceComposition::DerivedGate {
+                condition: condition.expect("gate parsed a condition"),
+                branches,
+                at: keyword.start,
+            }
+        } else {
+            SurfaceComposition::DerivedAll {
+                branches,
+                at: keyword.start,
+            }
+        };
+        Ok((composition, ast))
     }
 
     fn goal_call(&mut self) -> Result<(String, Vec<SurfaceGoalArgument>, Vec<AstNode>)> {
@@ -3568,6 +3546,7 @@ impl Parser<'_> {
                 name: name.text,
                 mode,
                 source,
+                value,
                 at: name.start,
                 ast: nodes.last().expect("argument AST was added").clone(),
             });
@@ -3627,9 +3606,6 @@ impl Parser<'_> {
         } else {
             None
         };
-        let permits_arguments = derived == "§chain"
-            || derived == "§gate"
-            || reducer.as_deref() == Some("bhcp/prelude.chain-reducer@0");
         self.expect("{")?;
         let mut branches = Vec::new();
         let mut tags = Vec::new();
@@ -3661,12 +3637,6 @@ impl Parser<'_> {
             }
             let (goal, _) = self.qualified_name()?;
             self.expect("(")?;
-            if !self.matches(")") && !permits_arguments {
-                return self.fail(
-                    "BHCP1004",
-                    "goal-call arguments are outside the implemented composition slice",
-                );
-            }
             let mut arguments = Vec::new();
             if !self.matches(")") {
                 loop {
@@ -3695,23 +3665,38 @@ impl Parser<'_> {
                     } else {
                         (SurfaceArgumentMode::Value, "value")
                     };
-                    let source = self.goal_binder("argument source")?;
+                    let value = self.expression(0)?;
+                    let source = match &value {
+                        SurfaceExpression::Reference { name, .. } => name.clone(),
+                        _ => "<expression>".to_owned(),
+                    };
+                    let argument_end = self.tokens[self.cursor.saturating_sub(1)].end.clone();
+                    let argument_attributes = if source == "<expression>" {
+                        vec![
+                            ("name".to_owned(), Value::Text(name.text.clone())),
+                            ("mode".to_owned(), Value::Text(mode_name.to_owned())),
+                            ("value".to_owned(), surface_expression_value(&value)),
+                        ]
+                    } else {
+                        vec![
+                            ("name".to_owned(), Value::Text(name.text.clone())),
+                            ("mode".to_owned(), Value::Text(mode_name.to_owned())),
+                            ("source".to_owned(), Value::Text(source.clone())),
+                        ]
+                    };
                     let argument_ast = self.ast(
                         "argument",
                         None,
                         name.start.clone(),
-                        source.end.clone(),
-                        vec![
-                            ("name".to_owned(), Value::Text(name.text.clone())),
-                            ("mode".to_owned(), Value::Text(mode_name.to_owned())),
-                            ("source".to_owned(), Value::Text(source.text.clone())),
-                        ],
+                        argument_end,
+                        argument_attributes,
                         vec![],
                     );
                     arguments.push(SurfaceGoalArgument {
                         name: name.text,
                         mode,
-                        source: source.text,
+                        source,
+                        value,
                         at: name.start,
                         ast: argument_ast,
                     });
@@ -3746,12 +3731,6 @@ impl Parser<'_> {
             });
         }
         self.consume();
-        if !permits_arguments && branches.iter().any(|branch| !branch.arguments.is_empty()) {
-            return self.fail(
-                "BHCP1004",
-                "goal-call arguments are outside the implemented composition slice",
-            );
-        }
         let end = self.expect(";")?.end;
         let ast = self.ast(
             if reducer.is_some() {

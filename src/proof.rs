@@ -7,7 +7,10 @@ use crate::diagnostic::{Diagnostic, Result};
 use crate::graph::{GraphDocument, GraphNode};
 use crate::hash::HashAlgorithm;
 use crate::kernel::{ChildObservation, ExecutionResult, KernelRuntime, Reduction, Verdict};
-use crate::model::{BhcpType, ClauseKind, ContentReference, GoalDefinition, VerifierBinding};
+use crate::model::{
+    BhcpType, ClauseKind, ContentReference, GoalDefinition, VerifierBinding,
+    evaluate_closed_expression,
+};
 use crate::obligation::{contract_target_map, validate_compilation, validate_obligation_graph};
 use crate::pipeline::Compilation;
 use crate::value::Value;
@@ -759,22 +762,32 @@ fn child_input(
 ) -> Result<Value> {
     let mut fields = Vec::new();
     for argument in &child.arguments {
-        let crate::model::ExpressionForm::Call(symbol, parameters) = &argument.value.form else {
-            return Err(invalid_input(
-                "child proof input is not a retained data edge",
-            ));
+        let value = evaluate_child_data_edge(network, &argument.value, parent, observations)?;
+        fields.push((argument.name.clone(), value));
+    }
+    Ok(Value::owned_map(fields))
+}
+
+fn evaluate_child_data_edge(
+    network: &crate::kernel::KernelNetwork,
+    expression: &crate::model::Expression,
+    parent: &Value,
+    observations: &[ChildObservation],
+) -> Result<Value> {
+    use crate::model::ExpressionForm;
+
+    evaluate_closed_expression(expression, &mut |symbol, parameters| {
+        let [parameter] = parameters else {
+            return Err("child proof data edge has invalid arity");
         };
-        let [parameter] = parameters.as_slice() else {
-            return Err(invalid_input("child proof data edge has invalid arity"));
+        let ExpressionForm::Literal(Value::Text(coordinate)) = &parameter.form else {
+            return Err("child proof data edge is not literal");
         };
-        let crate::model::ExpressionForm::Literal(Value::Text(coordinate)) = &parameter.form else {
-            return Err(invalid_input("child proof data edge is not literal"));
-        };
-        let value = match symbol.as_str() {
+        match symbol {
             "bhcp/kernel.parent-field@0" => parent
                 .get(coordinate)
                 .cloned()
-                .ok_or_else(|| invalid_input("parent proof input field is missing"))?,
+                .ok_or("parent proof input field is missing"),
             "bhcp/kernel.observed-output@0" => {
                 let predecessor = network
                     .children
@@ -784,21 +797,18 @@ fn child_input(
                 let observation = observations
                     .iter()
                     .find(|observation| observation.child == predecessor.id)
-                    .ok_or_else(|| invalid_input("proof data-edge observation is missing"))?;
+                    .ok_or("proof data-edge observation is missing")?;
                 let ExecutionResult::Completed(Verdict::Satisfied { output, .. }) =
                     &observation.result
                 else {
-                    return Err(invalid_input(
-                        "proof data-edge predecessor is not satisfied",
-                    ));
+                    return Err("proof data-edge predecessor is not satisfied");
                 };
-                output.clone()
+                Ok(output.clone())
             }
-            _ => return Err(invalid_input("child proof data-edge symbol is unsupported")),
-        };
-        fields.push((argument.name.clone(), value));
-    }
-    Ok(Value::owned_map(fields))
+            _ => Err("child proof data-edge symbol is unsupported"),
+        }
+    })
+    .map_err(invalid_input)
 }
 
 fn verifier_bindings<'a>(

@@ -190,15 +190,20 @@ fn empty_all_is_a_premise_free_satisfied_identity() {
 }
 
 #[test]
-fn unsupported_composition_features_have_stable_diagnostics() {
+fn unknown_reducers_fail_while_typed_composition_arguments_lower() {
     let unknown = "§goal example/G@0 { §compose using example/reducer@0 { }; }";
     let diagnostic = compile_source(unknown, "unknown-reducer.bhcp").unwrap_err();
     assert_eq!(diagnostic.code, "BHCP2004");
 
-    let arguments = "§goal example/Child@0 { §input value: Text; }\n\
-                     §goal example/Parent@0 { §all { child = example/Child@0(value = \"x\"); }; }";
-    let diagnostic = compile_source(arguments, "arguments.bhcp").unwrap_err();
-    assert_eq!(diagnostic.code, "BHCP1004");
+    let arguments = "§goal example/Child@0 { §input value: Text; §output echoed: Text; }\n\
+                     §goal example/Parent@0 { §output child: { echoed: Text }; \
+                     §all { child = example/Child@0(value = \"x\"); }; }";
+    let compiled = compile_source(arguments, "arguments.bhcp").unwrap();
+    let argument = &compiled.ir.goals[1].body.as_ref().unwrap().children[0].arguments[0];
+    assert_eq!(
+        argument.value.form,
+        bhcp::model::ExpressionForm::Literal(Value::Text("x".to_owned()))
+    );
 }
 
 #[test]

@@ -202,9 +202,9 @@ write borrows and moves are exclusive; a possible move poisons later use on that
 outcome; linear values must be consumed on every outcome. State retention rejects
 borrows and shared handles without an exact externally supplied persistent-share
 approval. Goal cases are analyzed from independent initial scopes. Rejection occurs
-before any semantic IR is constructed; source forms awaiting later effect,
-recursion, case-execution, or retention lowering may still fail at those later
-front-end boundaries after ownership succeeds.
+before any semantic IR is constructed; source forms awaiting finite-domain or
+case-execution lowering may still fail at those later front-end boundaries after
+ownership succeeds.
 
 ### S4.5 Language mental model
 
@@ -700,7 +700,10 @@ semantic hashing. A verifier-backed or runtime-only domain is rejected as
 composition input; bounded or well-founded recursive goals express traversal of a
 runtime collection without adding a dynamic-family kernel primitive. A recursive
 child reference MUST carry its own static bound or checker-accepted well-founded
-decreasing measure. Unbounded recursion is rejected.
+decreasing measure. For an Integer subtraction measure, retained requirements and
+an applicable gate guard MUST prove that the child measure remains non-negative;
+merely proving that the parent is positive is insufficient for a larger step.
+Unbounded recursion is rejected.
 
 ### S8.2 Semantic self-hosting
 
@@ -840,6 +843,22 @@ stale-evidence reason unless policy requires an operational fault. Concurrent wr
 serialize or use compare-and-swap over the prior state ID; lost updates are
 forbidden. Storage captures an owned value or a policy-approved persistent share and
 MUST NOT retain an expired borrow.
+
+**Implementation status:** direct recursive child calls require a positive retained
+static bound or a checker-accepted decreasing non-negative Integer measure. The
+checker proves the subtraction step fits a retained lower bound from requirements
+or a direct Unit-output recursive gate guard. The gate's closed base branch accepts
+no observation for the unselected recursive child. That evidence is attached to the
+exact child, revalidated with received semantic IR, and
+materialized as a deterministic open limit node in the obligation graph. The
+versioned standard-prelude retention lowerer and reducer operate only over ordinary
+state-read, candidate, and compare-and-swap child goals; only a satisfied candidate
+can request compare-and-swap. Predecessor outputs containing an owned, borrowed, or
+shared handle are rejected recursively at source lowering and received-IR validation;
+the implemented slice therefore cannot copy an owned aggregate or infer persistent
+share authority from an edge mode. Handle-consuming moves and exact policy-approved
+persistent shares, persistent cells, competing-writer execution, storage, and runtime
+retry enforcement remain assigned to the state/CAS runtime boundary.
 
 Schema anchors: `meta-type`, `derived-form-shape`, `network-shape`,
 `kernel-network`, `child-observation`, `reduction`, `derivation`,
