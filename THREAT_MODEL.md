@@ -48,6 +48,11 @@ authority must validate before they affect meaning.
 - **partial acceptance:** an attacker mixes valid and invalid targets so a validator
   silently applies the valid subset. Validation and policy application are atomic;
   one invalid target produces no effective artifact.
+- **source-path confusion:** an attacker reorders inline governance, mixes it with a
+  separately supplied effective policy, leaves symbolic authorization or audit
+  references unresolved, or relies on an ambient clock. Inline policy order is
+  normalized, inline/external policy mixtures reject, materialized references are
+  required for application, and the caller injects one decision time before IR.
 
 ## Other implemented boundaries
 
@@ -84,7 +89,7 @@ The repository is not a complete v0 parser, graph analyzer, planner, runtime, pr
 system, or execution graph. Effect rows are conservative declarations, not proof that
 an implementation cannot perform undeclared host effects; runtime capability
 enforcement remains required. Complete obligation-graph construction, signature
-policy and key distribution, revocation services, durable clock attestation, full CDDL instance
-interpretation, and scoped waiver application are deferred implementation work. A
+policy and key distribution, revocation services, durable clock attestation, and full
+CDDL instance interpretation are deferred implementation work. A
 deployment must not treat a normative artifact shape or decision vector as proof
 that those runtime services already exist.

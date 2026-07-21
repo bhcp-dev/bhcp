@@ -177,9 +177,9 @@ retention-lowering stages land.
 | --- | --- | --- |
 | `§goal` / `§function` | Complete goal and general-function parsing/AST construction; parsed pure function bodies resolve deterministically, type-check, infer bounded generics, monomorphize, and materialize beside the checked executable goal/prelude-function slice; ownership/resource flow plus effect propagation, authority/prohibition ceilings, direct exact limits, and compatible preference groups are checked before IR emission | Source-expression grammar beyond the current parsed slice, finite-domain proof, case execution, recursion semantics, obligation/capability/state graphs, and planner allocation/retry decisions |
 | `§type` / `§predicate` / `§refines` | Complete parsing plus checked type/refinement lowering and parsed predicate elaboration: every v0 wire type normalizes, local generics enforce arity/bounds, total refinements retain candidate-bound evidence, and canonical predicate verifier interfaces/configuration materialize in semantic IR | Source-expression grammar beyond the current parsed slice and its complete source-to-IR audit |
-| `§policy` | Complete canonical source parsing for layer, `§extends`, six closed typed rules, scopes/parameters, waivability, and issuers; composition, inspection, policy-aware elaboration, and no-waiver conformance fixtures | Expression-valued policy clauses and enforcement beyond the compile-time/evidence boundary |
+| `§policy` | Complete canonical source parsing for layer, `§extends`, six closed typed rules, scopes/parameters, waivability, and issuers; inline and explicit composition, inspection, policy-aware elaboration, and governed semantic IR | Expression-valued policy clauses and enforcement beyond the compile-time/evidence boundary |
 | `§syntax` / `§profile` | Complete closed source-definition parsing into typed deterministic artifacts; fixed byte-level selection, exact one-parent resolution, monotonic attached overlays, resolved-profile inspection, span-aware custom-source compilation, and deterministic profile-aware formatting | Applying newly parsed definitions as source-local registry inputs remains the profile-lowering stage |
-| `§waiver` / `§extension` | Complete closed source-definition parsing for all six typed waiver changes, canonical scopes/targets, authority/time fields, and wire-compatible derived/native descriptors. Derived extensions execute one concrete total pure BHCP lowerer and disappear into checked core IR; explicitly registered native extensions retain an exact-schema, must-understand node, while unsupported or core-overriding extensions fail before IR. | Resolving symbolic waiver references and waiver application remain governed stages. Native support is closed to exact host registrations; planning and execution do not interpret unknown native payloads. |
+| `§waiver` / `§extension` | Complete closed source-definition parsing for all six typed waiver changes, canonical scopes/targets, authority/time fields, and wire-compatible derived/native descriptors. Fully materialized inline waivers apply through the exact waiver engine with an injected decision time. Derived extensions execute one concrete total pure BHCP lowerer and disappear into checked core IR; explicitly registered native extensions retain an exact-schema, must-understand node. | Resolving frozen symbolic waiver references remains governed. Native support is closed to exact host registrations; planning and execution do not interpret unknown native payloads. |
 | Other S7 definitions | None | `§use` declarations |
 
 The Phase 4 decision boundary admits only one-token keyword, punctuation, and symbol
@@ -638,6 +638,14 @@ multi-target application, deterministic identities/audit records, strong waiver-
 validation, and applied-waiver inspection. Partial product-scope subtraction that
 cannot be represented by the current v0 effective-rule shapes is rejected rather
 than approximated; broader execution-time enforcement remains later work.
+
+Executable canonical source may carry its policy and fully materialized waivers
+inline. The compiler orders and composes source policies, sorts waiver application
+deterministically, requires one explicitly injected decision time, and then uses the
+same policy-aware elaboration path as a separately supplied effective document.
+Source/CBOR parity covers all six weakening categories, exact scopes, delegated
+authority, interval edges, audit retention, and fail-closed unresolved or partially
+representable changes. Inline and separately supplied policies cannot be mixed.
 
 Policy composition fails atomically with an auditable diagnostic: `BHCP8101`
 capability widening, `BHCP8102` limit loosening, `BHCP8103` type-mode weakening,
