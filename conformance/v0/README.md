@@ -318,8 +318,15 @@ nested owned, borrowed, and shared predecessor payloads under value, move, borro
 or share labels until the state/CAS runtime can retain exact consumption and policy
 approval evidence; `received_ir_rejects_handle_bearing_retention_predecessors`
 revalidates the same fail-closed boundary on received semantic IR. Persistent storage
-and the STA runtime races remain assigned to the state runtime. Obligation construction
-is executable in `tests/obligation_graph.rs`.
+and the STA runtime races remain assigned to the state runtime.
+`tests/state_graph.rs` makes the analysis boundary executable: OWN resources,
+ownership/borrow/move edges and conflict invariants; RET read, prior-version,
+candidate/evidence, exact capability-decision, and CAS dependencies; and STA
+freshness/stale/policy-fault and same-version conflict coordinates all receive stable
+structural IDs. It rejects invalid ownership before graph construction, unguarded
+mutable transitions, dangling endpoints, identity drift, and recomputed-identity
+substitution or deletion. The graph performs no planning, retry, storage, or mutation.
+Obligation construction remains executable in `tests/obligation_graph.rs`.
 
 ## Policy, waivers, and extensions
 
