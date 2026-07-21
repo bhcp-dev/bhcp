@@ -501,7 +501,8 @@ fn inline_effective_policy(
         || (program.goals.is_empty()
             && program.types.is_empty()
             && program.functions.is_empty()
-            && program.predicates.is_empty())
+            && program.predicates.is_empty()
+            && program.extensions.is_empty())
     {
         return Ok(None);
     }

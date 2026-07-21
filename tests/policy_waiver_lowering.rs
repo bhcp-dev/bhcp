@@ -1,12 +1,16 @@
+use bhcp::extensions::ExtensionRegistry;
 use bhcp::hash::HashAlgorithm;
 use bhcp::inspection::render_artifact;
 use bhcp::model::ContentReference;
 use bhcp::parser::parse_canonical;
 use bhcp::pipeline::{
-    compile_source, compile_source_with_policy, compile_source_with_waiver_decision_time,
+    compile_source, compile_source_with_extension_registry,
+    compile_source_with_extension_registry_and_waiver_decision_time, compile_source_with_policy,
+    compile_source_with_waiver_decision_time,
 };
 use bhcp::policy::{apply_waiver, compose_policies};
 use bhcp::schema::validate_root;
+use bhcp::value::Value;
 
 const POLICY: &str = r#"
 §policy example/policy.org@0 {
@@ -95,6 +99,40 @@ const GOAL: &str = r#"
   §limit example/limit.attempts@0: attempts <= 4;
 }
 "#;
+
+const NATIVE_EXTENSION: &str = r#"
+§extension example/native@0 native {
+  payload_schema { media_type: "application/cbor", size: 1, digests: [{ algorithm: example/hash@0, digest: h'06' }] };
+  type_rule { media_type: "text/plain", size: 1, digests: [{ algorithm: example/hash@0, digest: h'07' }] };
+  effect_rule { media_type: "text/plain", size: 1, digests: [{ algorithm: example/hash@0, digest: h'08' }] };
+  policy_rule { media_type: "text/plain", size: 1, digests: [{ algorithm: example/hash@0, digest: h'09' }] };
+  normalization_rule { media_type: "text/plain", size: 1, digests: [{ algorithm: example/hash@0, digest: h'0a' }] };
+  evidence_rule { media_type: "text/plain", size: 1, digests: [{ algorithm: example/hash@0, digest: h'0b' }] };
+}
+"#;
+
+fn native_registry() -> ExtensionRegistry {
+    let payload_schema = Value::map([
+        ("media_type", Value::Text("application/cbor".to_owned())),
+        ("size", Value::Integer(1)),
+        (
+            "digests",
+            Value::Array(vec![Value::map([
+                ("algorithm", Value::Text("example/hash@0".to_owned())),
+                ("digest", Value::Bytes(vec![0x06])),
+            ])]),
+        ),
+    ]);
+    let mut registry = ExtensionRegistry::new();
+    registry
+        .register_native(
+            "example/native@0",
+            payload_schema,
+            Value::map([("enabled", Value::Bool(true))]),
+        )
+        .unwrap();
+    registry
+}
 
 fn governed_source() -> String {
     format!("{POLICY}\n{WAIVER}\n{GOAL}")
@@ -328,6 +366,45 @@ fn inline_policy_composes_with_derived_extension_lowering() {
         .expect("derived extension goal");
     assert!(goal.policy_decision.is_some());
     assert!(goal.body.is_some());
+}
+
+#[test]
+fn inline_policy_is_retained_for_native_extension_only_ir() {
+    let source = format!("{POLICY}\n{NATIVE_EXTENSION}");
+    let compiled =
+        compile_source_with_extension_registry(&source, "policy-native.bhcp", &native_registry())
+            .unwrap();
+
+    assert!(compiled.effective_policy.is_some());
+    assert!(compiled.ir.effective_policy.is_some());
+    assert_eq!(compiled.ir.extensions.len(), 1);
+}
+
+#[test]
+fn native_extension_only_ir_cannot_bypass_waiver_validation() {
+    let source = format!("{POLICY}\n{WAIVER}\n{NATIVE_EXTENSION}");
+    let missing_time = compile_source_with_extension_registry(
+        &source,
+        "native-missing-time.bhcp",
+        &native_registry(),
+    )
+    .unwrap_err();
+    assert_eq!(missing_time.code, "BHCP8301");
+    assert!(missing_time.message.contains("decision time"));
+
+    let unresolved = format!(
+        "{POLICY}\n{}\n{NATIVE_EXTENSION}",
+        include_str!("../conformance/v0/reference-program/waiver.bhcp")
+    );
+    let diagnostic = compile_source_with_extension_registry_and_waiver_decision_time(
+        &unresolved,
+        "native-unresolved-waiver.bhcp",
+        &native_registry(),
+        "2026-07-21T00:00:00Z",
+    )
+    .unwrap_err();
+    assert_eq!(diagnostic.code, "BHCP8301");
+    assert!(diagnostic.message.contains("unresolved symbolic"));
 }
 
 #[test]
