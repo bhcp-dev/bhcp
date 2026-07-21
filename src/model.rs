@@ -1212,6 +1212,19 @@ impl SemanticIrDocument {
             ));
         }
         validate_acyclic_definitions(&pure_dependencies)?;
+        let typed_resource_bindings: HashSet<_> = self
+            .goals
+            .iter()
+            .flat_map(|goal| &goal.clauses)
+            .filter_map(|clause| match &clause.kind {
+                ClauseKind::Fact { binding, .. }
+                    if is_effect_resource_type(&binding.value_type) =>
+                {
+                    Some(binding.id.as_str())
+                }
+                _ => None,
+            })
+            .collect();
         for goal in &self.goals {
             add_id(&goal.id, &mut ids)?;
             goals.insert(goal.id.clone());
@@ -1247,11 +1260,11 @@ impl SemanticIrDocument {
                 effect
                     .resource
                     .as_deref()
-                    .is_some_and(|resource| !local_resource_bindings.contains(resource))
+                    .is_some_and(|resource| !typed_resource_bindings.contains(resource))
             }) {
                 return Err(Diagnostic::plain(
                     "BHCP4001",
-                    "effect row resource must reference a local nominal resource or handle binding",
+                    "effect row resource must reference a nominal resource or handle binding",
                 ));
             }
             let contract_ids: HashSet<_> = goal

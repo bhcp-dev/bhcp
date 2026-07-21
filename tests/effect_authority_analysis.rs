@@ -227,6 +227,31 @@ fn retained_ir_rejects_non_resource_effect_coordinates() {
 }
 
 #[test]
+fn child_output_resource_effects_remain_valid_when_no_parent_coordinate_exists() {
+    let source = r#"
+§goal example/Create@0 {
+    §output repository: example/Repository@0;
+    §allows bhcp-effect/fs.write@0(repository);
+}
+§goal example/Parent@0 {
+    §output child: { repository: example/Repository@0 };
+    §all { child = example/Create@0(); };
+}
+"#;
+    let compiled = compile_source(source, "effects.bhcp").unwrap();
+    let child_resource = compiled.ir.goals[0].effects.effects[0]
+        .resource
+        .as_deref()
+        .unwrap();
+    let parent_resource = compiled.ir.goals[1].effects.effects[0]
+        .resource
+        .as_deref()
+        .unwrap();
+    assert_eq!(parent_resource, child_resource);
+    compiled.ir.validate().unwrap();
+}
+
+#[test]
 fn policy_resource_scopes_match_the_referenced_resource_type() {
     let source = r#"
 §goal example/G@0 {
