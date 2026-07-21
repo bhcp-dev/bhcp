@@ -154,6 +154,7 @@ pub fn verify_obligation_proof(request: ObligationProofRequest<'_>) -> Result<Pr
         request.evidence,
         request.obligation_graph,
         &closure,
+        &mut statuses,
     )?;
     validate_dependency_premises(
         derivation.premises.as_slice(),
@@ -1107,6 +1108,7 @@ fn validate_observation_statuses(
     evidence: &EvidenceBundle,
     graph: &GraphDocument,
     closure: &BTreeSet<String>,
+    statuses: &mut BTreeMap<String, CheckedStatus>,
 ) -> Result<()> {
     let discharge = closure
         .iter()
@@ -1121,17 +1123,25 @@ fn validate_observation_statuses(
             })
             .map(|id| id.as_str())
             .collect::<BTreeSet<_>>();
-        let dependencies = graph
-            .edges()
-            .iter()
-            .filter(|edge| {
-                edge.kind == "depends-on" && matching_discharges.contains(edge.from.as_str())
-            })
-            .map(|edge| edge.to.as_str())
-            .collect::<BTreeSet<_>>()
-            .into_iter()
-            .map(|dependency| instance_leaf_status(evidence, dependency, &observation.child))
-            .collect::<Result<Vec<_>>>()?;
+        let mut dependencies = Vec::new();
+        for discharge in &matching_discharges {
+            let discharge_dependencies = graph
+                .edges()
+                .iter()
+                .filter(|edge| edge.kind == "depends-on" && edge.from == *discharge)
+                .map(|edge| edge.to.as_str())
+                .collect::<BTreeSet<_>>()
+                .into_iter()
+                .map(|dependency| instance_leaf_status(evidence, dependency, &observation.child))
+                .collect::<Result<Vec<_>>>()?;
+            if !discharge_dependencies.is_empty() {
+                statuses.insert(
+                    (*discharge).to_owned(),
+                    aggregate_checked_statuses(&discharge_dependencies),
+                );
+            }
+            dependencies.extend(discharge_dependencies);
+        }
         if !result_matches_statuses(&observation.result, &dependencies) {
             return Err(invalid_proof(
                 "child observation does not match its aggregate obligation evidence",
@@ -1139,6 +1149,18 @@ fn validate_observation_statuses(
         }
     }
     Ok(())
+}
+
+fn aggregate_checked_statuses(statuses: &[CheckedStatus]) -> CheckedStatus {
+    if statuses.contains(&CheckedStatus::Refuted) {
+        CheckedStatus::Refuted
+    } else if statuses.contains(&CheckedStatus::Faulted) {
+        CheckedStatus::Faulted
+    } else if statuses.contains(&CheckedStatus::Unresolved) {
+        CheckedStatus::Unresolved
+    } else {
+        CheckedStatus::Discharged
+    }
 }
 
 fn instance_leaf_status(

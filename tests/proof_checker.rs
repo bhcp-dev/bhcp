@@ -747,6 +747,13 @@ fn repeated_goal_invocations_keep_distinct_evaluation_contexts() {
         "BHCP7302"
     );
 
+    let is_external = |claim_id: &str| {
+        bundle
+            .claims
+            .iter()
+            .find(|claim| claim.id == claim_id)
+            .is_some_and(|claim| claim.predicate == "example/verifier.audit@0")
+    };
     {
         let [first, second] = &mut observations;
         let (
@@ -760,33 +767,12 @@ fn repeated_goal_invocations_keep_distinct_evaluation_contexts() {
         else {
             unreachable!()
         };
-        let is_external = |claim_id: &str| {
-            bundle
-                .claims
-                .iter()
-                .find(|claim| claim.id == claim_id)
-                .is_some_and(|claim| claim.predicate == "example/verifier.audit@0")
-        };
-        {
-            let [first, second] = &mut observations;
-            let (
-                ExecutionResult::Completed(Verdict::Satisfied {
-                    evidence: first, ..
-                }),
-                ExecutionResult::Completed(Verdict::Satisfied {
-                    evidence: second, ..
-                }),
-            ) = (&mut first.result, &mut second.result)
-            else {
-                unreachable!()
-            };
-            std::mem::swap(first, second);
-            let first_external = first.iter().position(|claim| is_external(claim)).unwrap();
-            let second_external = second.iter().position(|claim| is_external(claim)).unwrap();
-            let token = first[first_external].clone();
-            first[first_external] = second[second_external].clone();
-            second[second_external] = token;
-        }
+        std::mem::swap(first, second);
+        let first_external = first.iter().position(|claim| is_external(claim)).unwrap();
+        let second_external = second.iter().position(|claim| is_external(claim)).unwrap();
+        let token = first[first_external].clone();
+        first[first_external] = second[second_external].clone();
+        second[second_external] = token;
     }
     let externally_swapped = KernelRuntime::new(&compilation.ir)
         .reduce("network-1", parent.clone(), &observations)
@@ -902,6 +888,21 @@ fn repeated_goal_instances_may_have_distinct_results() {
         })
         .unwrap();
         assert_eq!(checked.state, ProofState::Refuted);
+        for (child, expected) in [("child-1", "discharged"), ("child-2", "refuted")] {
+            let matching = graph
+                .nodes()
+                .iter()
+                .filter(|node| {
+                    node.kind == "discharge"
+                        && node.value().get("source_clauses")
+                            == Some(&Value::Array(vec![Value::Text(child.to_owned())]))
+                })
+                .collect::<Vec<_>>();
+            assert!(!matching.is_empty());
+            assert!(matching.iter().all(|node| {
+                checked.obligation_status.get(&node.id).map(String::as_str) == Some(expected)
+            }));
+        }
     }
 }
 
