@@ -743,7 +743,17 @@ obligation-node = {
         / "case" / "discharge",
   "clause": ref-id,
   "status": "open" / "discharged" / "refuted" / "unresolved",
-  ? "evidence": [* ref-id]
+  ? "evidence": [* ref-id],
+  ? "goals": [1* symbol-id],
+  ; Generated source IDs are audit links, not structural obligation identity.
+  ? "source_clauses": [1* ref-id],
+  ? "policy": policy-obligation-detail
+}
+policy-obligation-detail = {
+  "category": "requirement" / "evidence" / "limit",
+  "effective_rule": uint,
+  "value": requirement-policy-value / evidence-policy-value / limit-policy-value,
+  "sources": [1* policy-evidence-source]
 }
 obligation-graph-document = {
   document-header,

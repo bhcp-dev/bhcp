@@ -189,9 +189,10 @@ fn composed_policy_evidence_resolves_to_structural_targets_with_source_provenanc
     report.bundle.validate().unwrap();
     validate_root(&report.bundle.to_value(true), "evidence-bundle").unwrap();
     let inspected = render_artifact(&report.bundle.to_value(true), None);
-    assert!(inspected.contains(
-        "policy-obligation policy-evidence-1 example/obligation.audit@0 minimum 1 classes [static]"
-    ));
+    assert!(inspected.contains(&format!(
+        "policy-obligation {} example/obligation.audit@0 minimum 1 classes [static]",
+        audit.id
+    )));
     assert!(inspected.contains("policy-source team example/policy.team@0:a-audit"));
 }
 

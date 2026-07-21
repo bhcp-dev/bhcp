@@ -636,6 +636,35 @@ pub enum ClauseKind {
         binding: VerifierBinding,
         obligations: Vec<String>,
     },
+    Case {
+        inputs: BTreeMap<String, Value>,
+        expected: ExecutionPattern,
+    },
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum ExecutionPattern {
+    Completed(&'static str),
+    Faulted,
+}
+
+impl ExecutionPattern {
+    pub(crate) fn to_value(&self) -> Value {
+        match self {
+            Self::Completed(verdict) => Value::Array(vec![
+                Value::Text("completed".to_owned()),
+                Value::Text((*verdict).to_owned()),
+            ]),
+            Self::Faulted => Value::Array(vec![Value::Text("faulted".to_owned())]),
+        }
+    }
+
+    fn is_valid(&self) -> bool {
+        matches!(
+            self,
+            Self::Completed("satisfied" | "refuted" | "unresolved") | Self::Faulted
+        )
+    }
 }
 
 impl Clause {
@@ -687,6 +716,14 @@ impl Clause {
                         Value::Array(obligations.iter().cloned().map(Value::Text).collect()),
                     ));
                 }
+            }
+            ClauseKind::Case { inputs, expected } => {
+                entries.push(("kind".to_owned(), Value::Text("case".to_owned())));
+                entries.push((
+                    "inputs".to_owned(),
+                    Value::owned_map(inputs.clone().into_iter().collect()),
+                ));
+                entries.push(("expected".to_owned(), expected.to_value()));
             }
         }
         Value::owned_map(entries)
@@ -1465,6 +1502,18 @@ impl SemanticIrDocument {
                             ));
                         }
                         references.extend(obligations.iter().cloned());
+                    }
+                    ClauseKind::Case { inputs, expected } => {
+                        let case_input = Value::owned_map(inputs.clone().into_iter().collect());
+                        if inputs.keys().any(|name| name.is_empty())
+                            || !expected.is_valid()
+                            || !goal.input.accepts(&case_input)
+                        {
+                            return Err(Diagnostic::plain(
+                                "BHCP4001",
+                                "goal case has invalid typed inputs or execution pattern",
+                            ));
+                        }
                     }
                 }
             }

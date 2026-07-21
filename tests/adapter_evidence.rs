@@ -8,6 +8,7 @@ use bhcp::hash::HashAlgorithm;
 use bhcp::inspection::render_artifact;
 use bhcp::manifest::{VerifierAdapterDeclaration, WorkingScope};
 use bhcp::model::{ClauseKind, ContentReference};
+use bhcp::obligation::build_obligation_graph;
 use bhcp::pipeline::{Compilation, compile_source};
 use bhcp::schema::validate_root;
 use bhcp::value::Value;
@@ -144,14 +145,35 @@ fn verify(
 }
 
 fn process_targets(compilation: &Compilation) -> Vec<String> {
-    compilation.ir.goals[0]
+    let verifier_clause = compilation.ir.goals[0]
         .clauses
         .iter()
         .find_map(|clause| match &clause.kind {
-            ClauseKind::Verify { obligations, .. } => Some(obligations.clone()),
+            ClauseKind::Verify { .. } => Some(&clause.id),
             _ => None,
         })
-        .unwrap()
+        .unwrap();
+    let graph = build_obligation_graph(compilation).unwrap();
+    let verifier = graph
+        .nodes()
+        .iter()
+        .find(|node| {
+            node.kind == "verification"
+                && matches!(
+                    node.value().get("source_clauses"),
+                    Some(Value::Array(sources))
+                        if sources.contains(&Value::Text(verifier_clause.clone()))
+                )
+        })
+        .unwrap();
+    let mut targets = graph
+        .edges()
+        .iter()
+        .filter(|edge| edge.kind == "verifies" && edge.from == verifier.id)
+        .map(|edge| edge.to.clone())
+        .collect::<Vec<_>>();
+    targets.sort();
+    targets
 }
 
 #[test]

@@ -1281,8 +1281,12 @@ Schema anchors: all `*-graph-document`, `planner-request-document`,
 Implementation status: the executable foundation has one shared typed wire model for
 obligation, capability, state, execution, and evidence graphs. It validates closed
 schema shapes and reference integrity, normalizes semantic sets, rejects forbidden
-cycles, and exposes graph inspection. Construction of those graphs remains assigned to
-the later graph builders and planner/runtime stages.
+cycles, and exposes graph inspection. The obligation builder now deterministically
+lowers contract clauses, retained cases, verifier targeting, parent/child discharge
+dependencies, and effective-policy requirement/evidence/limit rules. Its structural
+IDs exclude generated clause IDs and labels; exact policy source provenance remains
+artifact-only audit data; every initial status is open. Capability/state construction,
+planning, runtime execution, and complete proof checking remain later stages.
 
 ## S11. Wire encoding, normalization, and identity
 

@@ -14,6 +14,7 @@ pub mod inspection;
 pub mod kernel;
 pub mod manifest;
 pub mod model;
+pub mod obligation;
 pub mod ownership;
 pub mod parser;
 pub mod pipeline;

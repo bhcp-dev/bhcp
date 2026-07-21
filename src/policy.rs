@@ -146,7 +146,7 @@ impl PolicyLayer {
         }
     }
 
-    fn as_str(self) -> &'static str {
+    pub(crate) fn as_str(self) -> &'static str {
         match self {
             Self::Organization => "organization",
             Self::Team => "team",
@@ -274,7 +274,7 @@ impl PolicyCategory {
         }
     }
 
-    fn as_str(self) -> &'static str {
+    pub(crate) fn as_str(self) -> &'static str {
         match self {
             Self::Requirement => "requirement",
             Self::Evidence => "evidence",
@@ -345,7 +345,7 @@ impl PolicyScope {
         })
     }
 
-    fn to_value(&self) -> Value {
+    pub(crate) fn to_value(&self) -> Value {
         let mut entries = Vec::new();
         for (key, values) in [
             ("goals", &self.goals),
@@ -496,7 +496,7 @@ impl RequirementPolicyValue {
         })
     }
 
-    fn to_value(&self) -> Value {
+    pub(crate) fn to_value(&self) -> Value {
         let mut entries = vec![("requirement".to_owned(), text(&self.requirement))];
         push_scope_and_parameters(&mut entries, &self.scope, &self.parameters);
         Value::owned_map(entries)
@@ -538,7 +538,7 @@ impl EvidencePolicyValue {
         })
     }
 
-    fn to_value(&self) -> Value {
+    pub(crate) fn to_value(&self) -> Value {
         let mut entries = vec![
             ("obligation".to_owned(), text(&self.obligation)),
             (
@@ -618,7 +618,7 @@ impl LimitPolicyValue {
         })
     }
 
-    fn to_value(&self) -> Value {
+    pub(crate) fn to_value(&self) -> Value {
         let mut entries = vec![
             ("dimension".to_owned(), text(&self.dimension)),
             ("unit".to_owned(), text(&self.unit)),
@@ -647,6 +647,15 @@ impl LimitPolicyValue {
             scope.validate()?;
         }
         Ok(())
+    }
+}
+
+pub(crate) fn validate_obligation_value(category: &str, value: &Value) -> Result<()> {
+    match category {
+        "requirement" => RequirementPolicyValue::from_value(value)?.validate(),
+        "evidence" => EvidencePolicyValue::from_value(value)?.validate(),
+        "limit" => LimitPolicyValue::from_value(value)?.validate(),
+        _ => Err(invalid("invalid policy obligation category")),
     }
 }
 

@@ -268,7 +268,7 @@ fn obligation_node_fields(value: &Value) -> Result<()> {
     validate_map_fields(
         value,
         &["id", "kind", "clause", "status"],
-        &["evidence"],
+        &["evidence", "goals", "source_clauses", "policy"],
         "obligation node",
     )?;
     required_ref(value, "id")?;
@@ -293,7 +293,61 @@ fn obligation_node_fields(value: &Value) -> Result<()> {
         &["open", "discharged", "refuted", "unresolved"],
         "obligation node",
     )?;
-    validate_optional_ref_array(value, "evidence", "obligation node")
+    validate_optional_ref_array(value, "evidence", "obligation node")?;
+    validate_nonempty_symbol_array(value, "goals", "obligation node")?;
+    validate_optional_nonempty_ref_array(value, "source_clauses", "obligation node")?;
+    if let Some(policy) = value.get("policy") {
+        validate_policy_obligation(policy, text_field(value, "kind").unwrap())?;
+    }
+    Ok(())
+}
+
+fn validate_policy_obligation(value: &Value, node_kind: &str) -> Result<()> {
+    validate_map_fields(
+        value,
+        &["category", "effective_rule", "value", "sources"],
+        &[],
+        "policy obligation",
+    )?;
+    let category = text_field(value, "category")
+        .ok_or_else(|| invalid_schema("policy obligation category must be text"))?;
+    let expected_kind = match category {
+        "requirement" => "requirement",
+        "evidence" => "verification",
+        "limit" => "limit",
+        _ => return Err(invalid_schema("invalid policy obligation category")),
+    };
+    if node_kind != expected_kind {
+        return Err(invalid_schema(
+            "policy obligation category does not match its node kind",
+        ));
+    }
+    require_unsigned(value, "effective_rule", "policy obligation")?;
+    crate::policy::validate_obligation_value(category, value.get("value").unwrap())
+        .map_err(|error| invalid_schema(error.message))?;
+    let sources = require_array(value, "sources", "policy obligation")?;
+    if sources.is_empty() {
+        return Err(invalid_schema(
+            "policy obligation sources must be non-empty",
+        ));
+    }
+    for source in sources {
+        validate_map_fields(
+            source,
+            &["layer", "policy", "rule"],
+            &[],
+            "policy obligation source",
+        )?;
+        require_one_of(
+            source,
+            "layer",
+            &["organization", "team", "repository", "user"],
+            "policy obligation source",
+        )?;
+        require_symbol(source, "policy", "policy obligation source")?;
+        required_ref(source, "rule")?;
+    }
+    Ok(())
 }
 
 fn capability_node_fields(value: &Value) -> Result<()> {
@@ -1327,6 +1381,44 @@ fn validate_optional_ref_array(value: &Value, field: &str, context: &str) -> Res
     }
 }
 
+fn validate_optional_nonempty_ref_array(value: &Value, field: &str, context: &str) -> Result<()> {
+    if value.get(field).is_some() {
+        validate_nonempty_ref_array(value, field, context)
+    } else {
+        Ok(())
+    }
+}
+
+fn validate_nonempty_symbol_array(value: &Value, field: &str, context: &str) -> Result<()> {
+    let Some(Value::Array(symbols)) = value.get(field) else {
+        return if value.get(field).is_none() {
+            Ok(())
+        } else {
+            Err(invalid_schema(format!(
+                "{context} {field} must be an array"
+            )))
+        };
+    };
+    if symbols.is_empty() {
+        return Err(invalid_schema(format!(
+            "{context} {field} must be non-empty"
+        )));
+    }
+    for symbol in symbols {
+        let Value::Text(symbol) = symbol else {
+            return Err(invalid_schema(format!(
+                "{context} {field} must contain symbol IDs"
+            )));
+        };
+        if !crate::model::is_symbol(symbol) {
+            return Err(invalid_schema(format!(
+                "{context} {field} must contain symbol IDs"
+            )));
+        }
+    }
+    Ok(())
+}
+
 fn validate_timestamp(value: &Value, context: &str) -> Result<()> {
     if matches!(value, Value::Tag(0, inner) if matches!(inner.as_ref(), Value::Text(_))) {
         Ok(())
@@ -1423,6 +1515,19 @@ fn normalize_document(value: &mut Value, kind: GraphKind) -> Result<()> {
         GraphKind::Obligation => {
             for node in array_field_mut(value, "nodes")? {
                 sort_optional_set_field(node, "evidence")?;
+                sort_optional_set_field(node, "goals")?;
+                sort_optional_set_field(node, "source_clauses")?;
+                if let Some(policy) = map_field_mut(node, "policy") {
+                    sort_set_field(policy, "sources")?;
+                    if let Some(policy_value) = map_field_mut(policy, "value") {
+                        sort_optional_set_field(policy_value, "classes")?;
+                        if let Some(scope) = map_field_mut(policy_value, "scope") {
+                            for field in ["goals", "resources", "operations"] {
+                                sort_optional_set_field(scope, field)?;
+                            }
+                        }
+                    }
+                }
             }
             sort_set_field(value, "nodes")?;
             sort_set_field(value, "edges")
@@ -2053,7 +2158,17 @@ fn semantic_projection(value: &Value, kind: GraphKind) -> Value {
 
     project_content_reference_field(&mut value, "semantic_ir");
     match kind {
-        GraphKind::Obligation | GraphKind::Capability | GraphKind::Execution => {}
+        GraphKind::Obligation => {
+            if let Some(Value::Array(nodes)) = map_field_mut(&mut value, "nodes") {
+                for node in nodes {
+                    remove_field(node, "source_clauses");
+                    if let Some(policy) = map_field_mut(node, "policy") {
+                        remove_field(policy, "sources");
+                    }
+                }
+            }
+        }
+        GraphKind::Capability | GraphKind::Execution => {}
         GraphKind::State => {
             if let Some(Value::Array(nodes)) = map_field_mut(&mut value, "nodes") {
                 for node in nodes {
