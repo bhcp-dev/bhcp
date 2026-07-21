@@ -148,6 +148,12 @@ impl ProjectManifest {
     pub fn discover_with_root(source_path: &Path) -> Result<(Self, PathBuf)> {
         let mut directory = source_path.parent();
         while let Some(candidate_directory) = directory {
+            let parent = candidate_directory.parent();
+            let candidate_directory = if candidate_directory.as_os_str().is_empty() {
+                Path::new(".")
+            } else {
+                candidate_directory
+            };
             let candidate = candidate_directory.join(FILE_NAME);
             if candidate.is_file() {
                 let source = fs::read_to_string(&candidate).map_err(|read_error| {
@@ -159,9 +165,12 @@ impl ProjectManifest {
                 })?;
                 return Ok((manifest, root));
             }
-            directory = candidate_directory.parent();
+            directory = parent;
         }
-        let parent = source_path.parent().unwrap_or_else(|| Path::new("."));
+        let parent = source_path
+            .parent()
+            .filter(|parent| !parent.as_os_str().is_empty())
+            .unwrap_or_else(|| Path::new("."));
         let root = fs::canonicalize(parent).map_err(|read_error| {
             error(
                 read_error.to_string(),

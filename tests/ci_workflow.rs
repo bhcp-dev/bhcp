@@ -32,6 +32,16 @@ fn cargo_manifest() -> String {
     fs::read_to_string(path).expect("the Cargo manifest must exist")
 }
 
+fn readme() -> String {
+    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("README.md");
+    fs::read_to_string(path).expect("the public README must exist")
+}
+
+fn license() -> String {
+    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("LICENSE");
+    fs::read_to_string(path).expect("the public license must exist")
+}
+
 fn integration_targets() -> Vec<String> {
     let tests = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests");
     let mut targets = fs::read_dir(tests)
@@ -204,4 +214,21 @@ fn pinned_rust_toolchain_includes_quality_gate_components() {
     let config = mise_config();
     assert!(config.contains("version = \"1.97.1\""));
     assert!(config.contains("components = [\"clippy\", \"rustfmt\"]"));
+}
+
+#[test]
+fn public_install_path_is_reproducible_and_license_metadata_agrees() {
+    assert!(
+        readme().contains("mise trust\nmise install"),
+        "the fresh-clone instructions omit mise trust"
+    );
+    assert!(
+        readme().contains("./bhcp hash canonical-simple-presentation.bhcp"),
+        "the judge quickstart omits the presentation-equivalence trial"
+    );
+    assert!(license().starts_with("MIT License\n"));
+    assert!(
+        cargo_manifest().contains("license = \"MIT\""),
+        "Cargo metadata contradicts the checked-in MIT license"
+    );
 }
