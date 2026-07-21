@@ -154,8 +154,8 @@ integer domain, exact numeric components, machine overflow, and unchanged float 
 It also exercises all wire type forms,
 generic arity/bounds, goal variance, canonical normalization, stable `BHCP4101`–
 `BHCP4106` failures, semantic-IR schema validation, and type-sensitive identity.
-The later expression, ownership, effect, and runtime issues consume this checked
-model; this evidence does not claim those downstream stages are complete.
+The expression and ownership stages now consume this checked model; later effect and
+runtime issues remain incomplete.
 
 | ID | Scenario | Expected result |
 | --- | --- | --- |
@@ -177,6 +177,15 @@ model; this evidence does not claim those downstream stages are complete.
 | EFF-01 | A pure goal calls an effectful child. | Effect propagates or the call is rejected; it is never hidden. |
 | EFF-02 | Unsafe/foreign execution is allowed by policy. | Capability is visible and an evidence gap is emitted. |
 | EFF-03 | A child allowance exceeds a parent prohibition. | Denied; parent ceiling and deny-wins are preserved. |
+
+`tests/ownership_analysis.rs` makes OWN-01 through OWN-04 executable against
+`own-01-read-overlap.bhcp` through `own-04-expired-retention.bhcp`. The same suite
+covers all four argument modes, exact lifetime crossings (including shares), nested
+branch joins without confusing sequential chain steps for overlap, recursive
+transfer, affine and linear obligations, variant-backed handles, independent case
+scopes, exact persistent-share approvals through nested initializer expressions,
+pre-IR rejection, fully qualified handle types in semantic IR, and canonical handle
+reference envelopes at the executable boundary.
 
 `tests/expression_calculus.rs` makes EXP-01 and EXP-02 executable at the closed wire
 calculus boundary. Its tables cover every expression constructor and pattern form,

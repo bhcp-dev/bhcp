@@ -124,8 +124,9 @@ canonical forms and exact numeric representations normalize without host-float
 conversion; generic bounds, nominal/structural subtyping, refinements with explicit
 candidate-bound evidence, recursive checked `Dynamic` crossings, and goal variance
 are enforced; exact integers cover deterministic CBOR's complete integer domain;
-and authored type definitions enter deterministic semantic IR. Expression/function/predicate,
-ownership, and effect analysis remain distinct roadmap stages. The implemented
+and authored type definitions enter deterministic semantic IR. The parsed
+function/predicate slice and ownership/resource analysis now fail closed before IR;
+complete source-expression and effect analysis remain distinct roadmap stages. The implemented
 waiver path validates and applies exact typed
 targets and changes across all six categories, scope containment, direct/delegated
 issuer authority, injected half-open time validity, audit material, atomic rejection,

@@ -193,6 +193,19 @@ Omitted source qualifiers elaborate deterministically: `owned` means
 `shared read unrestricted`; a borrowed handle MUST state `read` or `write`; and an
 omitted usage mode is `unrestricted`. Semantic IR always carries every qualifier.
 
+**Implementation status:** the Rust front end runs a closed ownership pass before
+semantic IR emission. It materializes handle qualifiers, checks explicit
+`value`/`move`/`borrow`/`share` crossings, overlapping concurrency candidates,
+nested composition joins, recursive calls, affine/linear consumption, and exact
+lifetimes with stable `BHCP4401`–`BHCP4405` diagnostics. Read borrows may overlap;
+write borrows and moves are exclusive; a possible move poisons later use on that
+outcome; linear values must be consumed on every outcome. State retention rejects
+borrows and shared handles without an exact externally supplied persistent-share
+approval. Goal cases are analyzed from independent initial scopes. Rejection occurs
+before any semantic IR is constructed; source forms awaiting later effect,
+recursion, case-execution, or retention lowering may still fail at those later
+front-end boundaries after ownership succeeds.
+
 ### S4.5 Language mental model
 
 | Familiar concept | Core lowering |

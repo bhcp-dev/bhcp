@@ -61,6 +61,15 @@ authority must validate before they affect meaning.
   descriptor authority. Missing enforcement fails before launch.
 - Reducer conclusions are re-evaluated by the generic checker against sealed child
   observations and typed outputs. Behavior-specific proof tags are not trusted.
+- Ownership transfer is checked before semantic IR. An attacker cannot disguise an
+  owned copy as `value`, move a shared or borrowed handle, grant write through a read
+  handle, reuse a possibly moved binding after a branch join, or schedule an
+  exclusive access beside another candidate. Diagnostics bind the resource,
+  lifetime, branches, and both source locations.
+- Persistent state cannot capture a borrow. A shared capture requires an exact
+  goal/binding/lifetime approval supplied to the ownership boundary; naming a
+  lifetime `persistent` does not create authority. Invalid ownership is atomic and
+  produces no later artifact.
 
 ## Residual and deferred risks
 
