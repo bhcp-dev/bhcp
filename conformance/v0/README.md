@@ -108,7 +108,7 @@ unrestricted-macro/grammar-plugin non-goals consistent across public documentati
 
 The registered verifier slice additionally executes EVD-01 through EVD-06, including
 capability-bounded project adapters and their deterministic evidence mapping. The
-obligation builder constructs normalized contract, retained-case, verifier,
+deterministic obligation builder constructs normalized contract, retained-case, verifier,
 parent/child, and effective-policy nodes with exact audit provenance and open initial
 status. `tests/proof_checker.rs` composes those EVD boundaries with KRN-03, KRN-08,
 and the existing KRN-02/06/09/10/13 kernel evidence: it checks exact reducer,
@@ -116,6 +116,11 @@ observation, dependency, candidate, payload, producer, policy-minimum, and four-
 bindings, including generic counter-evidence premises for `none`. Freshness windows,
 signatures, execution graphs, and final evidence-graph assembly remain unclaimed;
 full proof coverage remains unclaimed at the v0 runtime boundary.
+
+The capability graph builder separately constructs exact effect requests, resources,
+grants, denials, gaps, waiver audit, and final decisions. These two supported builders
+do not claim state/execution graph construction, planning, runtime enforcement, or
+final evidence-graph assembly.
 
 The manifest at `policy/manifest.txt` makes the complete no-waiver POL-01 through
 POL-08 slice executable. Its canonical sources cover organization, team, repository,

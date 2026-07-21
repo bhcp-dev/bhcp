@@ -2,7 +2,9 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 
+use bhcp::capability::build_capability_graph;
 use bhcp::cbor::{decode_deterministic, encode_deterministic};
+use bhcp::obligation::build_obligation_graph;
 use bhcp::pipeline::compile_source;
 use bhcp::prelude::{ALL_FEATURE, ANY_FEATURE, CHAIN_FEATURE, GATE_FEATURE, NONE_FEATURE};
 use bhcp::schema::{parse_diagnostic, validate_root};
@@ -104,7 +106,7 @@ fn complete_goal_algebra_regenerates_and_round_trips_deterministically() {
 }
 
 #[test]
-fn feature_manifest_distinguishes_complete_algebra_from_deferred_graphs() {
+fn feature_manifest_negotiates_completed_graph_builders_and_bounded_non_goals() {
     let value = parse_diagnostic(&read(
         root().join("schemas/v0/examples/feature-manifest.diag"),
     ))
@@ -114,16 +116,25 @@ fn feature_manifest_distinguishes_complete_algebra_from_deferred_graphs() {
     let Value::Array(entries) = value.get("features_supported").unwrap() else {
         panic!("features_supported must be an array")
     };
-    let mut levels = BTreeMap::new();
+    let mut support = BTreeMap::new();
     for entry in entries {
         let (Some(Value::Text(feature)), Some(Value::Text(level))) =
             (entry.get("feature"), entry.get("level"))
         else {
             panic!("feature support entry must name text feature and level")
         };
-        assert!(levels.insert(feature.as_str(), level.as_str()).is_none());
+        let notes = match entry.get("notes") {
+            Some(Value::Text(notes)) => Some(notes.as_str()),
+            None => None,
+            _ => panic!("feature support notes must be text"),
+        };
+        assert!(
+            support
+                .insert(feature.as_str(), (level.as_str(), notes))
+                .is_none()
+        );
     }
-    assert_eq!(levels.remove("bhcp/core@0"), Some("required"));
+    assert_eq!(support.remove("bhcp/core@0"), Some(("required", None)));
     for feature in [
         ALL_FEATURE,
         ANY_FEATURE,
@@ -132,19 +143,39 @@ fn feature_manifest_distinguishes_complete_algebra_from_deferred_graphs() {
         GATE_FEATURE,
         "bhcp/feature.extension-resolution@0",
     ] {
-        assert_eq!(levels.remove(feature), Some("supported"), "{feature}");
+        assert_eq!(
+            support.remove(feature).map(|(level, _)| level),
+            Some("supported"),
+            "{feature}"
+        );
     }
     assert_eq!(
-        levels.remove("bhcp/feature.complete-obligation-graph@0"),
-        Some("unsupported")
+        support.remove("bhcp/feature.obligation-graph-builder@0"),
+        Some((
+            "supported",
+            Some(
+                "Structural construction is supported; execution-time discharge remains separate."
+            )
+        ))
     );
     assert_eq!(
-        levels.remove("bhcp/feature.shared-typed-graph-model@0"),
+        support.remove("bhcp/feature.capability-graph-builder@0"),
+        Some((
+            "supported",
+            Some(
+                "Decision construction is supported; planning and runtime enforcement remain separate."
+            )
+        ))
+    );
+    assert_eq!(
+        support
+            .remove("bhcp/feature.shared-typed-graph-model@0")
+            .map(|(level, _)| level),
         Some("supported")
     );
     assert!(
-        levels.is_empty(),
-        "unclassified feature support entries: {levels:?}"
+        support.is_empty(),
+        "unclassified feature support entries: {support:?}"
     );
 
     let Some(Value::Array(document_entries)) = value.get("documents") else {
@@ -172,6 +203,88 @@ fn feature_manifest_distinguishes_complete_algebra_from_deferred_graphs() {
         .collect()
     );
     assert_eq!(value.get("native_extensions"), Some(&Value::Array(vec![])));
+}
+
+#[test]
+fn manifest_supports_every_feature_emitted_by_completed_graph_builders() {
+    let repository = root();
+    let source_path = repository.join("conformance/v0/fixtures/canonical-simple.bhcp");
+    let compilation = compile_source(&read(&source_path), source_path.to_str().unwrap()).unwrap();
+    let graphs = [
+        build_obligation_graph(&compilation).unwrap(),
+        build_capability_graph(&compilation).unwrap(),
+    ];
+
+    let manifest = parse_diagnostic(&read(
+        repository.join("schemas/v0/examples/feature-manifest.diag"),
+    ))
+    .unwrap();
+    let Value::Array(entries) = manifest.get("features_supported").unwrap() else {
+        panic!("features_supported must be an array")
+    };
+    let support = entries
+        .iter()
+        .map(|entry| {
+            let (Some(Value::Text(feature)), Some(Value::Text(level))) =
+                (entry.get("feature"), entry.get("level"))
+            else {
+                panic!("feature support entry must name text feature and level")
+            };
+            (feature.as_str(), level.as_str())
+        })
+        .collect::<BTreeMap<_, _>>();
+
+    for graph in graphs {
+        let value = graph.to_value();
+        let Some(Value::Array(features)) = value.get("features") else {
+            panic!("graph header must contain a feature array")
+        };
+        for feature in features {
+            let Value::Text(feature) = feature else {
+                panic!("graph features must be text")
+            };
+            assert_eq!(
+                support.get(feature.as_str()),
+                Some(&"supported"),
+                "emitted graph feature is not negotiable: {feature}"
+            );
+        }
+    }
+}
+
+#[test]
+fn graph_builder_completion_claims_stay_bounded_and_consistent() {
+    let repository = root();
+    let readme = read(repository.join("README.md"));
+    let semantics = read(repository.join("SEMANTICS.md"));
+    let threat_model = read(repository.join("THREAT_MODEL.md"));
+    let schema_readme = read(repository.join("schemas/v0/README.md"));
+    let conformance = read(repository.join("conformance/v0/README.md"));
+
+    for (name, document) in [
+        ("README", readme.as_str()),
+        ("SEMANTICS", semantics.as_str()),
+        ("threat model", threat_model.as_str()),
+        ("schema README", schema_readme.as_str()),
+        ("conformance", conformance.as_str()),
+    ] {
+        let normalized = document.to_lowercase();
+        assert!(
+            normalized.contains("deterministic obligation")
+                && normalized.contains("capability graph"),
+            "{name} does not describe both completed graph-builder boundaries"
+        );
+        assert!(
+            normalized.contains("planning") && normalized.contains("runtime"),
+            "{name} omits the bounded planning/runtime non-goals"
+        );
+    }
+
+    assert!(!readme.contains("does not yet build obligation"));
+    assert!(!schema_readme.contains("obligation-graph construction unsupported"));
+    assert!(!schema_readme.contains("still-deferred general obligation/execution graph builders"));
+    assert!(schema_readme.contains("still-deferred execution graph builder"));
+    assert!(!semantics.contains("Capability/state construction"));
 }
 
 #[test]
