@@ -18,6 +18,11 @@
       "notes": "Prelude lowering is supported; persistent storage and state-graph execution remain separate."
     },
     {"feature": "bhcp/feature.extension-resolution@0", "level": "supported"},
+    {
+      "feature": "bhcp/feature.profile-source-lowering@0",
+      "level": "supported",
+      "notes": "Canonical definitions lower to validated source-local registries; grammar extensions remain unsupported."
+    },
     {"feature": "bhcp/feature.shared-typed-graph-model@0", "level": "supported"},
     {
       "feature": "bhcp/feature.obligation-graph-builder@0",

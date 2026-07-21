@@ -122,6 +122,15 @@ grants, denials, gaps, waiver audit, and final decisions. These two supported bu
 do not claim state/execution graph construction, planning, runtime enforcement, or
 final evidence-graph assembly.
 
+`tests/profile_source_lowering.rs` completes the milestone-7 source-profile boundary
+behind SYN-01 through SYN-07. Canonical policy, syntax, and profile definitions lower
+to identified wire roots and one atomically validated source-local registry whose
+resolved leaf drives the existing parser, compiler, and formatter. The adversarial
+matrix rejects missing or cyclic parents, ambiguous or prefix-conflicting surfaces,
+recursive aliases, core rebinding, weaker profile modes, missing overlays, executable
+definitions, and semantic override fields before any partial registry or custom
+program artifact can escape.
+
 The manifest at `policy/manifest.txt` makes the complete no-waiver POL-01 through
 POL-08 slice executable. Its canonical sources cover organization, team, repository,
 and user layers plus all six closed category/operation pairs. The harness regenerates

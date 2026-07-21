@@ -436,7 +436,7 @@ predicate-def   = "§predicate" qualified-name [ type-params ] "(" [ parameters 
                   ":" "Bool" [ "=" expression ] [ verifier-binding ] ";" ;
 goal-def        = "§goal" qualified-name [ type-params ] [ "§refines" type-ref ]
                   goal-block ;
-syntax-def      = "§syntax" qualified-name meta-block ;
+syntax-def      = "§syntax" qualified-name [ "§extends" qualified-name ] meta-block ;
 profile-def     = "§profile" qualified-name [ "§extends" qualified-name ] meta-block ;
 policy-def      = "§policy" qualified-name [ "§extends" qualified-name ] policy-block ;
 waiver-def      = "§waiver" qualified-name waiver-block ;
@@ -929,6 +929,15 @@ artifact. A source-level mapped-away spelling instead retains the original progr
 line and column while reporting the same profile, syntax, mapping, and rule context.
 Parser callbacks, unrestricted macros, and semantic override payloads are not mapping
 extensions; their unknown artifact fields fail as `BHCP9001` before registry use.
+
+Canonical `§syntax` and `§profile` definition sources lower through these same
+typed document models. The source-lowering boundary materializes each deterministic
+artifact ID, registers any co-authored source-policy overlays, and validates every
+syntax and profile chain as one atomic source-local registry before returning it for
+custom parsing, compilation, or formatting. A profile source may contain only policy,
+syntax, and profile definitions; executable or unrelated governance definitions fail
+as `BHCP9004`, and no partial registry escapes any parse, topology, policy, or
+effective-map error.
 
 Formatting is not a token mapping. It is the closed presentation record
 `{ indent_width, line_width, final_newline }`, where indentation is 0 through 16

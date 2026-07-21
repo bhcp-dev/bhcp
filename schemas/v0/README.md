@@ -49,7 +49,9 @@ model, and advertises deterministic obligation structural construction plus
 capability graph decision construction as supported under the exact
 `bhcp/feature.obligation-graph-builder@0` and
 `bhcp/feature.capability-graph-builder@0` identifiers emitted by those graph
-artifacts. The support notes keep
+artifacts. It also advertises `bhcp/feature.profile-source-lowering@0` for the
+bounded canonical-definition-to-source-local-registry path; the note explicitly
+keeps grammar extensions unsupported. The graph support notes keep
 execution-time discharge, state/execution graph construction, planning, runtime
 enforcement, and final evidence-graph assembly outside those two builder claims. The
 goal-algebra conformance harness validates that bounded distinction alongside the
