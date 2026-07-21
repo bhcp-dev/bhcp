@@ -185,7 +185,8 @@ before executable IR until their remaining finite-domain and case-execution stag
 land. Direct recursive child calls now require a matching positive static limit or a
 checked decreasing integer measure whose retained requirements or execution guard
 prove the child remains non-negative before IR emission. Direct self-recursive gates
-are supported for the finite Unit-output base-case slice.
+are supported for the finite Unit-output base-case slice; a closed base branch accepts
+no observation for its unselected recursive child.
 
 | Canonical definition | Implemented source slice | Explicitly deferred |
 | --- | --- | --- |
@@ -350,6 +351,12 @@ winner, `Unit`, last-step satisfaction, closed/open gate selection, all four emp
 identities, decisive verdicts, causal early stop, fault/unresolved precedence,
 typed predecessor and parent-field edges, non-observation, and generic
 re-evaluation rejection of tampering:
+
+The current retention lowerer accepts only handle-free predecessor outputs. A
+nested owned, borrowed, or shared resource handle fails before IR, and received IR
+revalidates the same boundary. Consuming moves and policy-approved persistent shares
+remain coupled to the state/CAS runtime work in #124; this slice does not silently
+copy them or treat an edge-mode label as authority.
 
 ```sh
 cargo test --test self_hosted_all

@@ -49,6 +49,24 @@ fn guarded_nonnegative_reference_measure_is_accepted() {
             ..
         } if output == unit()
     ));
+    let diagnostic = runtime
+        .reduce(
+            &network.id,
+            Value::map([("remaining", integer(0))]),
+            &[ChildObservation {
+                child: network.children[0].id.clone(),
+                result: ExecutionResult::Completed(Verdict::Satisfied {
+                    output: unit(),
+                    evidence: vec!["unselected-recursive-step".to_owned()],
+                }),
+            }],
+        )
+        .unwrap_err();
+    assert_eq!(diagnostic.code, "BHCP4101");
+    assert_eq!(
+        diagnostic.message,
+        "a closed gate cannot observe its unselected child"
+    );
     let recursive = runtime
         .reduce(
             &network.id,
@@ -215,6 +233,100 @@ fn proof_reconstruction_supports_the_same_closed_child_expression_subset() {
         produced_at: "2026-07-21T09:30:00Z",
     })
     .unwrap();
+}
+
+#[test]
+fn retention_predecessor_outputs_cannot_bypass_recursive_ownership_checks() {
+    for (name, handle) in [
+        ("owned", "owned write affine 'retain example/File@0"),
+        ("borrowed", "borrowed read 'request example/File@0"),
+        ("shared", "shared read 'release example/File@0"),
+    ] {
+        let source = handle_retention_source(handle, "", "", "");
+        let diagnostic = compile_source(&source, &format!("{name}-retention.bhcp")).unwrap_err();
+        assert_eq!(diagnostic.code, "BHCP4401", "{name}: {diagnostic}");
+    }
+
+    for mode in ["move ", "borrow ", "share "] {
+        let source = handle_retention_source(
+            "owned write affine 'retain example/File@0",
+            mode,
+            mode,
+            mode,
+        );
+        let diagnostic = compile_source(&source, "explicit-handle-retention.bhcp").unwrap_err();
+        assert_eq!(diagnostic.code, "BHCP4401", "{mode}: {diagnostic}");
+    }
+}
+
+#[test]
+fn received_ir_rejects_handle_bearing_retention_predecessors() {
+    let source = handle_retention_source("Text", "", "", "");
+    let mut compilation = compile_source(&source, "text-retention.bhcp").unwrap();
+    let handle = bhcp::model::BhcpType::Handle(Box::new(bhcp::model::HandleType {
+        ownership: "owned".to_owned(),
+        access: "write".to_owned(),
+        usage: "affine".to_owned(),
+        lifetime: "retain".to_owned(),
+        value_type: bhcp::model::BhcpType::Nominal("example/File@0".to_owned(), vec![]),
+    }));
+    let state = bhcp::model::BhcpType::Record(vec![bhcp::model::FieldType {
+        name: "state".to_owned(),
+        value_type: handle,
+    }]);
+    let read = compilation
+        .ir
+        .goals
+        .iter_mut()
+        .find(|goal| goal.symbol == "example/StateRead@0")
+        .unwrap();
+    read.output = state;
+    let diagnostic = compilation.ir.validate().unwrap_err();
+    assert_eq!(diagnostic.code, "BHCP4001");
+    assert_eq!(
+        diagnostic.message,
+        "retention predecessor outputs containing resource handles are not executable in this slice"
+    );
+}
+
+fn handle_retention_source(
+    handle: &str,
+    prior_mode: &str,
+    expected_mode: &str,
+    new_mode: &str,
+) -> String {
+    format!(
+        r#"
+§goal example/StateRead@0 {{
+    §input resource: Text;
+    §output state: {handle};
+}}
+§goal example/Candidate@0 {{
+    §input prior: {{ state: {handle} }};
+    §input resource: Text;
+    §output state: {handle};
+}}
+§goal example/CompareAndSwap@0 {{
+    §input expected_version: {{ state: {handle} }};
+    §input new_value: {{ state: {handle} }};
+    §input resource: Text;
+    §output committed: Text;
+}}
+§goal example/Retain@0 {{
+    §input resource: Text;
+    §output committed: Text;
+    §compose using bhcp/prelude.retain-reducer@0 {{
+        state-read = example/StateRead@0(resource = resource);
+        candidate = example/Candidate@0(prior = {prior_mode}state-read, resource = resource);
+        compare-and-swap = example/CompareAndSwap@0(
+            expected_version = {expected_mode}state-read,
+            new_value = {new_mode}candidate,
+            resource = resource
+        );
+    }};
+}}
+"#
+    )
 }
 
 fn integer(value: i128) -> Value {

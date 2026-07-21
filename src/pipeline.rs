@@ -13,8 +13,9 @@ use crate::model::{
     BhcpType, Binding, CanonicalAstDocument, Clause, ClauseKind, ContentReference, Effect,
     EffectRow, EffectivePolicyReference, Expression, ExpressionForm, ExtensionNode, FieldType,
     FunctionDefinition, GoalDefinition, HandleType, HashId, Point, PolicyDecision,
-    SemanticIrDocument, VariantCaseType, VerifierBinding, closed_binary_result_type,
-    closed_unary_result_type, data_edge_type_compatible, features_for, is_symbol,
+    SemanticIrDocument, VariantCaseType, VerifierBinding, bhcp_type_contains_handle,
+    closed_binary_result_type, closed_unary_result_type, data_edge_type_compatible, features_for,
+    is_symbol,
 };
 use crate::ownership::analyze_program;
 use crate::parser::{
@@ -2707,13 +2708,17 @@ fn lower_retention_arguments(
                 &argument.at,
             ));
         }
-        let (source_type, symbol) = if let Some(predecessor) = predecessors
+        let (source_type, symbol, predecessor_output) = if let Some(predecessor) = predecessors
             .iter()
             .find(|predecessor| predecessor.tag == argument.source)
         {
-            (predecessor.output.clone(), "bhcp/kernel.observed-output@0")
+            (
+                predecessor.output.clone(),
+                "bhcp/kernel.observed-output@0",
+                true,
+            )
         } else if let Some(parent_type) = parent_field_type(parent_input, &argument.source) {
-            (parent_type.clone(), "bhcp/kernel.parent-field@0")
+            (parent_type.clone(), "bhcp/kernel.parent-field@0", false)
         } else {
             return Err(error(
                 "BHCP2001",
@@ -2725,6 +2730,14 @@ fn lower_retention_arguments(
                 &argument.at,
             ));
         };
+        if predecessor_output && bhcp_type_contains_handle(&source_type) {
+            return Err(error(
+                "BHCP4401",
+                "retention predecessor outputs containing resource handles are not executable in this slice",
+                source_name,
+                &argument.at,
+            ));
+        }
         if !data_edge_type_compatible(
             &source_type,
             &field.value_type,
@@ -3756,6 +3769,11 @@ fn lower_reducer_expression(
                         && gate_type_matches(observations_type, output_type) =>
                 {
                     output_type.as_ref().clone()
+                }
+                "bhcp/kernel.unobserved-unit@0"
+                    if argument_types == [observations_type.clone()] =>
+                {
+                    BhcpType::Primitive("Unit")
                 }
                 "bhcp/kernel.unit@0" if argument_types.is_empty() => BhcpType::Primitive("Unit"),
                 "bhcp/kernel.pending@0" if argument_types == [refs_type.clone()] => {

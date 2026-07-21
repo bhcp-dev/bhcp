@@ -847,13 +847,18 @@ MUST NOT retain an expired borrow.
 **Implementation status:** direct recursive child calls require a positive retained
 static bound or a checker-accepted decreasing non-negative Integer measure. The
 checker proves the subtraction step fits a retained lower bound from requirements
-or a direct Unit-output recursive gate guard. That
-evidence is attached to the exact child, revalidated with received semantic IR, and
+or a direct Unit-output recursive gate guard. The gate's closed base branch accepts
+no observation for the unselected recursive child. That evidence is attached to the
+exact child, revalidated with received semantic IR, and
 materialized as a deterministic open limit node in the obligation graph. The
 versioned standard-prelude retention lowerer and reducer operate only over ordinary
 state-read, candidate, and compare-and-swap child goals; only a satisfied candidate
-can request compare-and-swap. Persistent cells, competing-writer execution, storage,
-and runtime retry enforcement remain assigned to the state/CAS runtime boundary.
+can request compare-and-swap. Predecessor outputs containing an owned, borrowed, or
+shared handle are rejected recursively at source lowering and received-IR validation;
+the implemented slice therefore cannot copy an owned aggregate or infer persistent
+share authority from an edge mode. Handle-consuming moves and exact policy-approved
+persistent shares, persistent cells, competing-writer execution, storage, and runtime
+retry enforcement remain assigned to the state/CAS runtime boundary.
 
 Schema anchors: `meta-type`, `derived-form-shape`, `network-shape`,
 `kernel-network`, `child-observation`, `reduction`, `derivation`,

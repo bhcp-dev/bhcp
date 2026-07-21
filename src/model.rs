@@ -1581,8 +1581,8 @@ impl SemanticIrDocument {
                 .find(|function| function.symbol == network.reducer)
                 .expect("reducer resolution was checked above");
             validate_recursion_evidence(parent, network, reducer)?;
+            validate_retention_network(parent, network, &self.goals)?;
             validate_network_arguments(parent, network, &self.goals)?;
-            validate_retention_network(parent, network)?;
             let mut observation_fields = Vec::with_capacity(network.children.len());
             for child in &network.children {
                 let child_goal = self
@@ -2141,7 +2141,11 @@ fn validate_recursion_evidence(
     Ok(())
 }
 
-fn validate_retention_network(parent: &GoalDefinition, network: &KernelNetwork) -> Result<()> {
+fn validate_retention_network(
+    parent: &GoalDefinition,
+    network: &KernelNetwork,
+    goals: &[GoalDefinition],
+) -> Result<()> {
     if !network.reducer.starts_with("bhcp/prelude.retain-reducer-") {
         return Ok(());
     }
@@ -2170,6 +2174,17 @@ fn validate_retention_network(parent: &GoalDefinition, network: &KernelNetwork) 
         return Err(Diagnostic::plain(
             "BHCP4001",
             "retention network does not preserve exact resource, expected-version, and new-value coordinates",
+        ));
+    }
+    if [snapshot, candidate].iter().any(|child| {
+        goals
+            .iter()
+            .find(|goal| goal.id == child.goal)
+            .is_some_and(|goal| bhcp_type_contains_handle(&goal.output))
+    }) {
+        return Err(Diagnostic::plain(
+            "BHCP4001",
+            "retention predecessor outputs containing resource handles are not executable in this slice",
         ));
     }
     Ok(())
@@ -2445,6 +2460,25 @@ pub(crate) fn data_edge_type_compatible(
     }
 }
 
+pub(crate) fn bhcp_type_contains_handle(value_type: &BhcpType) -> bool {
+    match value_type {
+        BhcpType::Handle(_) => true,
+        BhcpType::Record(fields) => fields
+            .iter()
+            .any(|field| bhcp_type_contains_handle(&field.value_type)),
+        BhcpType::Variant(cases) => cases
+            .iter()
+            .any(|case| case.payload.iter().any(bhcp_type_contains_handle)),
+        BhcpType::List(element)
+        | BhcpType::Option(element)
+        | BhcpType::Verdict(element)
+        | BhcpType::ExecutionResult(element)
+        | BhcpType::Reduction(element) => bhcp_type_contains_handle(element),
+        BhcpType::Nominal(_, arguments) => arguments.iter().any(bhcp_type_contains_handle),
+        BhcpType::Primitive(_) | BhcpType::ExactNumber(_) | BhcpType::Evidence(_) => false,
+    }
+}
+
 fn header_entries(features: &[String]) -> Vec<(String, Value)> {
     vec![
         ("version".to_owned(), Value::Text("bhcp/v0".to_owned())),
@@ -2522,6 +2556,7 @@ fn is_registered_kernel_primitive(value: &str) -> bool {
             | "bhcp/kernel.first-satisfied-winner@0"
             | "bhcp/kernel.included@0"
             | "bhcp/kernel.excluded@0"
+            | "bhcp/kernel.unobserved-unit@0"
             | "bhcp/kernel.unit@0"
             | "bhcp/kernel.pending@0"
             | "bhcp/kernel.refuted@0"

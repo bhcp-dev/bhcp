@@ -1031,6 +1031,9 @@ fn validate_primitive_signature(
         {
             output.as_ref().clone()
         }
+        "bhcp/kernel.unobserved-unit@0" if argument_types == [observations.clone()] => {
+            BhcpType::Primitive("Unit")
+        }
         "bhcp/kernel.unit@0" if argument_types.is_empty() => BhcpType::Primitive("Unit"),
         "bhcp/kernel.pending@0" if argument_types == [refs.clone()] => function.result.clone(),
         "bhcp/kernel.refuted@0" if argument_types == [refs.clone()] => execution.clone(),
@@ -1409,6 +1412,15 @@ fn evaluate_primitive(
                 Value::Text("Excluded".to_owned()),
                 Value::Array(vec![Value::Text("unit".to_owned())]),
             ])))
+        }
+        "bhcp/kernel.unobserved-unit@0" => {
+            let observations = take_observations(arguments)?;
+            if observations.iter().any(|slot| slot.result.is_some()) {
+                return Err(invalid("a closed gate cannot observe its unselected child"));
+            }
+            Ok(RuntimeValue::Data(Value::Array(vec![Value::Text(
+                "unit".to_owned(),
+            )])))
         }
         "bhcp/kernel.first-satisfied-evidence@0" => {
             let observations = take_observations(arguments)?;

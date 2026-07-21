@@ -307,12 +307,19 @@ canonical AST. Direct REC-01..03 execution is checked by
 `guarded_nonnegative_reference_measure_is_accepted`, and
 `unbounded_recursion_is_rejected_before_semantic_ir`; bounds also materialize as
 open obligation-graph limit nodes. Static quantified-domain finiteness and
-shared-budget accounting remain assigned to later roadmap owners. The source-defined
+shared-budget accounting remain assigned to later roadmap owners. Source-defined
+recursive-gate coverage includes a satisfied empty base case and fail-closed rejection
+of every supplied observation for the base branch's unselected recursive child. The
 retention boundary is checked by
 `retention_is_a_versioned_prelude_chain_over_ordinary_child_goals` and
-`only_a_satisfied_candidate_reaches_compare_and_swap`; persistent storage and the
-STA runtime races remain assigned to the state runtime. Obligation construction is
-executable in `tests/obligation_graph.rs`.
+`only_a_satisfied_candidate_reaches_compare_and_swap`.
+`retention_predecessor_outputs_cannot_bypass_recursive_ownership_checks` rejects
+nested owned, borrowed, and shared predecessor payloads under value, move, borrow,
+or share labels until the state/CAS runtime can retain exact consumption and policy
+approval evidence; `received_ir_rejects_handle_bearing_retention_predecessors`
+revalidates the same fail-closed boundary on received semantic IR. Persistent storage
+and the STA runtime races remain assigned to the state runtime. Obligation construction
+is executable in `tests/obligation_graph.rs`.
 
 ## Policy, waivers, and extensions
 
