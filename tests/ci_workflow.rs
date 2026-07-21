@@ -222,6 +222,10 @@ fn public_install_path_is_reproducible_and_license_metadata_agrees() {
         readme().contains("mise trust\nmise install"),
         "the fresh-clone instructions omit mise trust"
     );
+    assert!(
+        readme().contains("./bhcp hash canonical-simple-presentation.bhcp"),
+        "the judge quickstart omits the presentation-equivalence trial"
+    );
     assert!(license().starts_with("MIT License\n"));
     assert!(
         cargo_manifest().contains("license = \"MIT\""),

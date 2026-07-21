@@ -30,7 +30,13 @@ account, API key, or network access after download:
 # extract it, and run these commands inside the extracted directory.
 ./bhcp inspect canonical-simple.bhcp
 ./bhcp hash canonical-simple.bhcp
+./bhcp hash canonical-simple-presentation.bhcp
 ```
+
+`inspect` renders the checked goal contract: typed inputs and outputs, requirements,
+guarantees, authority, prohibitions, limits, preferences, and verifier targets. The
+two `hash` commands produce the same stable semantic identity even though the source
+presentation differs.
 
 The release includes archives for macOS 15+ on Apple silicon and Linux on x86-64 or
 ARM64 with glibc 2.39+ (for example, Ubuntu 24.04+). The macOS and Linux binaries and
