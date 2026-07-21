@@ -766,13 +766,45 @@ obligation-graph-document = {
 capability = {
   "effect": effect,
   "scope": value,
-  "decision": "allow" / "deny",
+  "decision": "allow" / "deny" / "unresolved",
   "sources": [1* ref-id]
+}
+capability-request = {
+  "goal": symbol-id,
+  "effect": effect
+}
+capability-resource = {
+  "goal": symbol-id,
+  "name": tstr,
+  "type": type
+}
+capability-policy-detail = {
+  "category": "capability" / "prohibition",
+  "effective_rule": uint,
+  "value": capability-policy-value,
+  "sources": [1* policy-evidence-source]
+}
+capability-waiver-detail = {
+  "waiver": content-reference,
+  "targets": [1* source-rule-identity],
+  "decision_time": timestamp
+}
+capability-gap = {
+  "kind": "unsafe" / "foreign" / "unsupported",
+  "required": true
 }
 capability-node = {
   "id": ref-id,
-  "kind": "request" / "grant" / "denial" / "resource" / "decision",
+  "kind": "request" / "grant" / "denial" / "resource" / "decision" / "waiver",
+  ? "goal": symbol-id,
+  ? "request": capability-request,
   ? "capability": capability,
+  ? "resource": capability-resource,
+  ? "resources": [1* ref-id],
+  ? "source_clauses": [1* ref-id],
+  ? "policy": capability-policy-detail,
+  ? "waiver": capability-waiver-detail,
+  ? "gap": capability-gap,
   ? "payload": value
 }
 capability-graph-document = {

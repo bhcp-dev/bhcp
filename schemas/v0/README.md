@@ -177,6 +177,17 @@ evidence demands, prohibitions, capabilities, and limits, plus the enforced type
 mode. A contract `limit` may carry a semantic dimension symbol for exact ceiling
 comparison. These are optional for legacy ungoverned IR and add no new root type.
 
+The `capability-graph` root now has an executable deterministic builder. Typed nodes
+separate effect requests, structural resources, authored or propagated grants,
+effective-policy grants and denials, applied-waiver audit records, and final
+decisions. Policy detail retains the positional effective-rule audit link plus exact
+layer/policy/rule provenance; source clause links and waiver presentation are also
+artifact-only. Structural graph meaning uses normalized effect, resource, goal, and
+effective restriction coordinates, so policy decomposition or unrelated positional
+changes do not rename the corresponding authority node. Unsafe, foreign, and
+unsupported extension-effect decisions carry an explicit gap, and exact validation
+rebuilds the graph from semantic IR and the retained effective-policy envelope.
+
 The cddl-rs CBOR validator is not used for instances yet: version 0.10.6 misvalidates
 repeated references to controlled aliases used by this schema, including
 `[* feature-id]` where `feature-id` ultimately carries `.regexp`. The normative

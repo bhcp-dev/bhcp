@@ -104,7 +104,7 @@ pub(crate) fn policy_obligation_id(category: PolicyCategory, value: &Value) -> R
     )
 }
 
-fn validate_compilation(compilation: &Compilation) -> Result<HashAlgorithm> {
+pub(crate) fn validate_compilation(compilation: &Compilation) -> Result<HashAlgorithm> {
     compilation
         .ir
         .validate()

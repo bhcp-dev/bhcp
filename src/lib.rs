@@ -1,4 +1,5 @@
 pub mod adapter;
+pub mod capability;
 pub mod cbor;
 mod definition;
 pub mod diagnostic;

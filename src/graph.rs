@@ -354,16 +354,37 @@ fn capability_node_fields(value: &Value) -> Result<()> {
     validate_map_fields(
         value,
         &["id", "kind"],
-        &["capability", "payload"],
+        &[
+            "goal",
+            "request",
+            "capability",
+            "resource",
+            "resources",
+            "source_clauses",
+            "policy",
+            "waiver",
+            "gap",
+            "payload",
+        ],
         "capability node",
     )?;
     required_ref(value, "id")?;
     require_one_of(
         value,
         "kind",
-        &["request", "grant", "denial", "resource", "decision"],
+        &[
+            "request", "grant", "denial", "resource", "decision", "waiver",
+        ],
         "capability node",
     )?;
+    if value.get("goal").is_some() {
+        require_symbol(value, "goal", "capability node")?;
+    }
+    if let Some(request) = value.get("request") {
+        validate_map_fields(request, &["goal", "effect"], &[], "capability request")?;
+        require_symbol(request, "goal", "capability request")?;
+        validate_effect(request.get("effect").unwrap(), "capability request effect")?;
+    }
     if let Some(capability) = value.get("capability") {
         validate_map_fields(
             capability,
@@ -371,15 +392,143 @@ fn capability_node_fields(value: &Value) -> Result<()> {
             &[],
             "capability",
         )?;
-        require_one_of(capability, "decision", &["allow", "deny"], "capability")?;
+        require_one_of(
+            capability,
+            "decision",
+            &["allow", "deny", "unresolved"],
+            "capability",
+        )?;
         validate_effect(capability.get("effect").unwrap(), "capability effect")?;
         validate_bhcp_value(capability.get("scope").unwrap(), "capability scope")?;
         validate_nonempty_ref_array(capability, "sources", "capability")?;
     }
+    if let Some(resource) = value.get("resource") {
+        validate_map_fields(
+            resource,
+            &["goal", "name", "type"],
+            &[],
+            "capability resource",
+        )?;
+        require_symbol(resource, "goal", "capability resource")?;
+        require_text_value(resource, "name", "capability resource")?;
+        validate_type(resource.get("type").unwrap(), "capability resource type")?;
+    }
+    validate_optional_nonempty_ref_array(value, "resources", "capability node")?;
+    validate_optional_nonempty_ref_array(value, "source_clauses", "capability node")?;
+    if let Some(policy) = value.get("policy") {
+        validate_capability_policy(policy)?;
+    }
+    if let Some(waiver) = value.get("waiver") {
+        validate_capability_waiver(waiver)?;
+    }
+    if let Some(gap) = value.get("gap") {
+        validate_map_fields(gap, &["kind", "required"], &[], "capability gap")?;
+        require_one_of(
+            gap,
+            "kind",
+            &["unsafe", "foreign", "unsupported"],
+            "capability gap",
+        )?;
+        if gap.get("required") != Some(&Value::Bool(true)) {
+            return Err(invalid_schema("capability gap must be required"));
+        }
+    }
     if let Some(payload) = value.get("payload") {
         validate_bhcp_value(payload, "capability payload")?;
     }
+    if text_field(value, "kind") == Some("waiver") && value.get("waiver").is_none() {
+        return Err(invalid_schema("waiver node requires waiver detail"));
+    }
     Ok(())
+}
+
+fn validate_capability_policy(value: &Value) -> Result<()> {
+    validate_map_fields(
+        value,
+        &["category", "effective_rule", "value", "sources"],
+        &[],
+        "capability policy",
+    )?;
+    require_one_of(
+        value,
+        "category",
+        &["capability", "prohibition"],
+        "capability policy",
+    )?;
+    require_unsigned(value, "effective_rule", "capability policy")?;
+    let policy_value = value.get("value").unwrap();
+    validate_map_fields(
+        policy_value,
+        &["effect"],
+        &["scope"],
+        "capability policy value",
+    )?;
+    require_symbol(policy_value, "effect", "capability policy value")?;
+    if let Some(scope) = policy_value.get("scope") {
+        validate_map_fields(
+            scope,
+            &[],
+            &["goals", "resources", "operations"],
+            "capability policy scope",
+        )?;
+        for field in ["goals", "resources", "operations"] {
+            validate_nonempty_symbol_array(scope, field, "capability policy scope")?;
+        }
+    }
+    let sources = require_array(value, "sources", "capability policy")?;
+    if sources.is_empty() {
+        return Err(invalid_schema(
+            "capability policy sources must be non-empty",
+        ));
+    }
+    for source in sources {
+        validate_map_fields(
+            source,
+            &["layer", "policy", "rule"],
+            &[],
+            "capability policy source",
+        )?;
+        require_one_of(
+            source,
+            "layer",
+            &["organization", "team", "repository", "user"],
+            "capability policy source",
+        )?;
+        require_symbol(source, "policy", "capability policy source")?;
+        required_ref(source, "rule")?;
+    }
+    Ok(())
+}
+
+fn validate_capability_waiver(value: &Value) -> Result<()> {
+    validate_map_fields(
+        value,
+        &["waiver", "targets", "decision_time"],
+        &[],
+        "capability waiver",
+    )?;
+    validate_content_reference(value.get("waiver").unwrap())?;
+    let targets = require_array(value, "targets", "capability waiver")?;
+    if targets.is_empty() {
+        return Err(invalid_schema(
+            "capability waiver targets must be non-empty",
+        ));
+    }
+    for target in targets {
+        let Value::Array(parts) = target else {
+            return Err(invalid_schema("waiver target must be a two-item array"));
+        };
+        let [Value::Text(policy), Value::Text(rule)] = parts.as_slice() else {
+            return Err(invalid_schema("waiver target must be a two-item array"));
+        };
+        if !crate::model::is_symbol(policy) || rule.is_empty() || rule.len() > 128 {
+            return Err(invalid_schema("waiver target is invalid"));
+        }
+    }
+    validate_timestamp(
+        value.get("decision_time").unwrap(),
+        "capability waiver decision_time",
+    )
 }
 
 fn state_node_fields(value: &Value) -> Result<()> {
@@ -1534,9 +1683,31 @@ fn normalize_document(value: &mut Value, kind: GraphKind) -> Result<()> {
         }
         GraphKind::Capability => {
             for node in array_field_mut(value, "nodes")? {
+                if let Some(request) = map_field_mut(node, "request") {
+                    normalize_effect(map_field_mut(request, "effect").unwrap())?;
+                }
                 if let Some(capability) = map_field_mut(node, "capability") {
                     normalize_effect(map_field_mut(capability, "effect").unwrap())?;
                     sort_set_field(capability, "sources")?;
+                }
+                if let Some(resource) = map_field_mut(node, "resource") {
+                    normalize_type_field(resource, "type")?;
+                }
+                sort_optional_set_field(node, "resources")?;
+                sort_optional_set_field(node, "source_clauses")?;
+                if let Some(policy) = map_field_mut(node, "policy") {
+                    sort_set_field(policy, "sources")?;
+                    if let Some(policy_value) = map_field_mut(policy, "value")
+                        && let Some(scope) = map_field_mut(policy_value, "scope")
+                    {
+                        for field in ["goals", "resources", "operations"] {
+                            sort_optional_set_field(scope, field)?;
+                        }
+                    }
+                }
+                if let Some(waiver) = map_field_mut(node, "waiver") {
+                    normalize_content_reference(map_field_mut(waiver, "waiver").unwrap())?;
+                    sort_set_field(waiver, "targets")?;
                 }
             }
             sort_set_field(value, "nodes")?;
@@ -2168,7 +2339,39 @@ fn semantic_projection(value: &Value, kind: GraphKind) -> Value {
                 }
             }
         }
-        GraphKind::Capability | GraphKind::Execution => {}
+        GraphKind::Capability => {
+            let mut waiver_ids = BTreeSet::new();
+            if let Some(Value::Array(nodes)) = map_field_mut(&mut value, "nodes") {
+                for node in nodes.iter() {
+                    if text_field(node, "kind") == Some("waiver")
+                        && let Some(Value::Text(id)) = node.get("id")
+                    {
+                        waiver_ids.insert(id.clone());
+                    }
+                }
+                nodes.retain(|node| text_field(node, "kind") != Some("waiver"));
+                for node in nodes {
+                    remove_field(node, "source_clauses");
+                    let kind = text_field(node, "kind").map(ToOwned::to_owned);
+                    if matches!(kind.as_deref(), Some("grant" | "denial"))
+                        && let Some(capability) = map_field_mut(node, "capability")
+                    {
+                        remove_field(capability, "sources");
+                    }
+                    if let Some(policy) = map_field_mut(node, "policy") {
+                        remove_field(policy, "effective_rule");
+                        remove_field(policy, "sources");
+                    }
+                }
+            }
+            if let Some(Value::Array(edges)) = map_field_mut(&mut value, "edges") {
+                edges.retain(|edge| {
+                    !matches!(edge.get("from"), Some(Value::Text(id)) if waiver_ids.contains(id))
+                        && !matches!(edge.get("to"), Some(Value::Text(id)) if waiver_ids.contains(id))
+                });
+            }
+        }
+        GraphKind::Execution => {}
         GraphKind::State => {
             if let Some(Value::Array(nodes)) = map_field_mut(&mut value, "nodes") {
                 for node in nodes {
