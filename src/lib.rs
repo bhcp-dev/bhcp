@@ -1,6 +1,7 @@
 pub mod adapter;
 pub mod capability;
 pub mod cbor;
+pub mod consistency;
 mod definition;
 pub mod diagnostic;
 mod effects;

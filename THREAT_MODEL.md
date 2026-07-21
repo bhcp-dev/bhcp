@@ -107,10 +107,13 @@ authority must validate before they affect meaning.
   Applicable denials, source rules, waiver artifacts, resource coordinates, and
   unsafe/foreign gaps remain visible. Deleted, substituted, out-of-scope, or
   fabricated decisions fail exact graph validation before planning.
-- Deterministic obligation construction and the capability graph builder are bounded
-  analysis stages. Neither creates a state/execution graph, selects a plan, enforces
-  runtime authority, or assembles final evidence; later stages must revalidate the
-  exact retained artifacts rather than treating builder support as end-to-end proof.
+- Deterministic obligation, capability, and state construction plus their cross-graph
+  validator are bounded analysis stages. They do not create an execution graph,
+  select a plan, mutate storage, enforce runtime authority, or assemble final
+  evidence; later stages must revalidate the exact retained artifacts rather than
+  treating analysis support as end-to-end proof. The validator rejects cross-typed
+  IDs and rematerialized substitutions after rebuilding all three graphs from one
+  exact compilation.
 
 ## Residual and deferred risks
 

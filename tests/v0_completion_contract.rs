@@ -90,6 +90,8 @@ const ARTIFACTS: &[&str] = &[
     "expected-obligations",
     "outcome-matrix",
     "frontend-completion-report",
+    "graph-identities",
+    "graph-completion-report",
 ];
 
 const FEATURES: &[&str] = &[
@@ -379,6 +381,72 @@ const FRONTEND_LEDGER: &[(&str, &str, &str, &str)] = &[
     ),
 ];
 
+const GRAPH_APPLICABLE_SCENARIOS: &[&str] = &[
+    "ALG-ALL-F",
+    "ALG-ALL-R",
+    "ALG-ALL-S",
+    "ALG-ALL-U",
+    "ALG-ANY-F",
+    "ALG-ANY-R",
+    "ALG-ANY-S",
+    "ALG-ANY-U",
+    "ALG-CHAIN-F",
+    "ALG-CHAIN-R",
+    "ALG-CHAIN-S",
+    "ALG-CHAIN-U",
+    "ALG-GATE-F",
+    "ALG-GATE-R",
+    "ALG-GATE-S",
+    "ALG-GATE-U",
+    "ALG-NONE-F",
+    "ALG-NONE-R",
+    "ALG-NONE-S",
+    "ALG-NONE-U",
+    "CBOR-02",
+    "CBOR-03",
+    "EFF-01",
+    "EFF-02",
+    "EFF-03",
+    "ID-01",
+    "ID-02",
+    "ID-03",
+    "ID-04",
+    "KRN-01",
+    "KRN-02",
+    "KRN-03",
+    "KRN-04",
+    "KRN-05",
+    "KRN-06",
+    "KRN-07",
+    "KRN-08",
+    "KRN-09",
+    "KRN-10",
+    "KRN-11",
+    "KRN-12",
+    "KRN-13",
+    "OWN-01",
+    "OWN-02",
+    "OWN-03",
+    "OWN-04",
+    "PLN-05",
+    "POL-07",
+    "POL-08",
+    "REC-01",
+    "REC-02",
+    "REC-03",
+    "RET-01",
+    "STA-01",
+    "STA-02",
+    "WAV-01",
+    "WAV-02",
+];
+
+const GRAPH_DIAGNOSTICS: &[&str] = &[
+    "BHCP7001", "BHCP7002", "BHCP7003", "BHCP7004", "BHCP7005", "BHCP7101", "BHCP7102", "BHCP7103",
+    "BHCP7201", "BHCP7202", "BHCP7203", "BHCP7301", "BHCP7302", "BHCP7401", "BHCP7402", "BHCP7403",
+    "BHCP7501", "BHCP7502", "BHCP7503", "BHCP7504", "BHCP7505", "BHCP7506", "BHCP7507",
+];
+
 const REGISTRY: &[(&str, &str)] = &[
     ("canonical-program", "program.bhcp"),
     ("alternate-program", "program.words.bhcp"),
@@ -416,6 +484,7 @@ const REGISTRY: &[(&str, &str)] = &[
     ("execution-input", "execution-input.txt"),
     ("expected-obligations", "expected-obligations.txt"),
     ("outcome-matrix", "outcome-matrix.txt"),
+    ("graph-identities", "graph-identities.txt"),
 ];
 
 const OBLIGATIONS: &[&str] = &[
@@ -619,12 +688,21 @@ struct FrontendScenario {
     artifact: PathBuf,
 }
 
+#[derive(Debug, Eq, PartialEq)]
+struct GraphScenario {
+    test: String,
+    roots: BTreeSet<String>,
+    diagnostics: BTreeSet<String>,
+    identity: PathBuf,
+}
+
 #[derive(Debug, Default)]
 struct CompletionContract {
     version: Option<String>,
     issues: BTreeMap<u64, String>,
     scenarios: BTreeMap<String, String>,
     frontend: BTreeMap<String, FrontendScenario>,
+    graphs: BTreeMap<String, GraphScenario>,
     roots: BTreeMap<String, String>,
     stages: BTreeMap<String, Stage>,
     artifacts: BTreeMap<String, PathBuf>,
@@ -687,6 +765,17 @@ fn parse_contract(text: &str) -> Result<CompletionContract, String> {
                     artifact: PathBuf::from(artifact),
                 },
                 "front-end scenario",
+            )?,
+            ["graph", id, test, roots, diagnostics, identity] => insert_unique(
+                &mut contract.graphs,
+                (*id).to_owned(),
+                GraphScenario {
+                    test: (*test).to_owned(),
+                    roots: comma_list(roots).into_iter().collect(),
+                    diagnostics: comma_list(diagnostics).into_iter().collect(),
+                    identity: PathBuf::from(identity),
+                },
+                "graph scenario",
             )?,
             ["root", kind, owner] => insert_unique(
                 &mut contract.roots,
@@ -1998,6 +2087,55 @@ fn validate_contract(root: &Path, text: &str) -> Result<(), String> {
         {
             return Err(format!(
                 "front-end scenario {id} names an invalid exact artifact"
+            ));
+        }
+    }
+
+    let graph_scenarios = GRAPH_APPLICABLE_SCENARIOS
+        .iter()
+        .map(|id| (*id).to_owned())
+        .collect::<BTreeSet<_>>();
+    if contract.graphs.keys().cloned().collect::<BTreeSet<_>>() != graph_scenarios {
+        return Err("graph completion ledger mismatch".to_owned());
+    }
+    let graph_roots = BTreeSet::from([
+        "obligation-graph".to_owned(),
+        "capability-graph".to_owned(),
+        "state-graph".to_owned(),
+    ]);
+    let allowed_diagnostics = expected_set(GRAPH_DIAGNOSTICS);
+    let identity_path = PathBuf::from("conformance/v0/reference-program/graph-identities.txt");
+    let mut covered_diagnostics = BTreeSet::new();
+    for (id, entry) in &contract.graphs {
+        if !contract.scenarios.contains_key(id)
+            || entry.roots.is_empty()
+            || !entry.roots.is_subset(&graph_roots)
+            || entry.diagnostics.is_empty()
+            || !entry.diagnostics.is_subset(&allowed_diagnostics)
+            || entry.identity != identity_path
+        {
+            return Err(format!("graph scenario {id} has incomplete exact evidence"));
+        }
+        let (test_file, test_name) = entry
+            .test
+            .split_once("::")
+            .ok_or_else(|| format!("graph scenario {id} has no exact test target"))?;
+        let test_source = fs::read_to_string(root.join(test_file))
+            .map_err(|error| format!("cannot read graph test {test_file}: {error}"))?;
+        if !test_source.contains(&format!("fn {test_name}(")) {
+            return Err(format!(
+                "graph scenario {id} names unknown test {}",
+                entry.test
+            ));
+        }
+        covered_diagnostics.extend(entry.diagnostics.iter().cloned());
+    }
+    for required in [
+        "BHCP7501", "BHCP7502", "BHCP7503", "BHCP7504", "BHCP7505", "BHCP7506", "BHCP7507",
+    ] {
+        if !covered_diagnostics.contains(required) {
+            return Err(format!(
+                "graph ledger omits cross-graph diagnostic {required}"
             ));
         }
     }

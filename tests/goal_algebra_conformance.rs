@@ -2,9 +2,8 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use bhcp::capability::build_capability_graph;
 use bhcp::cbor::{decode_deterministic, encode_deterministic};
-use bhcp::obligation::build_obligation_graph;
+use bhcp::consistency::{build_analysis_graphs, validate_analysis_graphs};
 use bhcp::pipeline::compile_source;
 use bhcp::prelude::{
     ALL_FEATURE, ANY_FEATURE, CHAIN_FEATURE, GATE_FEATURE, NONE_FEATURE, RETAIN_FEATURE,
@@ -231,10 +230,8 @@ fn manifest_supports_every_feature_emitted_by_completed_graph_builders() {
     let repository = root();
     let source_path = repository.join("conformance/v0/fixtures/canonical-simple.bhcp");
     let compilation = compile_source(&read(&source_path), source_path.to_str().unwrap()).unwrap();
-    let graphs = [
-        build_obligation_graph(&compilation).unwrap(),
-        build_capability_graph(&compilation).unwrap(),
-    ];
+    let graphs = build_analysis_graphs(&compilation).unwrap();
+    let report = validate_analysis_graphs(&compilation, &graphs).unwrap();
 
     let manifest = parse_diagnostic(&read(
         repository.join("schemas/v0/examples/feature-manifest.diag"),
@@ -255,7 +252,8 @@ fn manifest_supports_every_feature_emitted_by_completed_graph_builders() {
         })
         .collect::<BTreeMap<_, _>>();
 
-    for graph in graphs {
+    let mut emitted = BTreeSet::new();
+    for graph in graphs.iter() {
         let value = graph.to_value();
         let Some(Value::Array(features)) = value.get("features") else {
             panic!("graph header must contain a feature array")
@@ -269,8 +267,10 @@ fn manifest_supports_every_feature_emitted_by_completed_graph_builders() {
                 Some(&"supported"),
                 "emitted graph feature is not negotiable: {feature}"
             );
+            emitted.insert(feature.clone());
         }
     }
+    assert_eq!(&emitted, report.features());
 }
 
 #[test]
@@ -281,6 +281,9 @@ fn graph_builder_completion_claims_stay_bounded_and_consistent() {
     let threat_model = read(repository.join("THREAT_MODEL.md"));
     let schema_readme = read(repository.join("schemas/v0/README.md"));
     let conformance = read(repository.join("conformance/v0/README.md"));
+    let vision = read(repository.join("VISION.md"));
+    let graph_audit = read(repository.join("conformance/v0/graph-completion-audit.md"));
+    let reference = read(repository.join("conformance/v0/reference-program/README.md"));
 
     for (name, document) in [
         ("README", readme.as_str()),
@@ -288,11 +291,14 @@ fn graph_builder_completion_claims_stay_bounded_and_consistent() {
         ("threat model", threat_model.as_str()),
         ("schema README", schema_readme.as_str()),
         ("conformance", conformance.as_str()),
+        ("VISION", vision.as_str()),
+        ("graph audit", graph_audit.as_str()),
+        ("reference README", reference.as_str()),
     ] {
         let normalized = document.to_lowercase();
         assert!(
-            normalized.contains("deterministic obligation")
-                && normalized.contains("capability graph")
+            normalized.contains("obligation")
+                && normalized.contains("capability")
                 && (normalized.contains("state-graph")
                     || normalized.contains("state graph")
                     || normalized.contains("state-analysis")),
@@ -304,11 +310,32 @@ fn graph_builder_completion_claims_stay_bounded_and_consistent() {
         );
     }
 
+    for (name, document) in [
+        ("README", readme.as_str()),
+        ("SEMANTICS", semantics.as_str()),
+        ("threat model", threat_model.as_str()),
+        ("conformance", conformance.as_str()),
+        ("VISION", vision.as_str()),
+        ("graph audit", graph_audit.as_str()),
+    ] {
+        let normalized = document.to_lowercase();
+        assert!(
+            normalized.contains("cross-graph")
+                && (normalized.contains("complete")
+                    || normalized.contains("implemented")
+                    || normalized.contains("current rust")),
+            "{name} does not describe the completed cross-graph boundary"
+        );
+    }
+
     assert!(!readme.contains("does not yet build obligation"));
     assert!(!schema_readme.contains("obligation-graph construction unsupported"));
     assert!(!schema_readme.contains("still-deferred general obligation/execution graph builders"));
     assert!(schema_readme.contains("still-deferred execution graph builder"));
     assert!(!semantics.contains("Capability/state construction"));
+    assert!(!semantics.contains("State construction, planning"));
+    assert!(!threat_model.contains("Neither creates a state/execution graph"));
+    assert!(!vision.contains("remaining cross-graph audit"));
 }
 
 #[test]
