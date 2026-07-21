@@ -191,6 +191,9 @@ impl GraphDocument {
 }
 
 fn validate_graph_shape(value: &Value, kind: GraphKind) -> Result<()> {
+    encode_deterministic(value).map_err(|error| {
+        invalid_schema(format!("graph wire value is invalid: {}", error.message))
+    })?;
     crate::schema::validate_root(value, kind.as_str())
         .map_err(|error| invalid_schema(error.message))?;
     require_text_value(value, "version", "graph header")?;
@@ -315,7 +318,12 @@ fn capability_node_fields(value: &Value) -> Result<()> {
             "capability",
         )?;
         require_one_of(capability, "decision", &["allow", "deny"], "capability")?;
+        validate_effect(capability.get("effect").unwrap(), "capability effect")?;
+        validate_bhcp_value(capability.get("scope").unwrap(), "capability scope")?;
         validate_nonempty_ref_array(capability, "sources", "capability")?;
+    }
+    if let Some(payload) = value.get("payload") {
+        validate_bhcp_value(payload, "capability payload")?;
     }
     Ok(())
 }
@@ -349,8 +357,21 @@ fn state_node_fields(value: &Value) -> Result<()> {
             "state cell",
         )?;
         require_text_value(cell, "key", "state cell")?;
+        validate_type(cell.get("type").unwrap(), "state cell type")?;
         require_unsigned(cell, "atomic_version", "state cell")?;
-        require_array(cell, "state", "state cell")?;
+        validate_state_value(cell.get("state").unwrap())?;
+    }
+    if let Some(handle) = value.get("handle") {
+        validate_type(handle, "state handle")?;
+        let Value::Array(parts) = handle else {
+            unreachable!("checked type is an array")
+        };
+        if parts.first() != Some(&Value::Text("handle".to_owned())) {
+            return Err(invalid_schema("state handle must be a handle type"));
+        }
+    }
+    if let Some(payload) = value.get("payload") {
+        validate_bhcp_value(payload, "state payload")?;
     }
     Ok(())
 }
@@ -397,15 +418,26 @@ fn execution_node_fields(value: &Value) -> Result<()> {
     for (_, input) in inputs {
         validate_map_fields(input, &["ref", "type"], &[], "typed reference")?;
         required_ref(input, "ref")?;
+        validate_type(input.get("type").unwrap(), "typed reference type")?;
     }
-    if !matches!(value.get("outputs"), Some(Value::Map(_))) {
+    let Some(Value::Map(outputs)) = value.get("outputs") else {
         return Err(invalid_schema("execution outputs must be a map"));
+    };
+    for (_, output) in outputs {
+        validate_type(output, "execution output type")?;
     }
+    validate_effect_row(value.get("effects").unwrap(), "execution effects")?;
     for field in ["capability_decisions", "dependencies"] {
         validate_ref_array(value, field, "execution node")?;
     }
-    for field in ["budgets", "expected_evidence"] {
-        require_array(value, field, "execution node")?;
+    for budget in require_array(value, "budgets", "execution node")? {
+        validate_budget(budget)?;
+    }
+    for class in require_array(value, "expected_evidence", "execution node")? {
+        let Value::Text(class) = class else {
+            return Err(invalid_schema("expected evidence class must be text"));
+        };
+        validate_evidence_class(class)?;
     }
     Ok(())
 }
@@ -461,7 +493,7 @@ fn validate_state_transition(value: &Value) -> Result<()> {
     if value.get("atomic") != Some(&Value::Bool(true)) {
         return Err(invalid_schema("state transition atomic must equal true"));
     }
-    Ok(())
+    validate_execution_result(value.get("result").unwrap(), "state transition result")
 }
 
 fn validate_evidence_shape(value: &Value) -> Result<()> {
@@ -549,6 +581,12 @@ fn validate_evidence_shape(value: &Value) -> Result<()> {
         )?;
         required_ref(gap, "id")?;
         require_text_value(gap, "kind", "evidence gap")?;
+        let gap_kind = text_field(gap, "kind").unwrap();
+        if !["unsafe", "foreign", "missing", "stale", "unsupported"].contains(&gap_kind)
+            && !crate::model::is_symbol(gap_kind)
+        {
+            return Err(invalid_schema("invalid evidence gap kind"));
+        }
         validate_ref_array(gap, "obligations", "evidence gap")?;
         validate_reason(gap.get("reason").unwrap())?;
         if !matches!(gap.get("required"), Some(Value::Bool(_))) {
@@ -698,15 +736,20 @@ fn validate_provenance(value: &Value) -> Result<()> {
     }
     if let Some(Value::Array(parents)) = value.get("parents") {
         for parent in parents {
-            parse_hash(parent)?;
+            parse_hash(parent)?
+                .validate()
+                .map_err(|error| invalid_schema(error.message))?;
         }
     } else if value.get("parents").is_some() {
         return Err(invalid_schema("provenance parents must be an array"));
     }
-    if value.get("annotations").is_some()
-        && !matches!(value.get("annotations"), Some(Value::Map(_)))
-    {
-        return Err(invalid_schema("provenance annotations must be a map"));
+    if let Some(annotations) = value.get("annotations") {
+        let Value::Map(annotations) = annotations else {
+            return Err(invalid_schema("provenance annotations must be a map"));
+        };
+        for (_, annotation) in annotations {
+            validate_bhcp_value(annotation, "provenance annotation")?;
+        }
     }
     Ok(())
 }
@@ -733,7 +776,429 @@ fn validate_authorization(value: &Value) -> Result<()> {
 fn validate_reason(value: &Value) -> Result<()> {
     validate_map_fields(value, &["code", "message"], &["details"], "reason")?;
     require_symbol(value, "code", "reason")?;
-    require_text_value(value, "message", "reason")
+    require_text_value(value, "message", "reason")?;
+    if let Some(details) = value.get("details") {
+        validate_bhcp_value(details, "reason details")?;
+    }
+    Ok(())
+}
+
+fn validate_type(value: &Value, context: &str) -> Result<()> {
+    crate::typecheck::CheckedType::from_value(value)
+        .map(|_| ())
+        .map_err(|error| invalid_schema(format!("{context} is invalid: {}", error.message)))
+}
+
+fn validate_bhcp_value(value: &Value, context: &str) -> Result<()> {
+    match value {
+        Value::Bool(_) | Value::Text(_) | Value::Bytes(_) => Ok(()),
+        Value::Array(items) => {
+            match items.as_slice() {
+                [Value::Text(kind)] if kind == "unit" => return Ok(()),
+                [Value::Text(kind), Value::Integer(_)] if kind == "integer" => return Ok(()),
+                [
+                    Value::Text(kind),
+                    Value::Integer(_),
+                    Value::Integer(denominator),
+                ] if kind == "rational" && *denominator > 0 => {
+                    return Ok(());
+                }
+                [Value::Text(kind), Value::Integer(_), Value::Integer(_)] if kind == "decimal" => {
+                    return Ok(());
+                }
+                [Value::Text(kind), Value::Text(format), Value::Bytes(bytes)]
+                    if kind == "machine-float"
+                        && matches!(
+                            (format.as_str(), bytes.len()),
+                            ("binary16", 2) | ("binary32", 4) | ("binary64", 8) | ("binary128", 16)
+                        ) =>
+                {
+                    return Ok(());
+                }
+                [Value::Text(kind), Value::Text(_), payload] if kind == "variant" => {
+                    return validate_bhcp_value(payload, context);
+                }
+                _ => {}
+            }
+            for item in items {
+                validate_bhcp_value(item, context)?;
+            }
+            Ok(())
+        }
+        Value::Map(entries) => {
+            for (_, item) in entries {
+                validate_bhcp_value(item, context)?;
+            }
+            Ok(())
+        }
+        Value::Null | Value::Integer(_) | Value::Tag(_, _) => Err(invalid_schema(format!(
+            "{context} is not a canonical BHCP value"
+        ))),
+    }
+}
+
+fn validate_effect(value: &Value, context: &str) -> Result<()> {
+    validate_map_fields(value, &["id"], &["resource", "parameters"], context)?;
+    require_symbol(value, "id", context)?;
+    if value.get("resource").is_some() {
+        required_ref(value, "resource")?;
+    }
+    if let Some(parameters) = value.get("parameters") {
+        let Value::Array(parameters) = parameters else {
+            return Err(invalid_schema(format!(
+                "{context} parameters must be an array"
+            )));
+        };
+        for parameter in parameters {
+            validate_bhcp_value(parameter, "effect parameter")?;
+        }
+    }
+    Ok(())
+}
+
+fn validate_effect_row(value: &Value, context: &str) -> Result<()> {
+    validate_map_fields(value, &["effects"], &["row_variable"], context)?;
+    for effect in require_array(value, "effects", context)? {
+        validate_effect(effect, "effect row member")?;
+    }
+    if value.get("row_variable").is_some() {
+        require_text_value(value, "row_variable", context)?;
+    }
+    Ok(())
+}
+
+fn validate_budget(value: &Value) -> Result<()> {
+    validate_map_fields(
+        value,
+        &["dimension", "limit", "allocation"],
+        &["children"],
+        "budget",
+    )?;
+    require_symbol(value, "dimension", "budget")?;
+    validate_exact_number(value.get("limit").unwrap(), "budget limit")?;
+    require_one_of(value, "allocation", &["shared", "explicit"], "budget")?;
+    if let Some(children) = value.get("children") {
+        let Value::Map(children) = children else {
+            return Err(invalid_schema("budget children must be a map"));
+        };
+        for (child, allocation) in children {
+            validate_ref(child, "budget child")?;
+            validate_exact_number(allocation, "budget child allocation")?;
+        }
+    }
+    Ok(())
+}
+
+fn validate_exact_number(value: &Value, context: &str) -> Result<()> {
+    let Value::Array(parts) = value else {
+        return Err(invalid_schema(format!("{context} must be an exact number")));
+    };
+    match parts.as_slice() {
+        [Value::Text(kind), Value::Integer(_)] if kind == "integer" => Ok(()),
+        [
+            Value::Text(kind),
+            Value::Integer(_),
+            Value::Integer(denominator),
+        ] if kind == "rational" && *denominator > 0 => Ok(()),
+        [Value::Text(kind), Value::Integer(_), Value::Integer(_)] if kind == "decimal" => Ok(()),
+        _ => Err(invalid_schema(format!("{context} must be an exact number"))),
+    }
+}
+
+fn validate_state_value(value: &Value) -> Result<()> {
+    let Value::Array(parts) = value else {
+        return Err(invalid_schema("state cell state must be an array"));
+    };
+    match parts.as_slice() {
+        [Value::Text(state)] if state == "empty" => Ok(()),
+        [
+            Value::Text(state),
+            captured,
+            references,
+            provenance,
+            timestamp,
+            expression,
+        ] if state == "captured" => {
+            validate_bhcp_value(captured, "captured state value")?;
+            let Value::Array(references) = references else {
+                return Err(invalid_schema("captured state references must be an array"));
+            };
+            if references.is_empty() {
+                return Err(invalid_schema(
+                    "captured state references must be non-empty",
+                ));
+            }
+            for reference in references {
+                validate_ref_value(reference, "captured state reference")?;
+            }
+            validate_provenance(provenance)?;
+            validate_timestamp(timestamp, "captured state timestamp")?;
+            validate_expression(expression)
+        }
+        _ => Err(invalid_schema("invalid state cell state")),
+    }
+}
+
+fn validate_expression(value: &Value) -> Result<()> {
+    validate_map_fields(value, &["id", "type", "form"], &[], "expression")?;
+    required_ref(value, "id")?;
+    validate_type(value.get("type").unwrap(), "expression type")?;
+    let Some(Value::Array(form)) = value.get("form") else {
+        return Err(invalid_schema("expression form must be an array"));
+    };
+    let Some(Value::Text(kind)) = form.first() else {
+        return Err(invalid_schema("expression form requires a text kind"));
+    };
+    match (kind.as_str(), form.as_slice()) {
+        ("literal", [_, literal]) => validate_bhcp_value(literal, "literal expression"),
+        ("reference", [_, reference]) => validate_ref_value(reference, "expression reference"),
+        ("record", [_, Value::Map(fields)]) => {
+            for (_, field) in fields {
+                validate_expression(field)?;
+            }
+            Ok(())
+        }
+        ("tuple", [_, Value::Array(items)]) => validate_expressions(items),
+        ("variant", [_, Value::Text(_), payload]) => validate_expression(payload),
+        ("collection", [_, Value::Text(collection), Value::Array(items)])
+            if matches!(collection.as_str(), "list" | "set") =>
+        {
+            validate_expressions(items)
+        }
+        ("map", [_, Value::Array(entries)]) => {
+            for entry in entries {
+                let Value::Array(pair) = entry else {
+                    return Err(invalid_schema("expression map entry must be a pair"));
+                };
+                if pair.len() != 2 {
+                    return Err(invalid_schema("expression map entry must be a pair"));
+                }
+                validate_expression(&pair[0])?;
+                validate_expression(&pair[1])?;
+            }
+            Ok(())
+        }
+        ("select", [_, subject, selector]) => {
+            validate_expression(subject)?;
+            match selector {
+                Value::Text(_) => Ok(()),
+                Value::Integer(number) if *number >= 0 => Ok(()),
+                _ => Err(invalid_schema("expression selector must be text or uint")),
+            }
+        }
+        ("unary", [_, Value::Text(_), operand]) => validate_expression(operand),
+        ("binary", [_, Value::Text(_), left, right]) => {
+            validate_expression(left)?;
+            validate_expression(right)
+        }
+        ("if", [_, condition, consequent, alternate]) => {
+            validate_expression(condition)?;
+            validate_expression(consequent)?;
+            validate_expression(alternate)
+        }
+        ("let", [_, binding, bound, body]) => {
+            validate_binding(binding)?;
+            validate_expression(bound)?;
+            validate_expression(body)
+        }
+        ("match", [_, subject, Value::Array(arms)]) if !arms.is_empty() => {
+            validate_expression(subject)?;
+            for arm in arms {
+                validate_match_arm(arm)?;
+            }
+            Ok(())
+        }
+        ("call", [_, Value::Text(symbol), Value::Array(arguments)])
+            if crate::model::is_symbol(symbol) =>
+        {
+            validate_expressions(arguments)
+        }
+        ("quantify", [_, Value::Text(quantifier), binding, domain, predicate])
+            if matches!(quantifier.as_str(), "forall" | "exists") =>
+        {
+            validate_binding(binding)?;
+            validate_expression(domain)?;
+            validate_expression(predicate)
+        }
+        (
+            "quantify",
+            [
+                _,
+                Value::Text(quantifier),
+                binding,
+                domain,
+                predicate,
+                verifier,
+            ],
+        ) if matches!(quantifier.as_str(), "forall" | "exists") => {
+            validate_binding(binding)?;
+            validate_expression(domain)?;
+            validate_expression(predicate)?;
+            validate_verifier_binding(verifier)
+        }
+        ("cast-dynamic", [_, source, target]) => {
+            validate_expression(source)?;
+            validate_type(target, "dynamic cast target")
+        }
+        _ => Err(invalid_schema("invalid expression form")),
+    }
+}
+
+fn validate_expressions(values: &[Value]) -> Result<()> {
+    for value in values {
+        validate_expression(value)?;
+    }
+    Ok(())
+}
+
+fn validate_binding(value: &Value) -> Result<()> {
+    validate_map_fields(value, &["id", "type"], &["name"], "binding")?;
+    required_ref(value, "id")?;
+    validate_type(value.get("type").unwrap(), "binding type")?;
+    if value.get("name").is_some() {
+        require_text_value(value, "name", "binding")?;
+    }
+    Ok(())
+}
+
+fn validate_match_arm(value: &Value) -> Result<()> {
+    let Value::Array(parts) = value else {
+        return Err(invalid_schema("match arm must be an array"));
+    };
+    match parts.as_slice() {
+        [pattern, body] => {
+            validate_pattern(pattern)?;
+            validate_expression(body)
+        }
+        [pattern, guard, body] => {
+            validate_pattern(pattern)?;
+            validate_expression(guard)?;
+            validate_expression(body)
+        }
+        _ => Err(invalid_schema("match arm has invalid arity")),
+    }
+}
+
+fn validate_pattern(value: &Value) -> Result<()> {
+    let Value::Array(parts) = value else {
+        return Err(invalid_schema("pattern must be an array"));
+    };
+    match parts.as_slice() {
+        [Value::Text(kind)] if kind == "wildcard" => Ok(()),
+        [Value::Text(kind), literal] if kind == "literal" => {
+            validate_bhcp_value(literal, "literal pattern")
+        }
+        [Value::Text(kind), binding] if kind == "bind" => validate_binding(binding),
+        [Value::Text(kind), Value::Text(_), Value::Array(patterns)] if kind == "variant" => {
+            for pattern in patterns {
+                validate_pattern(pattern)?;
+            }
+            Ok(())
+        }
+        [Value::Text(kind), Value::Array(patterns)] if kind == "tuple" => {
+            for pattern in patterns {
+                validate_pattern(pattern)?;
+            }
+            Ok(())
+        }
+        [Value::Text(kind), Value::Map(patterns)] if kind == "record" => {
+            for (_, pattern) in patterns {
+                validate_pattern(pattern)?;
+            }
+            Ok(())
+        }
+        _ => Err(invalid_schema("invalid pattern")),
+    }
+}
+
+fn validate_verifier_binding(value: &Value) -> Result<()> {
+    validate_map_fields(
+        value,
+        &["verifier", "input", "output"],
+        &["configuration", "trust"],
+        "verifier binding",
+    )?;
+    require_symbol(value, "verifier", "verifier binding")?;
+    validate_type(value.get("input").unwrap(), "verifier input type")?;
+    validate_type(value.get("output").unwrap(), "verifier output type")?;
+    if let Some(configuration) = value.get("configuration") {
+        validate_bhcp_value(configuration, "verifier configuration")?;
+    }
+    if let Some(trust) = value.get("trust") {
+        let Value::Array(trust) = trust else {
+            return Err(invalid_schema("verifier trust must be an array"));
+        };
+        for class in trust {
+            let Value::Text(class) = class else {
+                return Err(invalid_schema("verifier trust class must be text"));
+            };
+            validate_evidence_class(class)?;
+        }
+    }
+    Ok(())
+}
+
+fn validate_execution_result(value: &Value, context: &str) -> Result<()> {
+    let Value::Map(_) = value else {
+        return Err(invalid_schema(format!("{context} must be a map")));
+    };
+    match text_field(value, "state") {
+        Some("completed") => {
+            validate_map_fields(value, &["state", "verdict"], &[], context)?;
+            validate_verdict(value.get("verdict").unwrap())
+        }
+        Some("faulted") => {
+            validate_map_fields(value, &["state", "fault"], &[], context)?;
+            validate_operational_fault(value.get("fault").unwrap())
+        }
+        _ => Err(invalid_schema(format!("{context} has invalid state"))),
+    }
+}
+
+fn validate_verdict(value: &Value) -> Result<()> {
+    match text_field(value, "state") {
+        Some("satisfied") => {
+            validate_map_fields(value, &["state", "output", "evidence"], &[], "verdict")?;
+            validate_bhcp_value(value.get("output").unwrap(), "verdict output")?;
+            validate_nonempty_ref_array(value, "evidence", "verdict")
+        }
+        Some("refuted") => {
+            validate_map_fields(value, &["state", "counter_evidence"], &[], "verdict")?;
+            validate_nonempty_ref_array(value, "counter_evidence", "verdict")
+        }
+        Some("unresolved") => {
+            validate_map_fields(
+                value,
+                &["state", "reason", "partial_evidence"],
+                &[],
+                "verdict",
+            )?;
+            validate_reason(value.get("reason").unwrap())?;
+            validate_ref_array(value, "partial_evidence", "verdict")
+        }
+        _ => Err(invalid_schema("invalid verdict state")),
+    }
+}
+
+fn validate_operational_fault(value: &Value) -> Result<()> {
+    validate_map_fields(value, &["error", "trace"], &[], "operational fault")?;
+    validate_reason(value.get("error").unwrap())?;
+    for event in require_array(value, "trace", "operational fault")? {
+        validate_map_fields(
+            event,
+            &["sequence", "node", "at", "kind"],
+            &["payload"],
+            "trace event",
+        )?;
+        require_unsigned(event, "sequence", "trace event")?;
+        required_ref(event, "node")?;
+        validate_timestamp(event.get("at").unwrap(), "trace event timestamp")?;
+        require_symbol(event, "kind", "trace event")?;
+        if let Some(payload) = event.get("payload") {
+            validate_bhcp_value(payload, "trace payload")?;
+        }
+    }
+    Ok(())
 }
 
 fn validate_map_fields(
@@ -929,94 +1394,95 @@ fn reject_unknown_graph_fields(value: &Value, kind: GraphKind) -> Result<()> {
     Ok(())
 }
 
-fn normalize_document(value: &mut Value, kind: GraphKind) -> Result<()> {
-    sort_text_array(value, "features")?;
-    match kind {
-        GraphKind::Obligation | GraphKind::Capability => {
-            sort_id_array(value, "nodes")?;
-            sort_id_array(value, "edges")?;
-        }
-        GraphKind::State => {
-            sort_id_array(value, "nodes")?;
-            sort_id_array(value, "edges")?;
-            sort_id_array(value, "transitions")?;
-        }
-        GraphKind::Execution => {
-            sort_id_array(value, "nodes")?;
-            sort_id_array(value, "edges")?;
-            sort_text_array(value, "entrypoints")?;
-        }
-        GraphKind::Evidence => {
-            for field in ["claims", "items", "gaps", "edges", "policy_obligations"] {
-                if value.get(field).is_some() {
-                    sort_id_array(value, field)?;
-                }
-            }
-        }
-    }
-    normalize_nested_sets(value, kind)
+fn normalize_document(value: &mut Value, _kind: GraphKind) -> Result<()> {
+    normalize_semantic_sets(value)
 }
 
-fn normalize_nested_sets(value: &mut Value, kind: GraphKind) -> Result<()> {
-    let fields: &[(&str, &[&str])] = match kind {
-        GraphKind::Obligation => &[("nodes", &["evidence"])],
-        GraphKind::Capability => &[("nodes", &["sources"])],
-        GraphKind::State => &[],
-        GraphKind::Execution => &[(
-            "nodes",
-            &["capability_decisions", "expected_evidence", "dependencies"],
-        )],
-        GraphKind::Evidence => &[
-            ("items", &["claims", "trust"]),
-            ("gaps", &["obligations"]),
-            ("policy_obligations", &["classes"]),
-        ],
-    };
-    for (array_field, nested) in fields {
-        let Some(Value::Array(items)) = map_field_mut(value, array_field) else {
-            continue;
-        };
-        for item in items {
-            for field in *nested {
-                if item.get(field).is_some() {
-                    sort_text_array(item, field)?;
+fn normalize_semantic_sets(value: &mut Value) -> Result<()> {
+    match value {
+        Value::Array(items) => {
+            for item in items {
+                normalize_semantic_sets(item)?;
+            }
+            if let Ok(value_type) = crate::typecheck::CheckedType::from_value(value) {
+                *value = value_type.to_value();
+                return Ok(());
+            }
+            let Value::Array(items) = value else {
+                unreachable!()
+            };
+            match items.as_mut_slice() {
+                [
+                    Value::Text(kind),
+                    Value::Text(collection),
+                    Value::Array(elements),
+                ] if kind == "collection" && collection == "set" => {
+                    sort_semantic_set(elements, "expression set")?;
+                }
+                [Value::Text(kind), Value::Array(entries)] if kind == "map" => {
+                    sort_semantic_set(entries, "expression map")?;
+                }
+                [Value::Text(kind), _, Value::Array(references), ..] if kind == "captured" => {
+                    sort_semantic_set(references, "captured state references")?;
+                }
+                _ => {}
+            }
+        }
+        Value::Map(entries) => {
+            for (_, item) in entries.iter_mut() {
+                normalize_semantic_sets(item)?;
+            }
+            for field in [
+                "features",
+                "authorization",
+                "digests",
+                "locations",
+                "parents",
+                "nodes",
+                "edges",
+                "transitions",
+                "entrypoints",
+                "evidence",
+                "sources",
+                "effects",
+                "capability_decisions",
+                "budgets",
+                "expected_evidence",
+                "dependencies",
+                "claims",
+                "items",
+                "gaps",
+                "trust",
+                "obligations",
+                "policy_obligations",
+                "classes",
+            ] {
+                if let Some(Value::Array(items)) = entries
+                    .iter_mut()
+                    .find_map(|(key, value)| (key == field).then_some(value))
+                {
+                    sort_semantic_set(items, field)?;
                 }
             }
         }
+        Value::Tag(_, item) => normalize_semantic_sets(item)?,
+        _ => {}
     }
     Ok(())
 }
 
-fn sort_id_array(value: &mut Value, field: &str) -> Result<()> {
-    let Some(Value::Array(items)) = map_field_mut(value, field) else {
-        return Err(invalid_schema(format!(
-            "graph field {field} must be an array"
-        )));
-    };
-    items.sort_by(|left, right| text_field(left, "id").cmp(&text_field(right, "id")));
-    Ok(())
-}
-
-fn sort_text_array(value: &mut Value, field: &str) -> Result<()> {
-    let Some(Value::Array(items)) = map_field_mut(value, field) else {
-        return Err(invalid_schema(format!(
-            "graph field {field} must be an array"
-        )));
-    };
-    if items.iter().any(|item| !matches!(item, Value::Text(_))) {
-        return Err(invalid_schema(format!(
-            "graph field {field} must contain text references"
-        )));
-    }
-    items.sort_by(|left, right| match (left, right) {
-        (Value::Text(left), Value::Text(right)) => left.as_bytes().cmp(right.as_bytes()),
-        _ => unreachable!(),
-    });
-    if items.windows(2).any(|pair| pair[0] == pair[1]) {
+fn sort_semantic_set(items: &mut Vec<Value>, field: &str) -> Result<()> {
+    let mut encoded = items
+        .drain(..)
+        .map(|item| encode_deterministic(&item).map(|bytes| (bytes, item)))
+        .collect::<Result<Vec<_>>>()?;
+    encoded.sort_by(|left, right| left.0.cmp(&right.0));
+    if encoded.windows(2).any(|pair| pair[0].0 == pair[1].0) {
         return Err(duplicate(format!(
             "graph semantic set {field} contains a duplicate"
         )));
     }
+    items.extend(encoded.into_iter().map(|(_, item)| item));
     Ok(())
 }
 
@@ -1051,7 +1517,6 @@ fn collect_nodes(value: &Value, kind: GraphKind) -> Result<Vec<GraphNode>> {
             });
         }
     }
-    nodes.sort_by(|left, right| left.id.cmp(&right.id));
     Ok(nodes)
 }
 
@@ -1081,7 +1546,6 @@ fn collect_edges(value: &Value) -> Result<Vec<GraphEdge>> {
             value: item.clone(),
         });
     }
-    edges.sort_by(|left, right| left.id.cmp(&right.id));
     Ok(edges)
 }
 
