@@ -620,6 +620,18 @@ impl ProfileRegistry {
         Ok(())
     }
 
+    /// Validates every registered syntax and profile as one closed, atomic registry.
+    pub fn validate(&self, algorithm: HashAlgorithm) -> Result<()> {
+        for symbol in self.syntaxes.keys() {
+            let syntax = flatten_syntax(&self.syntax_chain(symbol)?)?;
+            validate_effective_syntax(&syntax)?;
+        }
+        for symbol in self.profiles.keys() {
+            self.resolve(symbol, algorithm)?;
+        }
+        Ok(())
+    }
+
     pub fn resolve(&self, profile: &str, algorithm: HashAlgorithm) -> Result<ResolvedProfile> {
         let profile_documents = self.profile_chain(profile)?;
         let profile_chain: Vec<_> = profile_documents
