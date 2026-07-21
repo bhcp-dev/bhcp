@@ -109,7 +109,13 @@ pub(crate) fn analyze(goals: &mut [GoalDefinition], source_name: &str) -> Result
     for (goal, effects) in goals.iter_mut().zip(rows) {
         if effects.iter().any(requires_evidence_gap) {
             let BhcpType::Evidence(classes) = &mut goal.evidence else {
-                unreachable!("lowered goal evidence is always an evidence type")
+                return Err(Diagnostic::plain(
+                    "BHCP4001",
+                    format!(
+                        "goal {} with unsafe or foreign effects requires an Evidence type",
+                        goal.symbol
+                    ),
+                ));
             };
             if !classes.iter().any(|class| class == "unresolved") {
                 classes.push("unresolved".to_owned());

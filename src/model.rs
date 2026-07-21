@@ -1243,6 +1243,12 @@ impl SemanticIrDocument {
             if let Some(decision) = &goal.policy_decision {
                 decision.validate()?;
             }
+            if !matches!(goal.evidence, BhcpType::Evidence(_)) {
+                return Err(Diagnostic::plain(
+                    "BHCP4001",
+                    "goal evidence must use an Evidence type",
+                ));
+            }
             goal.effects.validate(&mut references)?;
             let local_resource_bindings: HashSet<_> = goal
                 .clauses

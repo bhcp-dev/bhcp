@@ -386,6 +386,19 @@ fn eff_02_unsafe_effects_remain_visible_as_unresolved_evidence() {
 }
 
 #[test]
+fn retained_unsafe_ir_rejects_non_evidence_types_without_panicking() {
+    let source = r#"
+§goal example/Unsafe@0 { §allows bhcp-effect/unsafe@0; }
+"#;
+    let compiled = compile_source(source, "effects.bhcp").unwrap();
+    let mut tampered = compiled.ir;
+    tampered.goals[0].evidence = BhcpType::Primitive("Text");
+    let diagnostic = tampered.validate().unwrap_err();
+    assert_eq!(diagnostic.code, "BHCP4001");
+    assert!(diagnostic.message.contains("Evidence type"));
+}
+
+#[test]
 fn dimensioned_limits_must_be_direct_non_negative_exact_budgets() {
     for condition in ["attempts < 3", "attempts <= -1"] {
         let source = format!(
