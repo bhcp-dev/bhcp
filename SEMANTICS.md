@@ -863,6 +863,16 @@ share authority from an edge mode. Handle-consuming moves and exact policy-appro
 persistent shares, persistent cells, competing-writer execution, storage, and runtime
 retry enforcement remain assigned to the state/CAS runtime boundary.
 
+The state-graph builder materializes the implemented ownership and retention analysis
+boundary from fully validated semantic IR. Resource/handle ownership, borrow and move
+uses, conflict-free parent/resource invariants, empty versioned cells, exact
+read→candidate→compare-and-swap dependencies, capability decisions, freshness rules,
+stale/policy-fault outcomes, and atomic version/conflict coordinates have structural
+IDs and deterministic ordering. A received graph must exactly reconstruct from the
+same compilation after its semantic and artifact identities verify. The graph is
+analysis-only: it neither plans retries nor grants authority, executes storage, or
+mutates a cell.
+
 Schema anchors: `meta-type`, `derived-form-shape`, `network-shape`,
 `kernel-network`, `child-observation`, `reduction`, `derivation`,
 `execution-result`, `budget`, `preference`, `state-cell`, and `state-graph-document`.
@@ -1291,6 +1301,15 @@ applied-waiver artifacts remain in artifact provenance. Unsafe, foreign, and
 unsupported extension-effect allow decisions retain required gaps; a graph that
 deletes, fabricates, or changes any decision fails exact reconstruction before it can
 enter a planner request.
+
+The current Rust state builder likewise derives only from the validated compilation
+and exact reconstructed capability decisions. It rejects a mutable retention
+transition without its parent/resource invariant and compare-and-swap authority,
+binds read/prior version, satisfied candidate/evidence, CAS, freshness, and
+same-version conflict coordinates, and exact-reconstructs received graphs. Ownership
+conflicts, use after move, invalid lifetimes, and unapproved persistent shares remain
+pre-IR errors; deletion or cross-kind substitution inside a received state graph is
+rejected before planning.
 
 Every execution node declares its typed inputs/outputs, effects, capability decision,
 budget allocation, executor, dependencies, and expected evidence. Execution graph

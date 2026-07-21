@@ -575,6 +575,8 @@ fn state_node_fields(value: &Value) -> Result<()> {
             "ownership",
             "transition",
             "invariant",
+            "authority",
+            "freshness",
         ],
         "state node",
     )?;
@@ -704,15 +706,17 @@ fn execution_edge_fields(value: &Value) -> Result<()> {
 fn validate_state_transition(value: &Value) -> Result<()> {
     validate_map_fields(
         value,
+        &["id", "cell", "from_version", "to_version", "atomic"],
         &[
-            "id",
-            "cell",
-            "from_version",
-            "to_version",
             "result",
-            "atomic",
+            "read",
+            "candidate",
+            "compare_and_swap",
+            "authority",
+            "invariants",
+            "freshness",
+            "conflict",
         ],
-        &[],
         "state transition",
     )?;
     required_ref(value, "id")?;
@@ -722,7 +726,37 @@ fn validate_state_transition(value: &Value) -> Result<()> {
     if value.get("atomic") != Some(&Value::Bool(true)) {
         return Err(invalid_schema("state transition atomic must equal true"));
     }
-    validate_execution_result(value.get("result").unwrap(), "state transition result")
+    match value.get("result") {
+        Some(result) => {
+            if [
+                "read",
+                "candidate",
+                "compare_and_swap",
+                "authority",
+                "invariants",
+                "freshness",
+                "conflict",
+            ]
+            .iter()
+            .any(|field| value.get(field).is_some())
+            {
+                return Err(invalid_schema(
+                    "executed state transition cannot carry analysis dependencies",
+                ));
+            }
+            validate_execution_result(result, "state transition result")
+        }
+        None => {
+            required_ref(value, "read")?;
+            required_ref(value, "candidate")?;
+            required_ref(value, "compare_and_swap")?;
+            validate_nonempty_ref_array(value, "authority", "state transition")?;
+            validate_nonempty_ref_array(value, "invariants", "state transition")?;
+            required_ref(value, "freshness")?;
+            require_symbol(value, "conflict", "state transition")?;
+            Ok(())
+        }
+    }
 }
 
 fn validate_evidence_shape(value: &Value) -> Result<()> {
@@ -1759,7 +1793,11 @@ fn normalize_document(value: &mut Value, kind: GraphKind) -> Result<()> {
                 }
             }
             for transition in array_field_mut(value, "transitions")? {
-                normalize_execution_result(map_field_mut(transition, "result").unwrap())?;
+                if let Some(result) = map_field_mut(transition, "result") {
+                    normalize_execution_result(result)?;
+                }
+                sort_optional_set_field(transition, "authority")?;
+                sort_optional_set_field(transition, "invariants")?;
             }
             sort_set_field(value, "nodes")?;
             sort_set_field(value, "edges")?;
@@ -2219,6 +2257,26 @@ fn validate_state_references<'a>(
             return Err(duplicate(format!("duplicate graph ID {id:?}")));
         }
         require_endpoint(endpoints, required_ref(transition, "cell")?, id)?;
+        if transition.get("result").is_none() {
+            for field in ["read", "candidate", "compare_and_swap", "freshness"] {
+                require_endpoint(endpoints, required_ref(transition, field)?, id)?;
+            }
+            for field in ["authority", "invariants"] {
+                let Some(Value::Array(references)) = transition.get(field) else {
+                    return Err(invalid_schema(format!(
+                        "state transition {field} must be an array"
+                    )));
+                };
+                for reference in references {
+                    let Value::Text(reference) = reference else {
+                        return Err(invalid_schema(format!(
+                            "state transition {field} must contain ref-ids"
+                        )));
+                    };
+                    require_endpoint(endpoints, reference, id)?;
+                }
+            }
+        }
     }
     Ok(())
 }

@@ -722,7 +722,13 @@ retained-value behavior as a causal state-read, candidate, and compare-and-swap
 network. Refuted, unresolved, faulted, stale, and CAS-conflict outcomes stop before a
 write; only the satisfied path reaches compare-and-swap. The kernel gains no
 retention, retry, state, or freshness behavior kind. Persistent storage, state-graph
-construction, and runtime retry enforcement remain later stages.
+execution, and runtime retry enforcement remain later stages. The deterministic
+state-graph builder projects validated semantic IR into explicit resource, ownership,
+borrow/move, invariant, cell, freshness, and guarded atomic-transition dependencies.
+Mutable retention transitions bind the exact capability decision, prior read/version,
+satisfied candidate and evidence, CAS endpoint, parent/resource invariants, and
+stale/conflict outcomes; this analysis graph grants no authority and performs no
+storage mutation.
 
 ## Practical v0 completion contract
 

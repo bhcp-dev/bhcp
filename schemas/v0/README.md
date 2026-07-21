@@ -146,7 +146,11 @@ evaluation; deterministic obligation construction is the separate implemented
 analysis boundary described above. Recursive child bounds are revalidated from the
 retained goal contracts and data edges and appear on deterministic open limit nodes;
 the versioned retention prelude lowers to ordinary state-read/candidate/CAS children,
-while persistent storage and state-graph execution remain deferred.
+while the state-graph builder records ownership, invariant, exact authority,
+version/CAS, freshness, and conflict dependencies without executing storage or
+planning retries. Planned state transitions carry analysis dependencies instead of
+an execution result; executed transition fixtures retain their mutually exclusive
+`result` form.
 
 Source and effective `policy-document` values also cross a strongly typed Rust
 boundary. It rejects unknown fields and invalid category/operation/value pairings,
