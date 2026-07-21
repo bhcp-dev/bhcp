@@ -302,7 +302,9 @@ PLN-03..05: quantifier domains, recursive goal references, typed argument modes,
 limits, invariants, and nested composition all retain ordered source spans in
 canonical AST. Direct REC-01..03 execution is checked by
 `recursive_children_retain_static_bounds_and_decreasing_measure_evidence`,
-`retained_ir_revalidates_recursion_metadata_against_the_recursive_edge`, and
+`retained_ir_revalidates_recursion_metadata_against_the_recursive_edge`,
+`decreasing_measure_must_prove_the_child_measure_stays_nonnegative`,
+`guarded_nonnegative_reference_measure_is_accepted`, and
 `unbounded_recursion_is_rejected_before_semantic_ir`; bounds also materialize as
 open obligation-graph limit nodes. Static quantified-domain finiteness and
 shared-budget accounting remain assigned to later roadmap owners. The source-defined

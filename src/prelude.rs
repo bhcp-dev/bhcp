@@ -24,6 +24,7 @@ pub const CHAIN_REDUCER: &str = "bhcp/prelude.chain-reducer@0";
 pub const CHAIN_FEATURE: &str = "bhcp/feature.self-hosted-chain@0";
 pub const GATE_LOWERER: &str = "bhcp/prelude.lower-gate@0";
 pub const GATE_REDUCER: &str = "bhcp/prelude.gate-reducer@0";
+pub const RECURSIVE_GATE_REDUCER: &str = "bhcp/prelude.recursive-gate-reducer@0";
 pub const GATE_FEATURE: &str = "bhcp/feature.self-hosted-gate@0";
 pub const RETAIN_LOWERER: &str = "bhcp/prelude.lower-retain@0";
 pub const RETAIN_REDUCER: &str = "bhcp/prelude.retain-reducer@0";
@@ -40,6 +41,8 @@ const SOURCE: &str = concat!(
     include_str!("../prelude/v0/chain.bhcp"),
     "\n",
     include_str!("../prelude/v0/gate.bhcp"),
+    "\n",
+    include_str!("../prelude/v0/recursive-gate.bhcp"),
     "\n",
     include_str!("../prelude/v0/retain.bhcp")
 );
@@ -107,6 +110,7 @@ impl Prelude {
         prelude.validate_chain_reducer()?;
         prelude.validate_gate_lowerer()?;
         prelude.validate_gate_reducer()?;
+        prelude.validate_reducer(RECURSIVE_GATE_REDUCER, "recursive-gate-reducer")?;
         prelude.validate_retain_lowerer()?;
         prelude.validate_retain_reducer()?;
         Ok(prelude)

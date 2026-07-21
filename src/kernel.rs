@@ -7,7 +7,7 @@ use crate::diagnostic::{Diagnostic, Result};
 use crate::hash::HashAlgorithm;
 use crate::model::{
     BhcpType, Expression, ExpressionForm, FieldType, FunctionDefinition, SemanticIrDocument,
-    is_symbol,
+    closed_binary_result_type, closed_unary_result_type, is_symbol,
 };
 use crate::value::Value;
 
@@ -763,6 +763,13 @@ fn evaluate_expression(
                 evaluate_expression(operand, function, derivation_id, parent, observations)?;
             match (operator.as_str(), operand) {
                 ("!", RuntimeValue::Bool(value)) => Ok(RuntimeValue::Bool(!value)),
+                ("-", value) => runtime_integer(value)
+                    .and_then(|value| {
+                        value
+                            .checked_neg()
+                            .ok_or_else(|| invalid("reducer Integer operation overflowed"))
+                    })
+                    .map(runtime_integer_value),
                 _ => Err(invalid("reducer unary operation violated its checked type")),
             }
         }
@@ -794,6 +801,31 @@ fn evaluate_expression(
                         "reducer boolean operation violated its checked type",
                     )),
                 },
+                "<" | "<=" | ">" | ">=" => {
+                    let left = runtime_integer(left)?;
+                    let right = runtime_integer(right)?;
+                    Ok(RuntimeValue::Bool(match operator.as_str() {
+                        "<" => left < right,
+                        "<=" => left <= right,
+                        ">" => left > right,
+                        ">=" => left >= right,
+                        _ => unreachable!(),
+                    }))
+                }
+                "+" | "-" | "*" | "/" | "%" => {
+                    let left = runtime_integer(left)?;
+                    let right = runtime_integer(right)?;
+                    let value = match operator.as_str() {
+                        "+" => left.checked_add(right),
+                        "-" => left.checked_sub(right),
+                        "*" => left.checked_mul(right),
+                        "/" if right != 0 && left % right == 0 => left.checked_div(right),
+                        "%" if right != 0 => left.checked_rem(right),
+                        _ => None,
+                    }
+                    .ok_or_else(|| invalid("reducer Integer operation is not total"))?;
+                    Ok(runtime_integer_value(value))
+                }
                 _ => Err(invalid(format!(
                     "unsupported total pure reducer binary operation {operator:?}"
                 ))),
@@ -871,9 +903,8 @@ fn validate_reducer_expression(
         }
         ExpressionForm::Unary(operator, operand) => {
             validate_reducer_expression(operand, function)?;
-            if operator != "!"
-                || operand.value_type != BhcpType::Primitive("Bool")
-                || expression.value_type != BhcpType::Primitive("Bool")
+            if closed_unary_result_type(operator, &operand.value_type)
+                != Some(expression.value_type.clone())
             {
                 return Err(invalid(format!(
                     "unsupported or ill-typed total pure reducer unary operation {operator:?}"
@@ -883,23 +914,14 @@ fn validate_reducer_expression(
         ExpressionForm::Binary(operator, left, right) => {
             validate_reducer_expression(left, function)?;
             validate_reducer_expression(right, function)?;
-            let valid = match operator.as_str() {
-                "==" | "!=" => {
-                    left.value_type == right.value_type
-                        && expression.value_type == BhcpType::Primitive("Bool")
-                        && left.value_type != function.parameters[1].value_type
+            let valid = closed_binary_result_type(operator, &left.value_type, &right.value_type)
+                == Some(expression.value_type.clone())
+                && (!matches!(operator.as_str(), "==" | "!=")
+                    || (left.value_type != function.parameters[1].value_type
                         && !matches!(
                             left.value_type,
                             BhcpType::ExecutionResult(_) | BhcpType::Reduction(_)
-                        )
-                }
-                "&&" | "||" => {
-                    left.value_type == BhcpType::Primitive("Bool")
-                        && right.value_type == BhcpType::Primitive("Bool")
-                        && expression.value_type == BhcpType::Primitive("Bool")
-                }
-                _ => false,
-            };
+                        )));
             if !valid {
                 return Err(invalid(format!(
                     "unsupported or ill-typed total pure reducer binary operation {operator:?}"
@@ -1117,6 +1139,27 @@ fn runtime_equal(left: &RuntimeValue, right: &RuntimeValue) -> Result<bool> {
         (RuntimeValue::Texts(left), RuntimeValue::Texts(right)) => Ok(left == right),
         _ => Err(invalid("reducer equality compared sealed or unlike values")),
     }
+}
+
+fn runtime_integer(value: RuntimeValue) -> Result<i128> {
+    let RuntimeValue::Data(Value::Array(values)) = value else {
+        return Err(invalid(
+            "reducer Integer operation received a non-Integer value",
+        ));
+    };
+    match values.as_slice() {
+        [Value::Text(kind), Value::Integer(value)] if kind == "integer" => Ok(*value),
+        _ => Err(invalid(
+            "reducer Integer operation received a non-Integer value",
+        )),
+    }
+}
+
+fn runtime_integer_value(value: i128) -> RuntimeValue {
+    RuntimeValue::Data(Value::Array(vec![
+        Value::Text("integer".to_owned()),
+        Value::Integer(value),
+    ]))
 }
 
 fn evaluate_primitive(

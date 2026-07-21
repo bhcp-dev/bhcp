@@ -183,7 +183,9 @@ goal calls, quantified composition, and recursively nested finite composition.
 These additional goal forms retain deterministic AST structure and fail closed
 before executable IR until their remaining finite-domain and case-execution stages
 land. Direct recursive child calls now require a matching positive static limit or a
-checked decreasing non-negative integer measure before IR emission.
+checked decreasing integer measure whose retained requirements or execution guard
+prove the child remains non-negative before IR emission. Direct self-recursive gates
+are supported for the finite Unit-output base-case slice.
 
 | Canonical definition | Implemented source slice | Explicitly deferred |
 | --- | --- | --- |
@@ -332,8 +334,9 @@ reduction states over factored execution results.
 [`prelude/v0/all.bhcp`](prelude/v0/all.bhcp),
 [`prelude/v0/any.bhcp`](prelude/v0/any.bhcp),
 [`prelude/v0/none.bhcp`](prelude/v0/none.bhcp),
-[`prelude/v0/chain.bhcp`](prelude/v0/chain.bhcp), and
-[`prelude/v0/gate.bhcp`](prelude/v0/gate.bhcp) are parsed and checked as canonical
+[`prelude/v0/chain.bhcp`](prelude/v0/chain.bhcp),
+[`prelude/v0/gate.bhcp`](prelude/v0/gate.bhcp), and
+[`prelude/v0/recursive-gate.bhcp`](prelude/v0/recursive-gate.bhcp) are parsed and checked as canonical
 BHCP source. Their compile-time lowerers construct ID-free network shapes through
 the restricted metamodel, disappear, and leave monomorphized runtime reducers in
 semantic IR. The generic Rust kernel implements only typed sealed-observation

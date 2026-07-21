@@ -13,8 +13,8 @@ use crate::model::{
     BhcpType, Binding, CanonicalAstDocument, Clause, ClauseKind, ContentReference, Effect,
     EffectRow, EffectivePolicyReference, Expression, ExpressionForm, ExtensionNode, FieldType,
     FunctionDefinition, GoalDefinition, HandleType, HashId, Point, PolicyDecision,
-    SemanticIrDocument, VariantCaseType, VerifierBinding, data_edge_type_compatible, features_for,
-    is_symbol,
+    SemanticIrDocument, VariantCaseType, VerifierBinding, closed_binary_result_type,
+    closed_unary_result_type, data_edge_type_compatible, features_for, is_symbol,
 };
 use crate::ownership::analyze_program;
 use crate::parser::{
@@ -30,8 +30,8 @@ use crate::policy::{
 use crate::prelude::{
     ALL_FEATURE, ALL_LOWERER, ALL_REDUCER, ANY_FEATURE, ANY_LOWERER, ANY_REDUCER, CHAIN_FEATURE,
     CHAIN_LOWERER, CHAIN_REDUCER, DerivedChild, DerivedForm, GATE_FEATURE, GATE_LOWERER,
-    NONE_FEATURE, NONE_LOWERER, NONE_REDUCER, NetworkShape, Prelude, RETAIN_FEATURE,
-    RETAIN_REDUCER,
+    NONE_FEATURE, NONE_LOWERER, NONE_REDUCER, NetworkShape, Prelude, RECURSIVE_GATE_REDUCER,
+    RETAIN_FEATURE, RETAIN_REDUCER,
 };
 use crate::profile::{PresentationDocument, ProfileDocument, ProfileRegistry, SyntaxDocument};
 use crate::typecheck::{CheckedType, TypeRelations, check_type_definitions, surface_type};
@@ -1909,6 +1909,12 @@ fn resolve_gate_output(
             at,
         ));
     }
+    if branch.goal == symbol {
+        visiting.remove(symbol);
+        let output = BhcpType::Primitive("Unit");
+        signatures.get_mut(symbol).expect("signature exists").output = output.clone();
+        return Ok(output);
+    }
     let child = goals.get(branch.goal.as_str()).ok_or_else(|| {
         error(
             "BHCP2001",
@@ -2318,6 +2324,10 @@ fn lower_composition(
                 branch,
                 &arguments,
                 parent_clauses,
+                match composition {
+                    SurfaceComposition::DerivedGate { condition, .. } => Some(condition),
+                    _ => None,
+                },
                 source_name,
             )?)
         } else {
@@ -2371,6 +2381,23 @@ fn lower_composition(
                 condition: None,
             },
         )?,
+        SurfaceComposition::DerivedGate { .. }
+            if children.iter().any(|child| child.goal == parent.id) =>
+        {
+            if parent.output != BhcpType::Primitive("Unit") {
+                return Err(error(
+                    "BHCP2003",
+                    "recursive gate requires Unit output in the implemented finite slice",
+                    source_name,
+                    composition.at(),
+                ));
+            }
+            NetworkShape {
+                output: parent.output.clone(),
+                children,
+                reducer: RECURSIVE_GATE_REDUCER.to_owned(),
+            }
+        }
         SurfaceComposition::DerivedGate { .. } => prelude.lower(
             GATE_LOWERER,
             DerivedForm {
@@ -2733,6 +2760,7 @@ fn check_recursion_bound(
     branch: &crate::parser::SurfaceBranch,
     arguments: &[KernelArgument],
     clauses: &[crate::parser::SurfaceClause],
+    guard: Option<&SurfaceExpression>,
     source_name: &str,
 ) -> Result<RecursionBound> {
     let mut static_bounds = Vec::new();
@@ -2798,8 +2826,11 @@ fn check_recursion_bound(
             else {
                 return None;
             };
-            (*step > 0 && argument.name == *name && has_nonnegative_precondition(clauses, name))
-                .then_some((argument.name.as_str(), name.as_str()))
+            (*step > 0
+                && argument.name == *name
+                && checked_measure_lower_bound(clauses, guard, name)
+                    .is_some_and(|bound| bound >= *step))
+            .then_some((argument.name.as_str(), name.as_str()))
         })
         .collect::<Vec<_>>();
     measures.sort_unstable();
@@ -2846,38 +2877,84 @@ fn surface_expression_references(expression: &SurfaceExpression, name: &str) -> 
     }
 }
 
-fn has_nonnegative_precondition(clauses: &[crate::parser::SurfaceClause], name: &str) -> bool {
-    clauses.iter().any(|clause| {
-        let SurfaceClauseKind::Contract {
-            kind: "requires",
-            condition:
-                SurfaceExpression::Binary {
-                    operator,
-                    left,
-                    right,
-                    ..
-                },
-            ..
-        } = &clause.kind
-        else {
-            return false;
-        };
-        matches!(
-            (operator.as_str(), left.as_ref(), right.as_ref()),
-            (
-                "<",
-                SurfaceExpression::Literal { value: SurfaceLiteral::Integer(0), .. },
-                SurfaceExpression::Reference { name: candidate, .. }
-            ) if candidate == name
-        ) || matches!(
-            (operator.as_str(), left.as_ref(), right.as_ref()),
-            (
-                ">",
-                SurfaceExpression::Reference { name: candidate, .. },
-                SurfaceExpression::Literal { value: SurfaceLiteral::Integer(0), .. }
-            ) if candidate == name
-        )
-    })
+fn checked_measure_lower_bound(
+    clauses: &[crate::parser::SurfaceClause],
+    guard: Option<&SurfaceExpression>,
+    name: &str,
+) -> Option<i64> {
+    clauses
+        .iter()
+        .filter_map(|clause| {
+            let SurfaceClauseKind::Contract {
+                kind: "requires",
+                condition,
+                ..
+            } = &clause.kind
+            else {
+                return None;
+            };
+            surface_lower_bound(condition, name)
+        })
+        .chain(guard.and_then(|condition| surface_lower_bound(condition, name)))
+        .max()
+}
+
+fn surface_lower_bound(expression: &SurfaceExpression, name: &str) -> Option<i64> {
+    let SurfaceExpression::Binary {
+        operator,
+        left,
+        right,
+        ..
+    } = expression
+    else {
+        return None;
+    };
+    match (operator.as_str(), left.as_ref(), right.as_ref()) {
+        (
+            ">=" | ">",
+            SurfaceExpression::Reference {
+                name: candidate, ..
+            },
+            SurfaceExpression::Literal {
+                value: SurfaceLiteral::Integer(bound),
+                ..
+            },
+        ) if candidate == name => {
+            if operator == ">" {
+                bound.checked_add(1)
+            } else {
+                Some(*bound)
+            }
+        }
+        (
+            "<=" | "<",
+            SurfaceExpression::Literal {
+                value: SurfaceLiteral::Integer(bound),
+                ..
+            },
+            SurfaceExpression::Reference {
+                name: candidate, ..
+            },
+        ) if candidate == name => {
+            if operator == "<" {
+                bound.checked_add(1)
+            } else {
+                Some(*bound)
+            }
+        }
+        ("&&", _, _) => match (
+            surface_lower_bound(left, name),
+            surface_lower_bound(right, name),
+        ) {
+            (Some(left), Some(right)) => Some(left.max(right)),
+            (bound @ Some(_), None) | (None, bound @ Some(_)) => bound,
+            (None, None) => None,
+        },
+        ("||", _, _) => {
+            Some(surface_lower_bound(left, name)?.min(surface_lower_bound(right, name)?))
+        }
+        _ => None,
+    }
 }
 
 fn lower_gate_arguments(
@@ -2919,43 +2996,55 @@ fn lower_gate_arguments(
                 &branch.at,
             ));
         };
-        let Some(parent_field) = parent_fields
-            .iter()
-            .find(|parent_field| parent_field.name == argument.source)
-        else {
-            return Err(error(
-                "BHCP2001",
-                format!(
-                    "gate argument source {:?} is not a parent input",
-                    argument.source
-                ),
-                source_name,
-                &argument.at,
-            ));
-        };
-        if !data_edge_type_compatible(
-            &parent_field.value_type,
-            &field.value_type,
-            kernel_argument_mode(argument.mode),
-        ) {
-            return Err(error(
-                "BHCP2003",
-                "gate parent input does not match the child input type",
-                source_name,
-                &argument.at,
-            ));
-        }
-        let field_name = Expression {
-            id: ids.next("expr"),
-            value_type: BhcpType::Primitive("Text"),
-            form: ExpressionForm::Literal(Value::Text(argument.source.clone())),
-        };
-        let value = Expression {
-            id: ids.next("expr"),
-            value_type: field.value_type.clone(),
-            form: ExpressionForm::Call("bhcp/kernel.parent-field@0".to_owned(), vec![field_name]),
-        };
         let mode = kernel_argument_mode(argument.mode);
+        let value = if argument.source == "<expression>" {
+            let value = lower_gate_condition(&argument.value, parent_input, source_name, ids)?;
+            if !data_edge_type_compatible(&value.value_type, &field.value_type, mode) {
+                return Err(error(
+                    "BHCP2003",
+                    "gate expression does not match the child input type",
+                    source_name,
+                    &argument.at,
+                ));
+            }
+            value
+        } else {
+            let Some(parent_field) = parent_fields
+                .iter()
+                .find(|parent_field| parent_field.name == argument.source)
+            else {
+                return Err(error(
+                    "BHCP2001",
+                    format!(
+                        "gate argument source {:?} is not a parent input",
+                        argument.source
+                    ),
+                    source_name,
+                    &argument.at,
+                ));
+            };
+            if !data_edge_type_compatible(&parent_field.value_type, &field.value_type, mode) {
+                return Err(error(
+                    "BHCP2003",
+                    "gate parent input does not match the child input type",
+                    source_name,
+                    &argument.at,
+                ));
+            }
+            let field_name = Expression {
+                id: ids.next("expr"),
+                value_type: BhcpType::Primitive("Text"),
+                form: ExpressionForm::Literal(Value::Text(argument.source.clone())),
+            };
+            Expression {
+                id: ids.next("expr"),
+                value_type: field.value_type.clone(),
+                form: ExpressionForm::Call(
+                    "bhcp/kernel.parent-field@0".to_owned(),
+                    vec![field_name],
+                ),
+            }
+        };
         lowered.push(KernelArgument {
             name: argument.name.clone(),
             mode,
@@ -3096,18 +3185,16 @@ fn lower_gate_condition(
             at,
         } => {
             let operand = lower_gate_condition(operand, parent, source_name, ids)?;
-            let accepted = (operator == "!" && operand.value_type == BhcpType::Primitive("Bool"))
-                || (operator == "-" && operand.value_type == BhcpType::ExactNumber("Integer"));
-            if !accepted {
+            let Some(value_type) = closed_unary_result_type(operator, &operand.value_type) else {
                 return Err(error(
                     "BHCP2003",
                     "gate unary condition must preserve Bool",
                     source_name,
                     at,
                 ));
-            }
+            };
             (
-                operand.value_type.clone(),
+                value_type,
                 ExpressionForm::Unary(operator.clone(), Box::new(operand)),
             )
         }
@@ -3119,27 +3206,8 @@ fn lower_gate_condition(
         } => {
             let left = lower_gate_condition(left, parent, source_name, ids)?;
             let right = lower_gate_condition(right, parent, source_name, ids)?;
-            let value_type = match operator.as_str() {
-                "==" | "!=" if left.value_type == right.value_type => {
-                    Some(BhcpType::Primitive("Bool"))
-                }
-                "<" | "<=" | ">" | ">="
-                    if left.value_type == BhcpType::ExactNumber("Integer")
-                        && right.value_type == left.value_type =>
-                {
-                    Some(BhcpType::Primitive("Bool"))
-                }
-                "&&" | "||" => (left.value_type == BhcpType::Primitive("Bool")
-                    && right.value_type == BhcpType::Primitive("Bool"))
-                .then_some(BhcpType::Primitive("Bool")),
-                "+" | "-" | "*" | "/" | "%"
-                    if left.value_type == BhcpType::ExactNumber("Integer")
-                        && right.value_type == left.value_type =>
-                {
-                    Some(left.value_type.clone())
-                }
-                _ => None,
-            };
+            let value_type =
+                closed_binary_result_type(operator, &left.value_type, &right.value_type);
             let Some(value_type) = value_type else {
                 return Err(error(
                     "BHCP2003",

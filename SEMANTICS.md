@@ -700,7 +700,10 @@ semantic hashing. A verifier-backed or runtime-only domain is rejected as
 composition input; bounded or well-founded recursive goals express traversal of a
 runtime collection without adding a dynamic-family kernel primitive. A recursive
 child reference MUST carry its own static bound or checker-accepted well-founded
-decreasing measure. Unbounded recursion is rejected.
+decreasing measure. For an Integer subtraction measure, retained requirements and
+an applicable gate guard MUST prove that the child measure remains non-negative;
+merely proving that the parent is positive is insufficient for a larger step.
+Unbounded recursion is rejected.
 
 ### S8.2 Semantic self-hosting
 
@@ -842,7 +845,9 @@ forbidden. Storage captures an owned value or a policy-approved persistent share
 MUST NOT retain an expired borrow.
 
 **Implementation status:** direct recursive child calls require a positive retained
-static bound or a checker-accepted decreasing non-negative Integer measure. That
+static bound or a checker-accepted decreasing non-negative Integer measure. The
+checker proves the subtraction step fits a retained lower bound from requirements
+or a direct Unit-output recursive gate guard. That
 evidence is attached to the exact child, revalidated with received semantic IR, and
 materialized as a deterministic open limit node in the obligation graph. The
 versioned standard-prelude retention lowerer and reducer operate only over ordinary

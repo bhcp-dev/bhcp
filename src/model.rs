@@ -1580,7 +1580,7 @@ impl SemanticIrDocument {
                 .iter()
                 .find(|function| function.symbol == network.reducer)
                 .expect("reducer resolution was checked above");
-            validate_recursion_evidence(parent, network)?;
+            validate_recursion_evidence(parent, network, reducer)?;
             validate_network_arguments(parent, network, &self.goals)?;
             validate_retention_network(parent, network)?;
             let mut observation_fields = Vec::with_capacity(network.children.len());
@@ -1929,35 +1929,14 @@ fn validate_closed_parent_data_edge(
             Ok(())
         }
         ExpressionForm::Unary(operator, operand)
-            if ((operator == "-" && expression.value_type == BhcpType::ExactNumber("Integer"))
-                || (operator == "!" && expression.value_type == BhcpType::Primitive("Bool")))
-                && operand.value_type == expression.value_type =>
+            if closed_unary_result_type(operator, &operand.value_type)
+                == Some(expression.value_type.clone()) =>
         {
             validate_closed_parent_data_edge(operand, parent_input)
         }
         ExpressionForm::Binary(operator, left, right) => {
-            let valid = match operator.as_str() {
-                "+" | "-" | "*" | "/" | "%" => {
-                    expression.value_type == BhcpType::ExactNumber("Integer")
-                        && left.value_type == expression.value_type
-                        && right.value_type == expression.value_type
-                }
-                "<" | "<=" | ">" | ">=" => {
-                    left.value_type == BhcpType::ExactNumber("Integer")
-                        && right.value_type == left.value_type
-                        && expression.value_type == BhcpType::Primitive("Bool")
-                }
-                "==" | "!=" => {
-                    left.value_type == right.value_type
-                        && expression.value_type == BhcpType::Primitive("Bool")
-                }
-                "&&" | "||" => {
-                    left.value_type == BhcpType::Primitive("Bool")
-                        && right.value_type == left.value_type
-                        && expression.value_type == left.value_type
-                }
-                _ => false,
-            };
+            let valid = closed_binary_result_type(operator, &left.value_type, &right.value_type)
+                == Some(expression.value_type.clone());
             if !valid {
                 return Err(Diagnostic::plain(
                     "BHCP4001",
@@ -1988,7 +1967,143 @@ fn validate_closed_parent_data_edge(
     }
 }
 
-fn validate_recursion_evidence(parent: &GoalDefinition, network: &KernelNetwork) -> Result<()> {
+pub(crate) fn closed_unary_result_type(operator: &str, operand: &BhcpType) -> Option<BhcpType> {
+    match operator {
+        "-" if operand == &BhcpType::ExactNumber("Integer") => Some(operand.clone()),
+        "!" if operand == &BhcpType::Primitive("Bool") => Some(operand.clone()),
+        _ => None,
+    }
+}
+
+pub(crate) fn closed_binary_result_type(
+    operator: &str,
+    left: &BhcpType,
+    right: &BhcpType,
+) -> Option<BhcpType> {
+    match operator {
+        "+" | "-" | "*" | "/" | "%"
+            if left == &BhcpType::ExactNumber("Integer") && right == left =>
+        {
+            Some(left.clone())
+        }
+        "<" | "<=" | ">" | ">=" if left == &BhcpType::ExactNumber("Integer") && right == left => {
+            Some(BhcpType::Primitive("Bool"))
+        }
+        "==" | "!=" if left == right => Some(BhcpType::Primitive("Bool")),
+        "&&" | "||" if left == &BhcpType::Primitive("Bool") && right == left => {
+            Some(BhcpType::Primitive("Bool"))
+        }
+        _ => None,
+    }
+}
+
+pub(crate) fn evaluate_closed_expression<F>(
+    expression: &Expression,
+    resolve_call: &mut F,
+) -> std::result::Result<Value, &'static str>
+where
+    F: FnMut(&str, &[Expression]) -> std::result::Result<Value, &'static str>,
+{
+    match &expression.form {
+        ExpressionForm::Literal(value) => Ok(value.clone()),
+        ExpressionForm::Call(symbol, parameters) => resolve_call(symbol, parameters),
+        ExpressionForm::Unary(operator, operand) => {
+            let value = evaluate_closed_expression(operand, resolve_call)?;
+            match (operator.as_str(), value) {
+                ("!", Value::Bool(value)) => Ok(Value::Bool(!value)),
+                ("-", value) => {
+                    let integer = closed_integer(&value).ok_or("unary data edge is not Integer")?;
+                    Ok(closed_integer_value(
+                        integer
+                            .checked_neg()
+                            .ok_or("unary data edge overflows Integer")?,
+                    ))
+                }
+                _ => Err("unary data edge violates its checked type"),
+            }
+        }
+        ExpressionForm::Binary(operator, left, right) => {
+            let left = evaluate_closed_expression(left, resolve_call)?;
+            let right = evaluate_closed_expression(right, resolve_call)?;
+            match operator.as_str() {
+                "==" => Ok(Value::Bool(left == right)),
+                "!=" => Ok(Value::Bool(left != right)),
+                "&&" | "||" => {
+                    let (Value::Bool(left), Value::Bool(right)) = (left, right) else {
+                        return Err("Boolean data edge is not Bool");
+                    };
+                    Ok(Value::Bool(if operator == "&&" {
+                        left && right
+                    } else {
+                        left || right
+                    }))
+                }
+                "<" | "<=" | ">" | ">=" => {
+                    let left =
+                        closed_integer(&left).ok_or("comparison data edge is not Integer")?;
+                    let right =
+                        closed_integer(&right).ok_or("comparison data edge is not Integer")?;
+                    Ok(Value::Bool(match operator.as_str() {
+                        "<" => left < right,
+                        "<=" => left <= right,
+                        ">" => left > right,
+                        ">=" => left >= right,
+                        _ => unreachable!(),
+                    }))
+                }
+                "+" | "-" | "*" | "/" | "%" => {
+                    let left =
+                        closed_integer(&left).ok_or("arithmetic data edge is not Integer")?;
+                    let right =
+                        closed_integer(&right).ok_or("arithmetic data edge is not Integer")?;
+                    let value = match operator.as_str() {
+                        "+" => left.checked_add(right),
+                        "-" => left.checked_sub(right),
+                        "*" => left.checked_mul(right),
+                        "/" if right != 0 && left % right == 0 => left.checked_div(right),
+                        "%" if right != 0 => left.checked_rem(right),
+                        _ => None,
+                    }
+                    .ok_or("arithmetic data edge is not total")?;
+                    Ok(closed_integer_value(value))
+                }
+                _ => Err("binary data edge operator is unsupported"),
+            }
+        }
+        ExpressionForm::If(condition, consequent, alternative) => {
+            let condition = evaluate_closed_expression(condition, resolve_call)?;
+            match condition {
+                Value::Bool(true) => evaluate_closed_expression(consequent, resolve_call),
+                Value::Bool(false) => evaluate_closed_expression(alternative, resolve_call),
+                _ => Err("conditional data edge condition is not Bool"),
+            }
+        }
+        ExpressionForm::Reference(_) => Err("closed data edge contains a free reference"),
+    }
+}
+
+fn closed_integer(value: &Value) -> Option<i128> {
+    let Value::Array(values) = value else {
+        return None;
+    };
+    match values.as_slice() {
+        [Value::Text(kind), Value::Integer(value)] if kind == "integer" => Some(*value),
+        _ => None,
+    }
+}
+
+fn closed_integer_value(value: i128) -> Value {
+    Value::Array(vec![
+        Value::Text("integer".to_owned()),
+        Value::Integer(value),
+    ])
+}
+
+fn validate_recursion_evidence(
+    parent: &GoalDefinition,
+    network: &KernelNetwork,
+    reducer: &FunctionDefinition,
+) -> Result<()> {
     for child in &network.children {
         let recursive = child.goal == parent.id;
         match (recursive, &child.recursion) {
@@ -2014,7 +2129,7 @@ fn validate_recursion_evidence(parent: &GoalDefinition, network: &KernelNetwork)
                 }
             }
             (true, Some(crate::kernel::RecursionBound::WellFounded { measure })) => {
-                if !retained_decreasing_measure(parent, child, measure) {
+                if !retained_decreasing_measure(parent, child, measure, reducer) {
                     return Err(Diagnostic::plain(
                         "BHCP4001",
                         "recursive child measure does not match retained checker evidence",
@@ -2141,6 +2256,7 @@ fn retained_decreasing_measure(
     parent: &GoalDefinition,
     child: &crate::kernel::KernelChild,
     measure: &Expression,
+    reducer: &FunctionDefinition,
 ) -> bool {
     let ExpressionForm::Binary(operator, left, right) = &measure.form else {
         return false;
@@ -2168,37 +2284,83 @@ fn retained_decreasing_measure(
     {
         return false;
     }
-    parent.clauses.iter().any(|clause| {
-        let ClauseKind::Contract {
-            kind: "requires",
-            condition,
-            ..
-        } = &clause.kind
-        else {
-            return false;
-        };
-        nonnegative_condition(condition, binding)
-    })
+    let required_bound = parent
+        .clauses
+        .iter()
+        .filter_map(|clause| {
+            let ClauseKind::Contract {
+                kind: "requires",
+                condition,
+                ..
+            } = &clause.kind
+            else {
+                return None;
+            };
+            retained_lower_bound(condition, |expression| {
+                matches!(&expression.form, ExpressionForm::Reference(id) if id == binding)
+            })
+        })
+        .max();
+    let guard_bound = retained_recursive_gate_condition(reducer).and_then(|condition| {
+        retained_lower_bound(condition, |expression| {
+            parent_field_coordinate(expression) == Some(name)
+        })
+    });
+    required_bound
+        .into_iter()
+        .chain(guard_bound)
+        .max()
+        .is_some_and(|bound| bound >= *step)
 }
 
-fn nonnegative_condition(condition: &Expression, binding: &str) -> bool {
-    let ExpressionForm::Binary(operator, left, right) = &condition.form else {
-        return false;
+fn retained_recursive_gate_condition(reducer: &FunctionDefinition) -> Option<&Expression> {
+    if !reducer
+        .symbol
+        .starts_with("bhcp/prelude.recursive-gate-reducer-")
+    {
+        return None;
+    }
+    let ExpressionForm::If(condition, _, _) = &reducer.definition.form else {
+        return None;
     };
-    (operator == "<"
-        && exact_zero(left)
-        && matches!(&right.form, ExpressionForm::Reference(id) if id == binding))
-        || (operator == ">"
-            && matches!(&left.form, ExpressionForm::Reference(id) if id == binding)
-            && exact_zero(right))
+    Some(condition)
 }
 
-fn exact_zero(expression: &Expression) -> bool {
-    matches!(
-        &expression.form,
-        ExpressionForm::Literal(Value::Array(values))
-            if matches!(values.as_slice(), [Value::Text(kind), Value::Integer(0)] if kind == "integer")
-    )
+fn retained_lower_bound(
+    condition: &Expression,
+    coordinate: impl Copy + Fn(&Expression) -> bool,
+) -> Option<i128> {
+    let ExpressionForm::Binary(operator, left, right) = &condition.form else {
+        return None;
+    };
+    match operator.as_str() {
+        ">=" if coordinate(left) => exact_integer_literal(right),
+        ">" if coordinate(left) => exact_integer_literal(right)?.checked_add(1),
+        "<=" if coordinate(right) => exact_integer_literal(left),
+        "<" if coordinate(right) => exact_integer_literal(left)?.checked_add(1),
+        "&&" => match (
+            retained_lower_bound(left, coordinate),
+            retained_lower_bound(right, coordinate),
+        ) {
+            (Some(left), Some(right)) => Some(left.max(right)),
+            (bound @ Some(_), None) | (None, bound @ Some(_)) => bound,
+            (None, None) => None,
+        },
+        "||" => Some(
+            retained_lower_bound(left, coordinate)?.min(retained_lower_bound(right, coordinate)?),
+        ),
+        _ => None,
+    }
+}
+
+fn exact_integer_literal(expression: &Expression) -> Option<i128> {
+    let ExpressionForm::Literal(Value::Array(values)) = &expression.form else {
+        return None;
+    };
+    match values.as_slice() {
+        [Value::Text(kind), Value::Integer(value)] if kind == "integer" => Some(*value),
+        _ => None,
+    }
 }
 
 fn parent_binding_name<'a>(parent: &'a GoalDefinition, id: &str) -> Option<&'a str> {
