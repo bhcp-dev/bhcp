@@ -1,5 +1,6 @@
 pub mod adapter;
 pub mod cbor;
+mod definition;
 pub mod diagnostic;
 pub mod experiment;
 pub mod experiment_codex;

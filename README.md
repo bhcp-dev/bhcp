@@ -13,8 +13,8 @@ checks exact and machine values, generic bounds, refinements, nominal/structural
 subtyping, and explicit `Dynamic` boundaries, and materializes checked `§type`
 definitions in semantic IR. Canonical artifacts use deterministic CBOR and
 algorithm-tagged semantic or artifact identities. It is not yet a complete v0
-front end, planner, runtime, or SDK: source-level expression/function/predicate
-elaboration, ownership/effects, and graph construction remain roadmap work.
+front end, planner, runtime, or SDK: source-expression forms beyond the currently
+parsed slice, ownership/effects, and graph construction remain roadmap work.
 
 ## Start here
 
@@ -116,8 +116,12 @@ nominal `§refines` edges now pass through the closed v0 value/type checker and 
 semantic IR with normalized types, deterministic IDs, generic-bound checks, and
 semantic identity sensitivity. Refinement introduction evaluates the checked total
 comparison/Boolean subset and binds its evidence to both the normalized predicate
-and exact candidate value; arithmetic and general function/predicate elaboration
-remain the next definition-stage boundary. Exact integers cover the complete
+and exact candidate value. General functions and predicates over the parsed
+expression slice now resolve forward references through a closed definition graph,
+infer bounded generic arguments, emit only deterministic concrete specializations,
+and enter semantic IR in symbol order. Unused generic templates are still checked;
+cycles, unresolved or ambient calls, inconsistent inference, bound failures, and
+result mismatches fail before IR with `BHCP4301`. Exact integers cover the complete
 deterministic-CBOR `int` domain, including unsigned values above `i64::MAX`.
 Independently of that still-partial source lowering, the closed v0 wire expression
 checker covers every S5 expression and pattern form. It validates the complete tree
@@ -128,6 +132,11 @@ bindings; and makes selection, casts, division, and overflow fault explicitly.
 Pure calls resolve only through retained acyclic checked definitions. Quantifiers
 use a static finite list/set or an exact finite-domain witness attached to a closed
 verifier binding; neither path can invoke an ambient callback.
+Predicate verifier arguments lower in canonical name order to a closed typed input
+record plus retained mode/expression configuration. Argument order is not semantic;
+the verifier symbol, types, modes, expressions, evidence output, and trust
+restrictions are. A verifier-only predicate remains a declarative evidence boundary,
+not a callable host implementation.
 The same parser boundary now accepts complete S7 goal headers and clause ordering:
 generic/refinement declarations, all four fact kinds and initializers, invariants,
 limits, authority, preferences, verifier arguments, executable cases, standalone
@@ -137,8 +146,8 @@ before executable IR until their checker, ownership/effect, and recursion stages
 
 | Canonical definition | Implemented source slice | Explicitly deferred |
 | --- | --- | --- |
-| `§goal` / `§function` | Complete goal and general-function parsing/AST construction plus the checked executable goal/prelude-function slice described above | General checking/lowering, finite-domain proof, ownership/effects, cases, and recursion semantics |
-| `§type` / `§predicate` / `§refines` | Complete parsing plus checked `§type`/nominal-refinement lowering: every v0 wire form normalizes, local generic applications enforce arity/bounds, the total comparison/Boolean refinement subset produces candidate-bound evidence, and definitions materialize in semantic IR | Refinement arithmetic and general function/predicate name resolution, expression elaboration, and their executable IR definitions |
+| `§goal` / `§function` | Complete goal and general-function parsing/AST construction; parsed pure function bodies resolve deterministically, type-check, infer bounded generics, monomorphize, and materialize beside the checked executable goal/prelude-function slice | Source-expression grammar beyond the current parsed slice, finite-domain proof, ownership/effects, cases, and recursion semantics |
+| `§type` / `§predicate` / `§refines` | Complete parsing plus checked type/refinement lowering and parsed predicate elaboration: every v0 wire type normalizes, local generics enforce arity/bounds, total refinements retain candidate-bound evidence, and canonical predicate verifier interfaces/configuration materialize in semantic IR | Source-expression grammar beyond the current parsed slice and its complete source-to-IR audit |
 | `§policy` | Complete canonical source parsing for layer, `§extends`, six closed typed rules, scopes/parameters, waivability, and issuers; composition, inspection, policy-aware elaboration, and no-waiver conformance fixtures | Expression-valued policy clauses and enforcement beyond the compile-time/evidence boundary |
 | `§syntax` / `§profile` | Complete closed source-definition parsing into typed deterministic artifacts; fixed byte-level selection, exact one-parent resolution, monotonic attached overlays, resolved-profile inspection, span-aware custom-source compilation, and deterministic profile-aware formatting | Applying newly parsed definitions as source-local registry inputs remains the profile-lowering stage |
 | `§waiver` / `§extension` | Complete closed source-definition parsing for all six typed waiver changes, canonical scopes/targets, authority/time fields, and wire-compatible derived/native descriptors; materialized references round-trip through the v0 wire boundary while frozen exact-symbol references remain deferred | Resolving symbolic artifact references, waiver application, and extension checking/lowering remain governed semantic stages |
@@ -360,6 +369,11 @@ Canonical BHCP source declares a verifier's symbol, typed input/output evidence,
 trust restrictions, and obligation targets. A project's `bhcp-project.toml` may bind
 that symbol to a narrower local process envelope without turning a contract string
 into a command:
+
+For predicate bindings, named source arguments are normalized before expression-ID
+allocation. Semantic IR retains their closed input record and each argument's mode
+and checked expression as configuration; changing source order alone cannot change
+semantic identity, while changing any retained coordinate does.
 
 ```toml
 [[verifier_adapter]]

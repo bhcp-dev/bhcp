@@ -182,8 +182,18 @@ model; this evidence does not claim those downstream stages are complete.
 calculus boundary. Its tables cover every expression constructor and pattern form,
 both finite-quantifier paths, exact-number families, checked machine overflow,
 invalid selection, failed casts, non-exhaustive matching, duplicate identities, and
-unknown or recursively registered calls. Source definition resolution and complete
-semantic-IR lowering remain separate downstream conformance work.
+unknown or recursively registered calls. Complete canonical source-expression parsing
+and the full source-to-IR audit remain separate downstream conformance work.
+
+`tests/function_predicate_elaboration.rs` connects that closed calculus to parsed
+source definitions for the TYP-06, EXP-02, and EVD boundaries. It proves deterministic
+forward resolution, registration-order-independent identity, bounded generic
+inference and concrete specialization, validation of unused templates, retained
+refinement evidence requirements, canonical predicate verifier input/configuration,
+and fail-closed cycles, ambient calls, mismatches, inconsistent inference, bound
+failures, and incomplete predicates. Verifier argument order normalizes away while
+mode changes remain semantic. Source-expression syntax outside the currently parsed
+slice and the full source-to-IR completion ledger remain later conformance work.
 
 ## Verification and evidence
 

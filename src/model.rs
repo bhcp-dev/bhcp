@@ -1,10 +1,11 @@
-use std::collections::HashSet;
+use std::collections::{BTreeMap, BTreeSet, HashSet};
 
 use crate::diagnostic::{Diagnostic, Result};
+use crate::expression::CheckedExpression;
 use crate::hash::{HashAlgorithm, SHA3_512};
 use crate::kernel::KernelNetwork;
 use crate::policy::TypeMode;
-use crate::typecheck::CheckedTypeDefinition;
+use crate::typecheck::{CheckedType, CheckedTypeDefinition};
 use crate::value::Value;
 
 pub const BASE_FEATURE: &str = "bhcp/feature.canonical-simple-goal@0";
@@ -434,20 +435,25 @@ impl Expression {
             ("form", form),
         ])
     }
-    fn validate(&self, ids: &mut HashSet<String>, references: &mut Vec<String>) -> Result<()> {
+    fn validate(
+        &self,
+        ids: &mut HashSet<String>,
+        references: &mut Vec<String>,
+        calls: &mut Vec<String>,
+    ) -> Result<()> {
         add_id(&self.id, ids)?;
         match &self.form {
             ExpressionForm::Literal(_) => {}
             ExpressionForm::Reference(id) => references.push(id.clone()),
-            ExpressionForm::Unary(_, operand) => operand.validate(ids, references)?,
+            ExpressionForm::Unary(_, operand) => operand.validate(ids, references, calls)?,
             ExpressionForm::Binary(_, left, right) => {
-                left.validate(ids, references)?;
-                right.validate(ids, references)?;
+                left.validate(ids, references, calls)?;
+                right.validate(ids, references, calls)?;
             }
             ExpressionForm::If(condition, consequent, alternative) => {
-                condition.validate(ids, references)?;
-                consequent.validate(ids, references)?;
-                alternative.validate(ids, references)?;
+                condition.validate(ids, references, calls)?;
+                consequent.validate(ids, references, calls)?;
+                alternative.validate(ids, references, calls)?;
             }
             ExpressionForm::Call(function, arguments) => {
                 if !is_symbol(function) {
@@ -456,8 +462,9 @@ impl Expression {
                         "called function is not a symbol-id",
                     ));
                 }
+                calls.push(function.clone());
                 for argument in arguments {
-                    argument.validate(ids, references)?;
+                    argument.validate(ids, references, calls)?;
                 }
             }
         }
@@ -742,6 +749,112 @@ pub struct FunctionDefinition {
     pub definition: Expression,
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PureBinding {
+    pub(crate) id: String,
+    pub(crate) name: String,
+    pub(crate) value_type: CheckedType,
+}
+
+impl PureBinding {
+    fn to_value(&self) -> Value {
+        Value::map([
+            ("id", Value::Text(self.id.clone())),
+            ("name", Value::Text(self.name.clone())),
+            ("type", self.value_type.to_value()),
+        ])
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PureFunctionDefinition {
+    pub(crate) id: String,
+    pub(crate) symbol: String,
+    pub(crate) parameters: Vec<PureBinding>,
+    pub(crate) result: CheckedType,
+    pub(crate) definition: CheckedExpression,
+}
+
+impl PureFunctionDefinition {
+    fn to_value(&self) -> Value {
+        Value::map([
+            ("id", Value::Text(self.id.clone())),
+            ("symbol", Value::Text(self.symbol.clone())),
+            (
+                "parameters",
+                Value::Array(self.parameters.iter().map(PureBinding::to_value).collect()),
+            ),
+            ("result", self.result.to_value()),
+            ("definition", self.definition.to_value()),
+        ])
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PredicateVerifierBinding {
+    pub(crate) verifier: String,
+    pub(crate) input: CheckedType,
+    pub(crate) output: CheckedType,
+    pub(crate) configuration: Option<Value>,
+    pub(crate) trust: Vec<String>,
+}
+
+impl PredicateVerifierBinding {
+    fn to_value(&self) -> Value {
+        let mut entries = vec![
+            ("verifier".to_owned(), Value::Text(self.verifier.clone())),
+            ("input".to_owned(), self.input.to_value()),
+            ("output".to_owned(), self.output.to_value()),
+        ];
+        if let Some(configuration) = &self.configuration {
+            entries.push(("configuration".to_owned(), configuration.clone()));
+        }
+        if !self.trust.is_empty() {
+            entries.push((
+                "trust".to_owned(),
+                Value::Array(self.trust.iter().cloned().map(Value::Text).collect()),
+            ));
+        }
+        Value::owned_map(entries)
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PredicateDefinition {
+    pub(crate) id: String,
+    pub(crate) symbol: String,
+    pub(crate) parameters: Vec<PureBinding>,
+    pub(crate) definition: Option<CheckedExpression>,
+    pub(crate) verifier: Option<PredicateVerifierBinding>,
+}
+
+impl PredicateDefinition {
+    fn to_value(&self) -> Value {
+        let mut entries = vec![
+            ("id".to_owned(), Value::Text(self.id.clone())),
+            ("symbol".to_owned(), Value::Text(self.symbol.clone())),
+            (
+                "parameters".to_owned(),
+                Value::Array(self.parameters.iter().map(PureBinding::to_value).collect()),
+            ),
+            (
+                "result".to_owned(),
+                Value::Array(vec![
+                    Value::Text("primitive".to_owned()),
+                    Value::Text("Bool".to_owned()),
+                ]),
+            ),
+        ];
+        if let Some(definition) = &self.definition {
+            entries.push(("definition".to_owned(), definition.to_value()));
+        }
+        if let Some(verifier) = &self.verifier {
+            entries.push(("verifier".to_owned(), verifier.to_value()));
+        }
+        Value::owned_map(entries)
+    }
+}
+
 impl FunctionDefinition {
     fn to_value(&self) -> Value {
         Value::map([
@@ -763,6 +876,8 @@ pub struct SemanticIrDocument {
     pub type_mode: TypeMode,
     pub types: Vec<CheckedTypeDefinition>,
     pub functions: Vec<FunctionDefinition>,
+    pub pure_functions: Vec<PureFunctionDefinition>,
+    pub predicates: Vec<PredicateDefinition>,
     pub goals: Vec<GoalDefinition>,
     pub entrypoints: Vec<String>,
     pub effective_policy: Option<EffectivePolicyReference>,
@@ -805,10 +920,23 @@ impl SemanticIrDocument {
                     self.functions
                         .iter()
                         .map(FunctionDefinition::to_value)
+                        .chain(
+                            self.pure_functions
+                                .iter()
+                                .map(PureFunctionDefinition::to_value),
+                        )
                         .collect(),
                 ),
             ),
-            ("predicates".to_owned(), Value::Array(vec![])),
+            (
+                "predicates".to_owned(),
+                Value::Array(
+                    self.predicates
+                        .iter()
+                        .map(PredicateDefinition::to_value)
+                        .collect(),
+                ),
+            ),
             (
                 "goals".to_owned(),
                 Value::Array(
@@ -845,6 +973,7 @@ impl SemanticIrDocument {
         }
         let mut ids = HashSet::new();
         let mut references = Vec::new();
+        let mut function_calls = Vec::new();
         let mut goals = HashSet::new();
         let mut child_goals = Vec::new();
         let mut function_symbols = HashSet::new();
@@ -880,8 +1009,108 @@ impl SemanticIrDocument {
                     "function definition type does not match its result type",
                 ));
             }
-            function.definition.validate(&mut ids, &mut references)?;
+            function
+                .definition
+                .validate(&mut ids, &mut references, &mut function_calls)?;
         }
+        let mut pure_dependencies = BTreeMap::<String, BTreeSet<String>>::new();
+        for function in &self.pure_functions {
+            add_id(&function.id, &mut ids)?;
+            if !is_symbol(&function.symbol) || !function_symbols.insert(function.symbol.clone()) {
+                return Err(Diagnostic::plain(
+                    "BHCP4001",
+                    "function symbols must be unique symbol-ids",
+                ));
+            }
+            for parameter in &function.parameters {
+                add_id(&parameter.id, &mut ids)?;
+            }
+            if function.definition.value_type() != &function.result {
+                return Err(Diagnostic::plain(
+                    "BHCP4001",
+                    "pure function definition type does not match its result type",
+                ));
+            }
+            let mut calls = BTreeSet::new();
+            collect_checked_expression(
+                &function.definition.to_value(),
+                &mut ids,
+                &mut references,
+                &mut calls,
+            )?;
+            pure_dependencies.insert(function.symbol.clone(), calls);
+        }
+        let bool_type = CheckedType::from_value(&Value::Array(vec![
+            Value::Text("primitive".to_owned()),
+            Value::Text("Bool".to_owned()),
+        ]))?;
+        for predicate in &self.predicates {
+            add_id(&predicate.id, &mut ids)?;
+            if !is_symbol(&predicate.symbol) || !function_symbols.insert(predicate.symbol.clone()) {
+                return Err(Diagnostic::plain(
+                    "BHCP4001",
+                    "predicate symbols must be unique symbol-ids",
+                ));
+            }
+            for parameter in &predicate.parameters {
+                add_id(&parameter.id, &mut ids)?;
+            }
+            if predicate.definition.is_none() && predicate.verifier.is_none() {
+                return Err(Diagnostic::plain(
+                    "BHCP4001",
+                    "predicate requires a definition or verifier binding",
+                ));
+            }
+            let mut calls = BTreeSet::new();
+            if let Some(definition) = &predicate.definition {
+                if definition.value_type() != &bool_type {
+                    return Err(Diagnostic::plain(
+                        "BHCP4001",
+                        "predicate definition must return Bool",
+                    ));
+                }
+                collect_checked_expression(
+                    &definition.to_value(),
+                    &mut ids,
+                    &mut references,
+                    &mut calls,
+                )?;
+            }
+            if let Some(binding) = &predicate.verifier
+                && (!is_symbol(&binding.verifier)
+                    || !matches!(binding.output.to_value(), Value::Array(ref values) if values.first() == Some(&Value::Text("evidence".to_owned())))
+                    || binding.trust.iter().any(|class| !is_evidence_class(class))
+                    || !is_normalized(&binding.trust))
+            {
+                return Err(Diagnostic::plain(
+                    "BHCP4001",
+                    "predicate verifier binding has an invalid typed interface",
+                ));
+            }
+            if let Some(binding) = &predicate.verifier {
+                validate_predicate_verifier_configuration(
+                    binding,
+                    &mut ids,
+                    &mut references,
+                    &mut calls,
+                )?;
+            }
+            if predicate.definition.is_some() {
+                pure_dependencies.insert(predicate.symbol.clone(), calls);
+            }
+        }
+        for dependencies in pure_dependencies.values() {
+            if dependencies
+                .iter()
+                .any(|symbol| !pure_dependencies.contains_key(symbol))
+            {
+                return Err(Diagnostic::plain(
+                    "BHCP4001",
+                    "pure definition call does not resolve to a retained definition",
+                ));
+            }
+        }
+        validate_acyclic_definitions(&pure_dependencies)?;
         for goal in &self.goals {
             add_id(&goal.id, &mut ids)?;
             goals.insert(goal.id.clone());
@@ -926,7 +1155,7 @@ impl SemanticIrDocument {
                                 "only a contract limit may carry a symbol-id dimension",
                             ));
                         }
-                        condition.validate(&mut ids, &mut references)?
+                        condition.validate(&mut ids, &mut references, &mut function_calls)?
                     }
                     ClauseKind::Authority { effects, .. } => {
                         for effect in effects {
@@ -942,7 +1171,7 @@ impl SemanticIrDocument {
                         }
                     }
                     ClauseKind::Preference { objective, .. } => {
-                        objective.validate(&mut ids, &mut references)?
+                        objective.validate(&mut ids, &mut references, &mut function_calls)?
                     }
                     ClauseKind::Verify {
                         binding,
@@ -990,7 +1219,9 @@ impl SemanticIrDocument {
                     add_id(&child.id, &mut ids)?;
                     child_goals.push(child.goal.clone());
                     for argument in &child.arguments {
-                        argument.value.validate(&mut ids, &mut references)?;
+                        argument
+                            .value
+                            .validate(&mut ids, &mut references, &mut function_calls)?;
                     }
                 }
             }
@@ -999,6 +1230,15 @@ impl SemanticIrDocument {
             return Err(Diagnostic::plain(
                 "BHCP4001",
                 "IR reference does not resolve to a structural ID",
+            ));
+        }
+        if function_calls
+            .iter()
+            .any(|call| !function_symbols.contains(call) && !is_registered_kernel_primitive(call))
+        {
+            return Err(Diagnostic::plain(
+                "BHCP4001",
+                "IR function call does not resolve to a retained definition or closed kernel primitive",
             ));
         }
         if self
@@ -1071,6 +1311,151 @@ impl SemanticIrDocument {
         }
         Ok(())
     }
+}
+
+fn collect_checked_expression(
+    value: &Value,
+    ids: &mut HashSet<String>,
+    references: &mut Vec<String>,
+    calls: &mut BTreeSet<String>,
+) -> Result<()> {
+    if let Value::Map(entries) = value
+        && value.get("type").is_some()
+        && let Some(Value::Text(id)) = value.get("id")
+    {
+        add_id(id, ids)?;
+        for (_, nested) in entries {
+            collect_checked_expression(nested, ids, references, calls)?;
+        }
+        return Ok(());
+    }
+    if let Value::Array(values) = value {
+        match values.as_slice() {
+            [Value::Text(tag), Value::Text(reference)] if tag == "reference" => {
+                references.push(reference.clone());
+            }
+            [Value::Text(tag), Value::Text(symbol), Value::Array(_)] if tag == "call" => {
+                calls.insert(symbol.clone());
+            }
+            _ => {}
+        }
+        for nested in values {
+            collect_checked_expression(nested, ids, references, calls)?;
+        }
+    } else if let Value::Map(entries) = value {
+        for (_, nested) in entries {
+            collect_checked_expression(nested, ids, references, calls)?;
+        }
+    } else if let Value::Tag(_, nested) = value {
+        collect_checked_expression(nested, ids, references, calls)?;
+    }
+    Ok(())
+}
+
+fn validate_predicate_verifier_configuration(
+    binding: &PredicateVerifierBinding,
+    ids: &mut HashSet<String>,
+    references: &mut Vec<String>,
+    calls: &mut BTreeSet<String>,
+) -> Result<()> {
+    let arguments = match &binding.configuration {
+        None => &[][..],
+        Some(Value::Array(arguments)) => arguments.as_slice(),
+        Some(_) => {
+            return Err(Diagnostic::plain(
+                "BHCP4001",
+                "predicate verifier configuration must be a canonical argument array",
+            ));
+        }
+    };
+    let mut previous = None;
+    let mut fields = Vec::with_capacity(arguments.len());
+    for argument in arguments {
+        let Value::Map(entries) = argument else {
+            return Err(Diagnostic::plain(
+                "BHCP4001",
+                "predicate verifier argument must be a closed map",
+            ));
+        };
+        let (Some(Value::Text(name)), Some(Value::Text(mode)), Some(value)) = (
+            argument.get("name"),
+            argument.get("mode"),
+            argument.get("value"),
+        ) else {
+            return Err(Diagnostic::plain(
+                "BHCP4001",
+                "predicate verifier argument is incomplete",
+            ));
+        };
+        if entries.len() != 3
+            || name.is_empty()
+            || !matches!(mode.as_str(), "value" | "move" | "borrow" | "share")
+            || previous.is_some_and(|previous: &str| previous >= name.as_str())
+        {
+            return Err(Diagnostic::plain(
+                "BHCP4001",
+                "predicate verifier arguments are invalid or noncanonical",
+            ));
+        }
+        previous = Some(name.as_str());
+        let Some(value_type) = value.get("type") else {
+            return Err(Diagnostic::plain(
+                "BHCP4001",
+                "predicate verifier argument expression omits its type",
+            ));
+        };
+        CheckedType::from_value(value_type)?;
+        collect_checked_expression(value, ids, references, calls)?;
+        fields.push(Value::Array(vec![
+            Value::Text(name.clone()),
+            value_type.clone(),
+            Value::Bool(false),
+        ]));
+    }
+    let expected_input = Value::Array(vec![
+        Value::Text("record".to_owned()),
+        Value::Bool(false),
+        Value::Array(fields),
+    ]);
+    if binding.input.to_value() != expected_input {
+        return Err(Diagnostic::plain(
+            "BHCP4001",
+            "predicate verifier input does not match its canonical arguments",
+        ));
+    }
+    Ok(())
+}
+
+fn validate_acyclic_definitions(dependencies: &BTreeMap<String, BTreeSet<String>>) -> Result<()> {
+    fn visit(
+        symbol: &str,
+        dependencies: &BTreeMap<String, BTreeSet<String>>,
+        visiting: &mut BTreeSet<String>,
+        visited: &mut BTreeSet<String>,
+    ) -> Result<()> {
+        if visited.contains(symbol) {
+            return Ok(());
+        }
+        if !visiting.insert(symbol.to_owned()) {
+            return Err(Diagnostic::plain(
+                "BHCP4001",
+                "pure definition dependency graph contains a cycle",
+            ));
+        }
+        for dependency in &dependencies[symbol] {
+            visit(dependency, dependencies, visiting, visited)?;
+        }
+        visiting.remove(symbol);
+        visited.insert(symbol.to_owned());
+        Ok(())
+    }
+
+    let mut visiting = BTreeSet::new();
+    let mut visited = BTreeSet::new();
+    for symbol in dependencies.keys() {
+        visit(symbol, dependencies, &mut visiting, &mut visited)?;
+    }
+    Ok(())
 }
 
 fn validate_network_arguments(
@@ -1228,6 +1613,43 @@ fn is_evidence_class(value: &str) -> bool {
             | "human-approved"
             | "unresolved"
     ) || is_symbol(value)
+}
+
+fn is_registered_kernel_primitive(value: &str) -> bool {
+    matches!(
+        value,
+        "bhcp/kernel.has-refuted@0"
+            | "bhcp/kernel.has-missing@0"
+            | "bhcp/kernel.has-faulted@0"
+            | "bhcp/kernel.has-unresolved@0"
+            | "bhcp/kernel.has-satisfied@0"
+            | "bhcp/kernel.all-refuted@0"
+            | "bhcp/kernel.missing-tags@0"
+            | "bhcp/kernel.first-missing-tag@0"
+            | "bhcp/kernel.first-counter-evidence@0"
+            | "bhcp/kernel.all-counter-evidence@0"
+            | "bhcp/kernel.first-satisfied-evidence@0"
+            | "bhcp/kernel.partial-evidence@0"
+            | "bhcp/kernel.satisfied-evidence@0"
+            | "bhcp/kernel.first-fault@0"
+            | "bhcp/kernel.first-unresolved-reason@0"
+            | "bhcp/kernel.satisfied-record@0"
+            | "bhcp/kernel.first-satisfied-output@0"
+            | "bhcp/kernel.last-satisfied-output@0"
+            | "bhcp/kernel.last-satisfied-output-or-unit@0"
+            | "bhcp/kernel.first-satisfied-winner@0"
+            | "bhcp/kernel.included@0"
+            | "bhcp/kernel.excluded@0"
+            | "bhcp/kernel.unit@0"
+            | "bhcp/kernel.pending@0"
+            | "bhcp/kernel.refuted@0"
+            | "bhcp/kernel.faulted@0"
+            | "bhcp/kernel.unresolved@0"
+            | "bhcp/kernel.satisfied@0"
+            | "bhcp/kernel.conclude@0"
+            | "bhcp/kernel.observed-output@0"
+            | "bhcp/kernel.parent-field@0"
+    )
 }
 
 fn is_normalized(values: &[String]) -> bool {

@@ -84,10 +84,10 @@ fn unsupported_and_unresolved_syntax_have_stable_codes() {
 
     let division = compile_source(
         "§goal example/G@0 { §input n: Integer; §requires n / n == 1; }",
-        "bad.bhcp",
+        "division.bhcp",
     )
-    .unwrap_err();
-    assert_eq!(division.code, "BHCP2004");
+    .unwrap();
+    division.ir.validate().unwrap();
 }
 
 fn attribute<'a>(node: &'a bhcp::model::AstNode, name: &str) -> &'a Value {
@@ -201,7 +201,7 @@ fn complete_type_grammar_and_verifier_arguments_retain_structure() {
 }
 
 #[test]
-fn checked_types_materialize_while_later_definition_stages_remain_deferred() {
+fn checked_types_and_pure_definitions_materialize_before_later_stages() {
     let compiled = compile_source("§type example/Only@0 = Text;", "type-only.bhcp").unwrap();
     assert_eq!(compiled.ir.types.len(), 1);
     assert_eq!(compiled.ir.types[0].symbol, "example/Only@0");
@@ -233,7 +233,7 @@ fn checked_types_materialize_while_later_definition_stages_remain_deferred() {
 
     let source = "§predicate example/only@0(): Bool;";
     let diagnostic = compile_source(source, "definition-only.bhcp").unwrap_err();
-    assert_eq!(diagnostic.code, "BHCP2004", "{source}");
+    assert_eq!(diagnostic.code, "BHCP4301", "{source}");
 
     let diagnostic = compile_source(
         "§refines example/Child@0 example/Parent@0;",

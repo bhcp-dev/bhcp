@@ -147,12 +147,23 @@ impl ExpressionContext {
     }
 
     pub fn define(
-        mut self,
+        self,
         symbol: impl Into<String>,
         parameters: Vec<(String, CheckedType)>,
         result: CheckedType,
         definition: &Value,
     ) -> Result<Self> {
+        self.define_checked(symbol, parameters, result, definition)
+            .map(|(context, _)| context)
+    }
+
+    pub(crate) fn define_checked(
+        mut self,
+        symbol: impl Into<String>,
+        parameters: Vec<(String, CheckedType)>,
+        result: CheckedType,
+        definition: &Value,
+    ) -> Result<(Self, CheckedExpression)> {
         let symbol = symbol.into();
         if !is_symbol(&symbol) || self.functions.contains_key(&symbol) {
             return Err(invalid("pure function symbol is invalid or duplicated"));
@@ -173,10 +184,10 @@ impl ExpressionContext {
             CheckedFunction {
                 parameters,
                 result,
-                definition: checked,
+                definition: checked.clone(),
             },
         );
-        Ok(self)
+        Ok((self, checked))
     }
 }
 

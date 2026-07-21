@@ -328,12 +328,18 @@ selection, exhaustive guarded matching, exact and checked machine arithmetic, ex
 dynamic casts, retained acyclic pure definitions, and static or exactly witnessed
 finite quantification. The complete expression tree is validated before evaluation,
 so an unsupported call in an unselected branch still fails closed and cannot dispatch
-to a host callback. The narrower retained-reducer boundary continues to expose only a
-closed versioned primitive set for sealed observation inspection and checked result
-construction. A satisfied conclusion is dynamically checked against the network
-output type, and the generic checker re-evaluates the same definition. General source
-definition resolution and semantic-IR elaboration remain outside this implemented
-boundary.
+to a host callback. Parsed source functions and predicates now resolve through a
+closed registration-order-independent graph, infer bounded generic arguments, emit
+deterministic concrete specializations, and retain canonical predicate verifier
+inputs and argument configuration in semantic IR. Unused generic templates are still
+validated, and cycles, unresolved calls, inference or bound failures, mismatches, and
+incomplete predicates fail before IR. The narrower retained-reducer boundary continues
+to expose only a closed versioned primitive set for sealed observation inspection and
+checked result construction. A satisfied conclusion is dynamically checked against
+the network output type, and the generic checker re-evaluates the same definition.
+Source-expression syntax beyond the currently parsed slice remains for the complete
+source-to-IR front-end audit; this status does not claim that the entire canonical
+grammar reaches IR yet.
 
 Schema anchors: `expression`, `pattern`, `function-definition`,
 `predicate-definition`, and `verifier-binding`.

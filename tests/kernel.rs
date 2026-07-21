@@ -287,6 +287,8 @@ fn semantic_ir_resolves_network_reducers_as_bhcp_functions() {
         type_mode: bhcp::policy::TypeMode::InferStrict,
         types: vec![],
         functions: vec![reducer],
+        pure_functions: vec![],
+        predicates: vec![],
         goals: vec![child, parent],
         entrypoints: vec!["goal-parent".to_owned()],
         effective_policy: None,
