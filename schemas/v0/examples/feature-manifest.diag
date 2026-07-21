@@ -16,8 +16,13 @@
     {"feature": "bhcp/feature.shared-typed-graph-model@0", "level": "supported"},
     {
       "feature": "bhcp/feature.complete-obligation-graph@0",
-      "level": "unsupported",
-      "notes": "Normative scenarios remain; complete obligation-graph construction is deferred."
+      "level": "supported",
+      "notes": "Structural construction is supported; execution-time discharge remains separate."
+    },
+    {
+      "feature": "bhcp/feature.capability-graph-builder@0",
+      "level": "supported",
+      "notes": "Decision construction is supported; planning and runtime enforcement remain separate."
     }
   ],
   "native_extensions": []

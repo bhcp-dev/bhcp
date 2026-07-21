@@ -45,9 +45,12 @@ ordinary stable diagnostics rather than an extension or host-callback mechanism.
 The checked-in `feature-manifest.diag` example declares canonical AST, semantic IR,
 and all five graph-root wire documents, requires the core feature, advertises the
 complete self-hosted `all`/`any`/`none`/`chain`/`gate` algebra and shared typed graph
-model, and explicitly marks complete obligation-graph construction unsupported. The
-goal-algebra conformance harness validates that distinction alongside the fixed 17-root
-inventory.
+model, and advertises deterministic obligation structural construction plus
+capability graph decision construction as supported. The support notes keep
+execution-time discharge, state/execution graph construction, planning, runtime
+enforcement, and final evidence-graph assembly outside those two builder claims. The
+goal-algebra conformance harness validates that bounded distinction alongside the
+fixed 17-root inventory.
 
 The waiver root is an authorization artifact with no standalone `semantic_id`. Its
 non-empty target list pairs exact source-rule identities and optional policy scopes

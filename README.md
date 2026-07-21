@@ -16,8 +16,9 @@ algorithm-tagged semantic or artifact identities. A shared safe-Rust graph bound
 now decodes, validates, normalizes, identifies, and inspects obligation, capability,
 state, execution, and evidence graph documents. It is not yet a complete v0 front
 end, planner, runtime, or SDK: source-expression forms beyond the currently parsed
-slice, graph construction, planner budget allocation, and execution remain roadmap
-work.
+slice, state/execution graph construction, planner budget allocation, and execution
+remain roadmap work. Deterministic obligation and capability graph construction are
+implemented as separate, exactly reconstructable artifacts.
 
 ## Start here
 
@@ -185,7 +186,7 @@ retention-lowering stages land.
 
 | Canonical definition | Implemented source slice | Explicitly deferred |
 | --- | --- | --- |
-| `§goal` / `§function` | Complete goal and general-function parsing/AST construction; parsed pure function bodies resolve deterministically, type-check, infer bounded generics, monomorphize, and materialize beside the checked executable goal/prelude-function slice; ownership/resource flow plus effect propagation, authority/prohibition ceilings, direct exact limits, and compatible preference groups are checked before IR emission | Source-expression grammar beyond the current parsed slice, finite-domain proof, case execution, recursion semantics, obligation/capability/state graphs, and planner allocation/retry decisions |
+| `§goal` / `§function` | Complete goal and general-function parsing/AST construction; parsed pure function bodies resolve deterministically, type-check, infer bounded generics, monomorphize, and materialize beside the checked executable goal/prelude-function slice; ownership/resource flow plus effect propagation, authority/prohibition ceilings, direct exact limits, and compatible preference groups are checked before IR emission | Source-expression grammar beyond the current parsed slice, finite-domain proof, case execution, recursion semantics, state/execution graph construction, and planner allocation/retry decisions |
 | `§type` / `§predicate` / `§refines` | Complete parsing plus checked type/refinement lowering and parsed predicate elaboration: every v0 wire type normalizes, local generics enforce arity/bounds, total refinements retain candidate-bound evidence, and canonical predicate verifier interfaces/configuration materialize in semantic IR | Source-expression grammar beyond the current parsed slice and its complete source-to-IR audit |
 | `§policy` | Complete canonical source parsing for layer, `§extends`, six closed typed rules, scopes/parameters, waivability, and issuers; inline and explicit composition, inspection, policy-aware elaboration, and governed semantic IR | Expression-valued policy clauses and enforcement beyond the compile-time/evidence boundary |
 | `§syntax` / `§profile` | Complete closed source-definition parsing into typed deterministic artifacts; fixed byte-level selection, exact one-parent resolution, monotonic attached overlays, resolved-profile inspection, span-aware custom-source compilation, and deterministic profile-aware formatting | Applying newly parsed definitions as source-local registry inputs remains the profile-lowering stage |
@@ -408,16 +409,17 @@ effective rule index and every originating layer, policy symbol, and source rule
 Missing mappings or registrations remain required unresolved gaps; rejection and
 operational fault behavior is unchanged.
 
-This library boundary does not yet build obligation or execution graphs. It does
-provide their common typed wire boundary: all five graph roots reject unknown fields,
+This library boundary builds deterministic obligation and capability graphs, but not
+state or execution graphs. Their common typed wire boundary rejects unknown fields,
 duplicate IDs, dangling local references, and cycles in obligation/execution graphs;
-normalize semantic sets; validate materialized semantic/artifact identities; and expose
-nodes, edges, references, provenance, and validation errors without a JSON canonical
-intermediate. Process-backed adapters now register through the generic verifier registry
-rather than becoming kernel primitives. Dispatch deterministically encodes the closed typed candidate
-`{ input, output }`, passes only the binding's resolved structural targets and an
-explicit effective effect ceiling, and maps the result into the same evidence-bundle
-model as an in-process verifier.
+normalizes semantic sets; validates materialized semantic/artifact identities; and
+exposes nodes, edges, references, provenance, and validation errors without a JSON
+canonical intermediate. Planning, runtime enforcement, and final evidence-graph
+assembly remain separate. Process-backed adapters now register through the generic
+verifier registry rather than becoming kernel primitives. Dispatch deterministically
+encodes the closed typed candidate `{ input, output }`, passes only the binding's
+resolved structural targets and an explicit effective effect ceiling, and maps the
+result into the same evidence-bundle model as an in-process verifier.
 
 ### Project-local verifier adapters
 
