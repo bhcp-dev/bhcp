@@ -15,9 +15,11 @@ use crate::model::{
 };
 use crate::parser::{
     ParsedProgram, SurfaceArgumentMode, SurfaceExpression, SurfaceFunction, SurfaceLiteral,
-    SurfacePredicate, SurfaceType,
+    SurfacePattern, SurfacePredicate, SurfaceType,
 };
-use crate::typecheck::{CheckedType, CheckedTypeProgram, TypeRelations, surface_type};
+use crate::typecheck::{
+    CheckedType, CheckedTypeDefinition, CheckedTypeProgram, TypeRelations, surface_type,
+};
 use crate::value::Value;
 
 const INVALID_DEFINITION: &str = "BHCP4301";
@@ -104,6 +106,7 @@ impl InstantiationKey {
 pub(crate) struct DefinitionElaborator {
     templates: BTreeMap<String, Template>,
     relations: TypeRelations,
+    type_definitions: BTreeMap<String, CheckedTypeDefinition>,
     source_name: String,
     context: ExpressionContext,
     visiting: BTreeSet<String>,
@@ -149,11 +152,22 @@ impl DefinitionElaborator {
                 Template::Predicate(definition.clone()),
             );
         }
+        let mut context = ExpressionContext::default();
+        let mut type_definitions = BTreeMap::new();
+        for definition in &checked_types.definitions {
+            context = context.define_type(
+                definition.symbol.clone(),
+                definition.parameters.len(),
+                definition.definition.clone(),
+            )?;
+            type_definitions.insert(definition.symbol.clone(), definition.clone());
+        }
         Ok(Self {
             templates,
             relations: checked_types.relations.clone(),
+            type_definitions,
             source_name: source_name.to_owned(),
-            context: ExpressionContext::default(),
+            context,
             visiting: BTreeSet::new(),
             completed: BTreeMap::new(),
             emitted_symbols: BTreeMap::new(),
@@ -477,11 +491,24 @@ impl DefinitionElaborator {
     }
 
     fn validation_fork(&self) -> Self {
+        let context = self.type_definitions.values().fold(
+            ExpressionContext::default(),
+            |context, definition| {
+                context
+                    .define_type(
+                        definition.symbol.clone(),
+                        definition.parameters.len(),
+                        definition.definition.clone(),
+                    )
+                    .expect("checked type definitions remain valid")
+            },
+        );
         Self {
             templates: self.templates.clone(),
             relations: self.relations.clone(),
+            type_definitions: self.type_definitions.clone(),
             source_name: self.source_name.clone(),
-            context: ExpressionContext::default(),
+            context,
             visiting: BTreeSet::new(),
             completed: BTreeMap::new(),
             emitted_symbols: BTreeMap::new(),
@@ -570,7 +597,42 @@ impl DefinitionElaborator {
                 at,
             } => {
                 let left = self.lower_expression(left, environment)?;
-                let right = self.lower_expression(right, environment)?;
+                let right = if matches!(
+                    right.as_ref(),
+                    SurfaceExpression::List { elements, .. } if elements.is_empty()
+                ) {
+                    let Value::Array(parts) = left.value_type.to_value() else {
+                        unreachable!()
+                    };
+                    if !matches!(parts.as_slice(), [Value::Text(tag), _] if tag == "list") {
+                        return Err(invalid_at(
+                            "an empty list requires a list-typed comparison operand",
+                            &self.source_name,
+                            at,
+                        ));
+                    }
+                    self.next_expression += 1;
+                    LoweredExpression {
+                        value: Value::map([
+                            (
+                                "id",
+                                Value::Text(format!("pure-expression-{}", self.next_expression)),
+                            ),
+                            ("type", left.value_type.to_value()),
+                            (
+                                "form",
+                                Value::Array(vec![
+                                    Value::Text("collection".to_owned()),
+                                    Value::Text("list".to_owned()),
+                                    Value::Array(vec![]),
+                                ]),
+                            ),
+                        ]),
+                        value_type: left.value_type.clone(),
+                    }
+                } else {
+                    self.lower_expression(right, environment)?
+                };
                 require_same_type(
                     &left.value_type,
                     &right.value_type,
@@ -669,6 +731,109 @@ impl DefinitionElaborator {
                     ]),
                 )
             }
+            SurfaceExpression::List { elements, at } => {
+                let Some(first) = elements.first() else {
+                    return Err(invalid_at(
+                        "an empty list expression requires an expected type",
+                        &self.source_name,
+                        at,
+                    ));
+                };
+                let first = self.lower_expression(first, environment)?;
+                let mut lowered = vec![first];
+                for element in &elements[1..] {
+                    let element = self.lower_expression(element, environment)?;
+                    require_same_type(
+                        &element.value_type,
+                        &lowered[0].value_type,
+                        "list element",
+                        &self.source_name,
+                        at,
+                    )?;
+                    lowered.push(element);
+                }
+                let value_type = CheckedType::from_value(&Value::Array(vec![
+                    Value::Text("list".to_owned()),
+                    lowered[0].value_type.to_value(),
+                ]))?;
+                (
+                    value_type,
+                    Value::Array(vec![
+                        Value::Text("collection".to_owned()),
+                        Value::Text("list".to_owned()),
+                        Value::Array(lowered.into_iter().map(|element| element.value).collect()),
+                    ]),
+                )
+            }
+            SurfaceExpression::Select { subject, field, at } => {
+                let subject = self.lower_expression(subject, environment)?;
+                let value_type = self.selected_field_type(&subject.value_type, field, at)?;
+                (
+                    value_type,
+                    Value::Array(vec![
+                        Value::Text("select".to_owned()),
+                        subject.value,
+                        Value::Text(field.clone()),
+                    ]),
+                )
+            }
+            SurfaceExpression::Match { subject, arms, at } => {
+                if arms.is_empty() {
+                    return Err(invalid_at(
+                        "match expression requires at least one arm",
+                        &self.source_name,
+                        at,
+                    ));
+                }
+                let subject = self.lower_expression(subject, environment)?;
+                let mut lowered_arms = Vec::with_capacity(arms.len());
+                let mut result_type = None;
+                for arm in arms {
+                    let mut nested = environment.clone();
+                    let pattern =
+                        self.lower_pattern(&arm.pattern, &subject.value_type, &mut nested)?;
+                    let guard = arm
+                        .guard
+                        .as_ref()
+                        .map(|guard| self.lower_expression(guard, &nested))
+                        .transpose()?;
+                    if let Some(guard) = &guard {
+                        require_same_type(
+                            &guard.value_type,
+                            &bool_type()?,
+                            "match guard",
+                            &self.source_name,
+                            &arm.at,
+                        )?;
+                    }
+                    let body = self.lower_expression(&arm.body, &nested)?;
+                    if let Some(expected) = &result_type {
+                        require_same_type(
+                            &body.value_type,
+                            expected,
+                            "match arm",
+                            &self.source_name,
+                            &arm.at,
+                        )?;
+                    } else {
+                        result_type = Some(body.value_type.clone());
+                    }
+                    let mut values = vec![pattern];
+                    if let Some(guard) = guard {
+                        values.push(guard.value);
+                    }
+                    values.push(body.value);
+                    lowered_arms.push(Value::Array(values));
+                }
+                (
+                    result_type.expect("match arms are non-empty"),
+                    Value::Array(vec![
+                        Value::Text("match".to_owned()),
+                        subject.value,
+                        Value::Array(lowered_arms),
+                    ]),
+                )
+            }
         };
         self.next_expression += 1;
         Ok(LoweredExpression {
@@ -682,6 +847,229 @@ impl DefinitionElaborator {
             ]),
             value_type,
         })
+    }
+
+    fn selected_field_type(
+        &self,
+        subject: &CheckedType,
+        field: &str,
+        at: &Point,
+    ) -> Result<CheckedType> {
+        let subject = self.expand_nominal_type(subject, at)?;
+        let subject = match subject.to_value() {
+            Value::Array(parts) if matches!(parts.first(), Some(Value::Text(tag)) if tag == "handle") =>
+            {
+                let value_type = parts
+                    .get(5)
+                    .ok_or_else(|| invalid_at("handle type is malformed", &self.source_name, at))?;
+                self.expand_nominal_type(&CheckedType::from_value(value_type)?, at)?
+            }
+            _ => subject,
+        };
+        let Value::Array(parts) = subject.to_value() else {
+            unreachable!()
+        };
+        let [Value::Text(tag), _, Value::Array(fields)] = parts.as_slice() else {
+            return Err(invalid_at(
+                "field selection requires a record value",
+                &self.source_name,
+                at,
+            ));
+        };
+        if tag != "record" {
+            return Err(invalid_at(
+                "field selection requires a record value",
+                &self.source_name,
+                at,
+            ));
+        }
+        fields
+            .iter()
+            .find_map(|candidate| match candidate {
+                Value::Array(parts)
+                    if matches!(parts.as_slice(), [Value::Text(name), _, _] if name == field) =>
+                {
+                    let value_type = &parts[1];
+                    Some(CheckedType::from_value(value_type))
+                }
+                _ => None,
+            })
+            .transpose()?
+            .ok_or_else(|| {
+                invalid_at(
+                    format!("record value has no field {field:?}"),
+                    &self.source_name,
+                    at,
+                )
+            })
+    }
+
+    fn lower_pattern(
+        &mut self,
+        pattern: &SurfacePattern,
+        subject: &CheckedType,
+        environment: &mut BTreeMap<String, PureBinding>,
+    ) -> Result<Value> {
+        match pattern {
+            SurfacePattern::Wildcard { .. } => {
+                Ok(Value::Array(vec![Value::Text("wildcard".to_owned())]))
+            }
+            SurfacePattern::Literal { value, at } => {
+                let literal = match value {
+                    SurfaceLiteral::Bool(value) => Value::Bool(*value),
+                    SurfaceLiteral::Integer(value) => Value::Array(vec![
+                        Value::Text("integer".to_owned()),
+                        Value::Integer(i128::from(*value)),
+                    ]),
+                    SurfaceLiteral::Text(value) => Value::Text(value.clone()),
+                };
+                self.expand_nominal_type(subject, at)?
+                    .validate_value(&literal, &crate::typecheck::RefinementEvidence::default())?;
+                Ok(Value::Array(vec![
+                    Value::Text("literal".to_owned()),
+                    literal,
+                ]))
+            }
+            SurfacePattern::Bind { name, at } => {
+                if environment.contains_key(name) {
+                    return Err(invalid_at(
+                        format!("match binding {name:?} captures an existing name"),
+                        &self.source_name,
+                        at,
+                    ));
+                }
+                self.next_parameter += 1;
+                let binding = PureBinding {
+                    id: format!("pure-pattern-{}", self.next_parameter),
+                    value_type: subject.clone(),
+                };
+                environment.insert(name.clone(), binding.clone());
+                Ok(Value::Array(vec![
+                    Value::Text("bind".to_owned()),
+                    Value::map([
+                        ("id", Value::Text(binding.id)),
+                        ("type", binding.value_type.to_value()),
+                    ]),
+                ]))
+            }
+            SurfacePattern::Variant { case, payload, at } => {
+                let payload_types = self.variant_payload_types(subject, case, at)?;
+                if payload_types.len() != payload.len() {
+                    return Err(invalid_at(
+                        "variant pattern has the wrong arity",
+                        &self.source_name,
+                        at,
+                    ));
+                }
+                Ok(Value::Array(vec![
+                    Value::Text("variant".to_owned()),
+                    Value::Text(case.clone()),
+                    Value::Array(
+                        payload
+                            .iter()
+                            .zip(&payload_types)
+                            .map(|(pattern, value_type)| {
+                                self.lower_pattern(pattern, value_type, environment)
+                            })
+                            .collect::<Result<Vec<_>>>()?,
+                    ),
+                ]))
+            }
+            SurfacePattern::Tuple { .. } | SurfacePattern::Record { .. } => Err(invalid_at(
+                "tuple and record source patterns are not yet lowered",
+                &self.source_name,
+                pattern.at(),
+            )),
+        }
+    }
+
+    fn variant_payload_types(
+        &self,
+        subject: &CheckedType,
+        case: &str,
+        at: &Point,
+    ) -> Result<Vec<CheckedType>> {
+        let subject = self.expand_nominal_type(subject, at)?;
+        let Value::Array(parts) = subject.to_value() else {
+            unreachable!()
+        };
+        if let [Value::Text(tag), ok, error] = parts.as_slice()
+            && tag == "result"
+        {
+            return match case {
+                "Ok" => Ok(vec![CheckedType::from_value(ok)?]),
+                "Err" => Ok(vec![CheckedType::from_value(error)?]),
+                _ => Err(invalid_at(
+                    format!("Result has no case {case:?}"),
+                    &self.source_name,
+                    at,
+                )),
+            };
+        }
+        let [Value::Text(tag), Value::Array(cases)] = parts.as_slice() else {
+            return Err(invalid_at(
+                "variant pattern requires a variant value",
+                &self.source_name,
+                at,
+            ));
+        };
+        if tag != "variant" {
+            return Err(invalid_at(
+                "variant pattern requires a variant value",
+                &self.source_name,
+                at,
+            ));
+        }
+        let payload = cases
+            .iter()
+            .find_map(|candidate| match candidate {
+                Value::Array(parts)
+                    if matches!(parts.as_slice(), [Value::Text(name), Value::Array(_)] if name == case) =>
+                {
+                    let Value::Array(payload) = &parts[1] else {
+                        unreachable!()
+                    };
+                    Some(payload)
+                }
+                _ => None,
+            })
+            .ok_or_else(|| {
+                invalid_at(
+                    format!("variant has no case {case:?}"),
+                    &self.source_name,
+                    at,
+                )
+            })?;
+        payload.iter().map(CheckedType::from_value).collect()
+    }
+
+    fn expand_nominal_type(&self, value_type: &CheckedType, at: &Point) -> Result<CheckedType> {
+        let Value::Array(parts) = value_type.to_value() else {
+            return Ok(value_type.clone());
+        };
+        let [
+            Value::Text(tag),
+            Value::Text(symbol),
+            Value::Array(arguments),
+        ] = parts.as_slice()
+        else {
+            return Ok(value_type.clone());
+        };
+        if tag != "nominal" {
+            return Ok(value_type.clone());
+        }
+        let definition = self.type_definitions.get(symbol).ok_or_else(|| {
+            invalid_at(
+                format!("unresolved nominal expression type {symbol:?}"),
+                &self.source_name,
+                at,
+            )
+        })?;
+        let arguments = arguments
+            .iter()
+            .map(CheckedType::from_value)
+            .collect::<Result<Vec<_>>>()?;
+        substitute_checked_type(&definition.definition, &arguments)
     }
 
     fn lower_verifier(
@@ -823,6 +1211,34 @@ fn unify_type(
         }
         *slot = Some(checked);
         return Ok(());
+    }
+    if let (Value::Array(expected_parts), Value::Array(actual_parts)) = (expected, actual)
+        && let [Value::Text(expected_tag), ok, error] = expected_parts.as_slice()
+        && expected_tag == "result"
+        && let [Value::Text(actual_tag), Value::Array(cases)] = actual_parts.as_slice()
+        && actual_tag == "variant"
+    {
+        let mut ok_payload = None;
+        let mut error_payload = None;
+        for case in cases {
+            let Value::Array(parts) = case else {
+                continue;
+            };
+            match parts.as_slice() {
+                [Value::Text(tag), Value::Array(payload)] if tag == "Ok" && payload.len() == 1 => {
+                    ok_payload = payload.first();
+                }
+                [Value::Text(tag), Value::Array(payload)] if tag == "Err" && payload.len() == 1 => {
+                    error_payload = payload.first();
+                }
+                _ => {}
+            }
+        }
+        if let (Some(ok_payload), Some(error_payload)) = (ok_payload, error_payload) {
+            unify_type(ok, ok_payload, inferred)?;
+            unify_type(error, error_payload, inferred)?;
+            return Ok(());
+        }
     }
     match (expected, actual) {
         (Value::Array(expected), Value::Array(actual)) if expected.len() == actual.len() => {

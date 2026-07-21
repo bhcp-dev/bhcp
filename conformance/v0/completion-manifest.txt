@@ -140,6 +140,52 @@ scenario|TYP-08|complete-type-checker
 scenario|WAV-01|policy-waiver-lowering
 scenario|WAV-02|policy-waiver-lowering
 
+# Executable S4-S9 source-to-IR ledger. Every row pins its named test and exact artifact.
+frontend|NUM-01|S4|tests/type_checker.rs::num_01_preserves_bits_rejects_overflow_and_requires_canonical_rationals|schemas/v0/bhcp-v0.cddl
+frontend|OWN-01|S4|tests/ownership_analysis.rs::own_01_overlapping_read_borrows_are_accepted|conformance/v0/fixtures/own-01-read-overlap.bhcp
+frontend|OWN-02|S4|tests/ownership_analysis.rs::own_02_write_borrow_conflicts_with_an_overlapping_read|conformance/v0/fixtures/own-02-write-conflict.bhcp
+frontend|OWN-03|S4|tests/ownership_analysis.rs::own_03_move_then_reuse_is_rejected_after_a_nested_branch_join|conformance/v0/fixtures/own-03-use-after-move.bhcp
+frontend|OWN-04|S4|tests/ownership_analysis.rs::own_04_persistent_state_rejects_an_expiring_borrow|conformance/v0/fixtures/own-04-expired-retention.bhcp
+frontend|PLN-03|S4|tests/type_checker.rs::every_v0_wire_type_has_a_closed_deterministic_checked_model|schemas/v0/bhcp-v0.cddl
+frontend|TYP-01|S4|tests/type_checker.rs::typ_01_infer_strict_materializes_types_without_implicit_dynamic|schemas/v0/bhcp-v0.cddl
+frontend|TYP-02|S4|tests/type_checker.rs::typ_02_03_dynamic_boundaries_require_and_materialize_runtime_checks|schemas/v0/bhcp-v0.cddl
+frontend|TYP-03|S4|tests/type_checker.rs::typ_02_03_dynamic_boundaries_require_and_materialize_runtime_checks|schemas/v0/bhcp-v0.cddl
+frontend|TYP-04|S4|tests/type_checker.rs::typ_04_05_nominal_identity_and_structural_width_are_distinct|schemas/v0/bhcp-v0.cddl
+frontend|TYP-05|S4|tests/type_checker.rs::typ_04_05_nominal_identity_and_structural_width_are_distinct|schemas/v0/bhcp-v0.cddl
+frontend|TYP-06|S4|tests/type_checker.rs::typ_06_refinement_introduction_requires_predicate_evidence|schemas/v0/bhcp-v0.cddl
+frontend|TYP-07|S4|tests/type_checker.rs::typ_07_08_option_and_result_preserve_explicit_tags_and_payloads|schemas/v0/bhcp-v0.cddl
+frontend|TYP-08|S4|tests/type_checker.rs::typ_07_08_option_and_result_preserve_explicit_tags_and_payloads|schemas/v0/bhcp-v0.cddl
+frontend|EXP-01|S5|tests/expression_calculus.rs::exp_01_static_finite_quantification_is_checked_and_deterministic|schemas/v0/bhcp-v0.cddl
+frontend|EXP-02|S5|tests/expression_calculus.rs::exp_02_unknown_calls_and_partial_arithmetic_fail_before_evaluation|schemas/v0/bhcp-v0.cddl
+frontend|EFF-01|S6|tests/effect_authority_analysis.rs::eff_01_child_effects_propagate_without_becoming_kernel_metadata|conformance/v0/fixtures/canonical-all.ir.cbor
+frontend|EFF-02|S6|tests/effect_authority_analysis.rs::eff_02_unsafe_effects_remain_visible_as_unresolved_evidence|conformance/v0/fixtures/canonical-simple.ir.cbor
+frontend|EFF-03|S6|tests/effect_authority_analysis.rs::eff_03_parent_prohibitions_and_explicit_ceilings_deny_child_excess|conformance/v0/reference-program/program.bhcp
+frontend|SYN-01|S7|tests/profile_source_lowering.rs::source_definitions_materialize_canonical_documents_and_a_validated_registry|conformance/v0/reference-program/program.words.bhcp
+frontend|SYN-02|S7|tests/goal_parser.rs::complete_goal_forms_build_a_closed_ordered_schema_valid_ast|conformance/v0/reference-program/program.bhcp
+frontend|SYN-03|S7|tests/pipeline.rs::complete_definition_forms_build_a_closed_schema_valid_ast|conformance/v0/reference-program/program.bhcp
+frontend|SYN-04|S7|tests/governance_parser.rs::complete_governance_forms_build_closed_ordered_schema_valid_ast|conformance/v0/reference-program/policy.bhcp
+frontend|SYN-05|S7|tests/profile_source_lowering.rs::source_definitions_materialize_canonical_documents_and_a_validated_registry|conformance/v0/reference-program/profile.bhcp
+frontend|SYN-06|S7|tests/profile_source_lowering.rs::invalid_source_registries_fail_atomically_before_custom_program_parsing|conformance/v0/reference-program/syntax.bhcp
+frontend|SYN-07|S7|tests/profile_source_lowering.rs::source_definitions_materialize_canonical_documents_and_a_validated_registry|conformance/v0/reference-program/program.words.bhcp
+frontend|KRN-11|S8|tests/recursion_retention_lowering.rs::recursive_children_retain_static_bounds_and_decreasing_measure_evidence|conformance/v0/reference-program/program.bhcp
+frontend|KRN-12|S8|tests/extension_lowering.rs::checked_in_reference_extension_is_executable_and_fully_lowered|conformance/v0/reference-program/extension.bhcp
+frontend|REC-01|S8|tests/recursion_retention_lowering.rs::recursive_children_retain_static_bounds_and_decreasing_measure_evidence|conformance/v0/reference-program/program.bhcp
+frontend|REC-02|S8|tests/recursion_retention_lowering.rs::unbounded_recursion_is_rejected_before_semantic_ir|conformance/v0/reference-program/program.bhcp
+frontend|REC-03|S8|tests/recursion_retention_lowering.rs::retained_ir_revalidates_recursion_metadata_against_the_recursive_edge|conformance/v0/fixtures/canonical-gate.ir.cbor
+frontend|EXT-01|S9|tests/extension_lowering.rs::derived_extension_executes_to_core_and_removes_its_meta_definition|conformance/v0/reference-program/extension.bhcp
+frontend|EXT-02|S9|tests/extension_lowering.rs::derived_lowerer_identity_is_unobservable_after_equivalent_execution|conformance/v0/reference-program/extension.bhcp
+frontend|EXT-03|S9|tests/extension_lowering.rs::missing_or_core_overriding_derived_extensions_fail_before_ir|conformance/v0/reference-program/extension.bhcp
+frontend|EXT-04|S9|tests/extension_lowering.rs::supported_native_extension_retains_exact_schema_payload_and_identity|conformance/v0/reference-program/extension.diag
+frontend|POL-01|S9|tests/policy_waiver_lowering.rs::source_policy_and_waiver_match_the_canonical_document_path|conformance/v0/reference-program/policy.bhcp
+frontend|POL-02|S9|tests/policy_waiver_lowering.rs::unwaived_inline_policy_enforces_goal_expressions_before_ir|conformance/v0/reference-program/policy.bhcp
+frontend|POL-03|S9|tests/policy_waiver_lowering.rs::governance_order_normalizes_and_unresolved_or_partial_waivers_fail_closed|conformance/v0/reference-program/policy.bhcp
+frontend|POL-04|S9|tests/policy_waiver_lowering.rs::all_six_source_waiver_categories_match_canonical_application|conformance/v0/reference-program/waiver.bhcp
+frontend|POL-05|S9|tests/policy_waiver_lowering.rs::inline_policy_composes_with_derived_extension_lowering|conformance/v0/reference-program/extension.bhcp
+frontend|POL-06|S9|tests/policy_waiver_lowering.rs::policy_and_waiver_presentation_is_artifact_only|conformance/v0/reference-program/waiver.diag
+frontend|POL-07|S9|tests/policy_waiver_lowering.rs::native_extension_only_ir_cannot_bypass_waiver_validation|conformance/v0/reference-program/extension.diag
+frontend|WAV-01|S9|tests/policy_waiver_lowering.rs::waiver_time_is_required_injected_and_fail_closed|conformance/v0/reference-program/waiver.bhcp
+frontend|WAV-02|S9|tests/policy_waiver_lowering.rs::delegated_source_authority_matches_canonical_application|conformance/v0/reference-program/waiver.diag
+
 # Every root kind is owned by the issue that makes its complete v0 boundary executable.
 root|canonical-ast|frontend-completion-audit
 root|semantic-ir|frontend-completion-audit
@@ -195,6 +241,7 @@ artifact|planner-input|conformance/v0/reference-program/planner-input.txt
 artifact|execution-input|conformance/v0/reference-program/execution-input.txt
 artifact|expected-obligations|conformance/v0/reference-program/expected-obligations.txt
 artifact|outcome-matrix|conformance/v0/reference-program/outcome-matrix.txt
+artifact|frontend-completion-report|conformance/v0/frontend-completion-audit.md
 feature|typed-functions-and-predicates|program|definition-source-parser,function-predicate-elaboration|§function,§predicate
 feature|nested-goals-and-recursion|program|goal-source-parser,recursion-retention-lowering|§all,§chain,§gate,WalkTree
 feature|effects-and-ownership|program|ownership-analysis,effect-authority-budget-analysis|owned affine,owned linear,move,§allows,§forbids

@@ -1153,6 +1153,7 @@ fn elaborate(
     }
     for (index, spec) in extension_specs.iter().enumerate() {
         let mut state = ReducerLoweringState {
+            definitions: &mut definitions,
             functions: &mut functions,
             ids: &mut ids,
             type_relations: &checked_types.relations,
@@ -1454,6 +1455,7 @@ fn lower_derived_extension(
     state: &mut ReducerLoweringState<'_>,
 ) -> Result<GoalDefinition> {
     let ReducerLoweringState {
+        definitions: _,
         functions,
         ids,
         type_relations,
@@ -1971,10 +1973,10 @@ fn goal_signature(goal: &SurfaceGoal, index: usize, source_name: &str) -> Result
             name: name.clone(),
             value_type: lower_type(value_type, source_name, &clause.at)?,
         };
-        if *kind == "input" {
-            input_fields.push(field);
-        } else {
+        if *kind == "output" {
             output_fields.push(field);
+        } else {
+            input_fields.push(field);
         }
     }
     input_fields.sort_by(|left, right| left.name.cmp(&right.name));
@@ -1999,6 +2001,7 @@ struct GoalLoweringState<'a> {
 }
 
 struct ReducerLoweringState<'a> {
+    definitions: &'a mut DefinitionElaborator,
     functions: &'a mut Vec<FunctionDefinition>,
     ids: &'a mut Ids,
     type_relations: &'a TypeRelations,
@@ -2067,10 +2070,10 @@ fn lower_goal(
                 name: name.clone(),
                 value_type,
             };
-            if *kind == "input" {
-                input_fields.push(field);
-            } else {
+            if *kind == "output" {
                 output_fields.push(field);
+            } else {
+                input_fields.push(field);
             }
         }
     }
@@ -2216,6 +2219,7 @@ fn lower_goal(
         .as_ref()
         .map(|composition| {
             let mut state = ReducerLoweringState {
+                definitions,
                 functions,
                 ids,
                 type_relations,
@@ -2255,6 +2259,7 @@ fn lower_composition(
     state: &mut ReducerLoweringState<'_>,
 ) -> Result<KernelNetwork> {
     let ReducerLoweringState {
+        definitions,
         functions,
         ids,
         type_relations,
@@ -2279,7 +2284,8 @@ fn lower_composition(
                     composition.at(),
                 ));
             }
-            let condition = lower_gate_condition(condition, &parent.input, source_name, ids)?;
+            let condition =
+                lower_gate_condition(condition, &parent.input, definitions, source_name, ids)?;
             if condition.value_type != BhcpType::Primitive("Bool") {
                 return Err(error(
                     "BHCP2003",
@@ -2316,9 +2322,9 @@ fn lower_composition(
         } else if is_sequential {
             lower_chain_arguments(branch, child, children.last(), source_name, ids)?
         } else if gate_condition.is_some() {
-            lower_gate_arguments(branch, child, &parent.input, source_name, ids)?
+            lower_gate_arguments(branch, child, &parent.input, definitions, source_name, ids)?
         } else {
-            lower_parent_arguments(branch, child, &parent.input, source_name, ids)?
+            lower_parent_arguments(branch, child, &parent.input, definitions, source_name, ids)?
         };
         let recursion = if child.id == parent.id {
             Some(check_recursion_bound(
@@ -2600,16 +2606,35 @@ fn lower_parent_arguments(
     branch: &crate::parser::SurfaceBranch,
     child: &GoalSignature,
     parent_input: &BhcpType,
+    definitions: &mut DefinitionElaborator,
     source_name: &str,
     ids: &mut Ids,
 ) -> Result<Vec<KernelArgument>> {
     let BhcpType::Record(child_fields) = &child.input else {
-        return Err(error(
-            "BHCP2003",
-            "composition children must expose record inputs",
-            source_name,
-            &branch.at,
-        ));
+        let [argument] = branch.arguments.as_slice() else {
+            return Err(error(
+                "BHCP2003",
+                "a scalar composition child requires exactly one named argument",
+                source_name,
+                &branch.at,
+            ));
+        };
+        let value =
+            lower_gate_condition(&argument.value, parent_input, definitions, source_name, ids)?;
+        let mode = kernel_argument_mode(argument.mode);
+        if !data_edge_type_compatible(&value.value_type, &child.input, mode) {
+            return Err(error(
+                "BHCP2003",
+                "composition argument expression does not match the scalar child input type",
+                source_name,
+                &argument.at,
+            ));
+        }
+        return Ok(vec![KernelArgument {
+            name: argument.name.clone(),
+            mode,
+            value,
+        }]);
     };
     if branch.arguments.len() != child_fields.len() {
         return Err(error(
@@ -2636,7 +2661,8 @@ fn lower_parent_arguments(
                 &branch.at,
             ));
         };
-        let value = lower_gate_condition(&argument.value, parent_input, source_name, ids)?;
+        let value =
+            lower_gate_condition(&argument.value, parent_input, definitions, source_name, ids)?;
         if !data_edge_type_compatible(
             &value.value_type,
             &field.value_type,
@@ -2886,6 +2912,19 @@ fn surface_expression_references(expression: &SurfaceExpression, name: &str) -> 
         SurfaceExpression::Call { arguments, .. } => arguments
             .iter()
             .any(|argument| surface_expression_references(argument, name)),
+        SurfaceExpression::List { elements, .. } => elements
+            .iter()
+            .any(|element| surface_expression_references(element, name)),
+        SurfaceExpression::Select { subject, .. } => surface_expression_references(subject, name),
+        SurfaceExpression::Match { subject, arms, .. } => {
+            surface_expression_references(subject, name)
+                || arms.iter().any(|arm| {
+                    arm.guard
+                        .as_ref()
+                        .is_some_and(|guard| surface_expression_references(guard, name))
+                        || surface_expression_references(&arm.body, name)
+                })
+        }
         SurfaceExpression::Literal { .. } => false,
     }
 }
@@ -2974,6 +3013,7 @@ fn lower_gate_arguments(
     branch: &crate::parser::SurfaceBranch,
     child: &GoalSignature,
     parent_input: &BhcpType,
+    definitions: &mut DefinitionElaborator,
     source_name: &str,
     ids: &mut Ids,
 ) -> Result<Vec<KernelArgument>> {
@@ -3011,7 +3051,8 @@ fn lower_gate_arguments(
         };
         let mode = kernel_argument_mode(argument.mode);
         let value = if argument.source == "<expression>" {
-            let value = lower_gate_condition(&argument.value, parent_input, source_name, ids)?;
+            let value =
+                lower_gate_condition(&argument.value, parent_input, definitions, source_name, ids)?;
             if !data_edge_type_compatible(&value.value_type, &field.value_type, mode) {
                 return Err(error(
                     "BHCP2003",
@@ -3146,12 +3187,33 @@ fn surface_expression_identity(expression: &SurfaceExpression) -> Result<Value> 
                     .collect::<Result<Vec<_>>>()?,
             ),
         ]),
+        SurfaceExpression::List { elements, .. } => Value::Array(vec![
+            Value::Text("list".to_owned()),
+            Value::Array(
+                elements
+                    .iter()
+                    .map(surface_expression_identity)
+                    .collect::<Result<Vec<_>>>()?,
+            ),
+        ]),
+        SurfaceExpression::Select { subject, field, .. } => Value::Array(vec![
+            Value::Text("select".to_owned()),
+            surface_expression_identity(subject)?,
+            Value::Text(field.clone()),
+        ]),
+        SurfaceExpression::Match { .. } => {
+            return Err(Diagnostic::plain(
+                "BHCP2004",
+                "match expressions are not valid recursion-measure identities",
+            ));
+        }
     })
 }
 
 fn lower_gate_condition(
     surface: &SurfaceExpression,
     parent: &BhcpType,
+    definitions: &mut DefinitionElaborator,
     source_name: &str,
     ids: &mut Ids,
 ) -> Result<Expression> {
@@ -3197,7 +3259,7 @@ fn lower_gate_condition(
             operand,
             at,
         } => {
-            let operand = lower_gate_condition(operand, parent, source_name, ids)?;
+            let operand = lower_gate_condition(operand, parent, definitions, source_name, ids)?;
             let Some(value_type) = closed_unary_result_type(operator, &operand.value_type) else {
                 return Err(error(
                     "BHCP2003",
@@ -3217,8 +3279,8 @@ fn lower_gate_condition(
             right,
             at,
         } => {
-            let left = lower_gate_condition(left, parent, source_name, ids)?;
-            let right = lower_gate_condition(right, parent, source_name, ids)?;
+            let left = lower_gate_condition(left, parent, definitions, source_name, ids)?;
+            let right = lower_gate_condition(right, parent, definitions, source_name, ids)?;
             let value_type =
                 closed_binary_result_type(operator, &left.value_type, &right.value_type);
             let Some(value_type) = value_type else {
@@ -3240,9 +3302,11 @@ fn lower_gate_condition(
             alternative,
             at,
         } => {
-            let condition = lower_gate_condition(condition, parent, source_name, ids)?;
-            let consequent = lower_gate_condition(consequent, parent, source_name, ids)?;
-            let alternative = lower_gate_condition(alternative, parent, source_name, ids)?;
+            let condition = lower_gate_condition(condition, parent, definitions, source_name, ids)?;
+            let consequent =
+                lower_gate_condition(consequent, parent, definitions, source_name, ids)?;
+            let alternative =
+                lower_gate_condition(alternative, parent, definitions, source_name, ids)?;
             if condition.value_type != BhcpType::Primitive("Bool")
                 || consequent.value_type != alternative.value_type
             {
@@ -3263,10 +3327,31 @@ fn lower_gate_condition(
                 ),
             )
         }
-        SurfaceExpression::Call { at, .. } => {
+        SurfaceExpression::Call {
+            function,
+            arguments,
+            at,
+        } => {
+            let arguments = arguments
+                .iter()
+                .map(|argument| {
+                    lower_gate_condition(argument, parent, definitions, source_name, ids)
+                })
+                .collect::<Result<Vec<_>>>()?;
+            let argument_types = arguments
+                .iter()
+                .map(|argument| CheckedType::from_value(&argument.value_type.to_value()))
+                .collect::<Result<Vec<_>>>()?;
+            let resolved = definitions.resolve_call(function, &argument_types, at)?;
+            let value_type = bhcp_type_from_checked(&resolved.result, source_name, at)?;
+            (value_type, ExpressionForm::Call(resolved.symbol, arguments))
+        }
+        SurfaceExpression::List { at, .. }
+        | SurfaceExpression::Select { at, .. }
+        | SurfaceExpression::Match { at, .. } => {
             return Err(error(
                 "BHCP2004",
-                "gate condition calls are outside the implemented total-pure slice",
+                "aggregate, selection, and match forms are not valid gate conditions",
                 source_name,
                 at,
             ));
@@ -3860,6 +3945,16 @@ fn lower_reducer_expression(
                 ),
             )
         }
+        SurfaceExpression::List { at, .. }
+        | SurfaceExpression::Select { at, .. }
+        | SurfaceExpression::Match { at, .. } => {
+            return Err(error(
+                "BHCP3001",
+                "aggregate, selection, and match forms are not registered reducer operations",
+                source_name,
+                at,
+            ));
+        }
     };
     Ok(Expression {
         id: ids.next("expr"),
@@ -3922,6 +4017,39 @@ fn lower_type(
             lowered.sort_by(|left, right| left.name.cmp(&right.name));
             BhcpType::Record(lowered)
         }
+        SurfaceType::Variant(cases) => {
+            let mut lowered = cases
+                .iter()
+                .map(|case| {
+                    Ok(VariantCaseType {
+                        tag: case.name.clone(),
+                        payload: case
+                            .payload
+                            .iter()
+                            .map(|value| lower_type(value, source_name, at))
+                            .collect::<Result<Vec<_>>>()?,
+                    })
+                })
+                .collect::<Result<Vec<_>>>()?;
+            lowered.sort_by(|left, right| left.tag.cmp(&right.tag));
+            BhcpType::Variant(lowered)
+        }
+        SurfaceType::List(element) => {
+            BhcpType::List(Box::new(lower_type(element, source_name, at)?))
+        }
+        SurfaceType::Option(element) => {
+            BhcpType::Option(Box::new(lower_type(element, source_name, at)?))
+        }
+        SurfaceType::Result { ok, error } => BhcpType::Variant(vec![
+            VariantCaseType {
+                tag: "Err".to_owned(),
+                payload: vec![lower_type(error, source_name, at)?],
+            },
+            VariantCaseType {
+                tag: "Ok".to_owned(),
+                payload: vec![lower_type(ok, source_name, at)?],
+            },
+        ]),
         SurfaceType::Reduction(output) => {
             BhcpType::Reduction(Box::new(lower_type(output, source_name, at)?))
         }
@@ -3958,12 +4086,8 @@ fn lower_type(
         | SurfaceType::Never
         | SurfaceType::StructuralRecord { .. }
         | SurfaceType::Tuple(_)
-        | SurfaceType::List(_)
         | SurfaceType::Set(_)
         | SurfaceType::Map { .. }
-        | SurfaceType::Option(_)
-        | SurfaceType::Result { .. }
-        | SurfaceType::Variant(_)
         | SurfaceType::Goal { .. }
         | SurfaceType::Union(_)
         | SurfaceType::Intersection(_)
@@ -4142,6 +4266,16 @@ fn lower_expression(
                     Box::new(alternative),
                 ),
             )
+        }
+        SurfaceExpression::List { at, .. }
+        | SurfaceExpression::Select { at, .. }
+        | SurfaceExpression::Match { at, .. } => {
+            return Err(error(
+                "BHCP2004",
+                "aggregate, selection, and match source expressions require pure-definition lowering",
+                source_name,
+                at,
+            ));
         }
     };
     Ok(Expression {

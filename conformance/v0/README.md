@@ -2,9 +2,9 @@
 
 This catalog is normative. A complete v0 implementation MUST provide executable
 fixtures for every scenario ID and publish its result in a feature manifest and
-evidence bundle. Until the complete parser, checker, planner, and runtime exist,
-unimplemented cases remain the stable acceptance contract rather than executable
-tests in this repository.
+evidence bundle. The practical source-to-IR subset is executable; downstream cases
+remain stable acceptance contracts until their graph, planner, runtime, evidence,
+SDK, CLI, or certification owners land.
 
 [`completion-manifest.txt`](completion-manifest.txt) closes that inventory for the
 practical v0 roadmap. Its validator derives the explicit IDs below, expands each of
@@ -12,11 +12,11 @@ the five standard algebra rows into satisfied/refuted/unresolved/faulted instanc
 and therefore requires exactly 99 scenario records. It also reconciles all 17 CDDL
 root kinds, stable issue keys #99–#134, ten observable pipeline outcomes, and the
 [`reference-program/`](reference-program/) artifact and feature inventory. Missing,
-duplicate, or unknown records fail the focused contract test. The complete reference
-program remains deliberately ahead of the partial front end and is not counted as
-executable conformance yet. Its isolated extension source now executes through
-complete derived lowering, and its already-implemented policy and typed artifact
-boundaries validate now, while a
+duplicate, or unknown records fail the focused contract test. An explicit S4-S9
+front-end ledger also pins every practical source-to-IR scenario to a named test and
+an exact checked-in artifact. The reference program now compiles through governed IR
+in canonical and substantially remapped forms; it is not yet downstream end-to-end
+conformance. Its extension executes through complete derived lowering, while a
 reviewed typed semantic projection, exact alternate-source normalization, closed
 registry, content-bound extension rules, explicit policy-evidence producers,
 obligation inventory, and separate eight-case outcome matrix prevent disconnected,
@@ -27,8 +27,8 @@ Each positive case must check canonical AST, semantic IR, graph, execution resul
 deterministic bytes where those stages apply. Each negative case must check a stable
 diagnostic code and must not emit a misleading later-stage artifact.
 
-The first executable slice covers the source-to-IR portions of SYN-02, SYN-03,
-ID-01, ID-02, and deterministic emission for CBOR-01 using
+The source-to-IR ledger covers the practical S4-S9 scenarios, while the first byte
+fixtures cover SYN-02, SYN-03, ID-01, ID-02, and deterministic emission for CBOR-01 using
 `fixtures/canonical-simple.bhcp` and the byte-level profile-preamble harness. The
 explicit `fixtures/canonical-profile-preamble.bhcp` example proves that the fixed
 scanner selects canonical syntax while retaining original source offsets and
@@ -232,8 +232,8 @@ reclassified as a planning grant.
 calculus boundary. Its tables cover every expression constructor and pattern form,
 both finite-quantifier paths, exact-number families, checked machine overflow,
 invalid selection, failed casts, non-exhaustive matching, duplicate identities, and
-unknown or recursively registered calls. Complete canonical source-expression parsing
-and the full source-to-IR audit remain separate downstream conformance work.
+unknown or recursively registered calls. The practical source-to-IR audit connects
+these expression witnesses to parsed definitions and the reference artifact.
 
 `tests/function_predicate_elaboration.rs` connects that closed calculus to parsed
 source definitions for the TYP-06, EXP-02, and EVD boundaries. It proves deterministic
@@ -242,8 +242,9 @@ inference and concrete specialization, validation of unused templates, retained
 refinement evidence requirements, canonical predicate verifier input/configuration,
 and fail-closed cycles, ambient calls, mismatches, inconsistent inference, bound
 failures, and incomplete predicates. Verifier argument order normalizes away while
-mode changes remain semantic. Source-expression syntax outside the currently parsed
-slice and the full source-to-IR completion ledger remain later conformance work.
+mode changes remain semantic. Source forms outside the bounded practical ledger keep
+stable pre-IR diagnostics and are named by the front-end audit rather than hidden by
+the completion claim.
 
 ## Verification and evidence
 

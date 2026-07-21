@@ -18,6 +18,13 @@ const MAX_EXECUTABLE_DECIMAL_EXPONENT: u32 = 4096;
 pub struct ExpressionContext {
     bindings: BTreeMap<String, CheckedType>,
     functions: BTreeMap<String, CheckedFunction>,
+    types: BTreeMap<String, RegisteredType>,
+}
+
+#[derive(Clone, Debug)]
+struct RegisteredType {
+    parameter_count: usize,
+    definition: CheckedType,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -136,6 +143,30 @@ enum Quantifier {
 }
 
 impl ExpressionContext {
+    pub fn define_type(
+        mut self,
+        symbol: impl Into<String>,
+        parameter_count: usize,
+        definition: CheckedType,
+    ) -> Result<Self> {
+        let symbol = symbol.into();
+        if !is_symbol(&symbol)
+            || self
+                .types
+                .insert(
+                    symbol,
+                    RegisteredType {
+                        parameter_count,
+                        definition,
+                    },
+                )
+                .is_some()
+        {
+            return Err(invalid("type symbol is invalid or duplicated"));
+        }
+        Ok(self)
+    }
+
     pub fn bind(mut self, id: impl Into<String>, value_type: CheckedType) -> Result<Self> {
         let id = id.into();
         if id.is_empty() || self.bindings.insert(id, value_type).is_some() {
@@ -176,8 +207,13 @@ impl ExpressionContext {
                 ));
             }
         }
-        let checked =
-            check_expression(definition, &bindings, &self.functions, &mut BTreeSet::new())?;
+        let checked = check_expression(
+            definition,
+            &bindings,
+            &self.functions,
+            &self.types,
+            &mut BTreeSet::new(),
+        )?;
         require_type(&checked.value_type, &result, "pure function result")?;
         self.functions.insert(
             symbol,
@@ -268,6 +304,7 @@ impl CheckedExpression {
             value,
             &context.bindings,
             &context.functions,
+            &context.types,
             &mut BTreeSet::new(),
         )
     }
@@ -289,6 +326,7 @@ fn check_expression(
     value: &Value,
     bindings: &BTreeMap<String, CheckedType>,
     functions: &BTreeMap<String, CheckedFunction>,
+    types: &BTreeMap<String, RegisteredType>,
     expression_ids: &mut BTreeSet<String>,
 ) -> Result<CheckedExpression> {
     let Value::Map(entries) = value else {
@@ -328,11 +366,11 @@ fn check_expression(
             Node::Reference(reference.clone())
         }
         [Value::Text(tag), Value::Map(fields)] if tag == "record" => {
-            let declared = record_fields(&value_type)?;
-            let open = record_is_open(&value_type)?;
+            let declared = record_fields(&value_type, types)?;
+            let open = record_is_open(&value_type, types)?;
             let mut checked = Vec::with_capacity(fields.len());
             for (name, field) in fields {
-                let field = check_expression(field, bindings, functions, expression_ids)?;
+                let field = check_expression(field, bindings, functions, types, expression_ids)?;
                 if let Some((field_type, _)) = declared.get(name) {
                     require_type(&field.value_type, field_type, "record field")?;
                 } else if !open {
@@ -352,21 +390,22 @@ fn check_expression(
             Node::Record(checked)
         }
         [Value::Text(tag), Value::Array(elements)] if tag == "tuple" => {
-            let declared = tuple_elements(&value_type)?;
+            let declared = tuple_elements(&value_type, types)?;
             if elements.len() != declared.len() {
                 return Err(invalid("tuple expression has the wrong arity"));
             }
             let mut checked = Vec::with_capacity(elements.len());
             for (element, element_type) in elements.iter().zip(&declared) {
-                let element = check_expression(element, bindings, functions, expression_ids)?;
+                let element =
+                    check_expression(element, bindings, functions, types, expression_ids)?;
                 require_type(&element.value_type, element_type, "tuple element")?;
                 checked.push(element);
             }
             Node::Tuple(checked)
         }
         [Value::Text(tag), Value::Text(case), payload] if tag == "variant" => {
-            let payload_types = variant_payload(&value_type, case)?;
-            let payload = check_expression(payload, bindings, functions, expression_ids)?;
+            let payload_types = variant_payload(&value_type, case, types)?;
+            let payload = check_expression(payload, bindings, functions, types, expression_ids)?;
             let expected = variant_payload_type(&payload_types)?;
             require_type(&payload.value_type, &expected, "variant payload")?;
             Node::Variant(case.clone(), Box::new(payload))
@@ -377,7 +416,8 @@ fn check_expression(
             let element_type = collection_element(&value_type, kind)?;
             let mut checked = Vec::with_capacity(elements.len());
             for element in elements {
-                let element = check_expression(element, bindings, functions, expression_ids)?;
+                let element =
+                    check_expression(element, bindings, functions, types, expression_ids)?;
                 require_type(&element.value_type, &element_type, "collection element")?;
                 checked.push(element);
             }
@@ -397,8 +437,9 @@ fn check_expression(
                 let [key, element] = entry.as_array()? else {
                     return Err(invalid("map expression entry must contain a key and value"));
                 };
-                let key = check_expression(key, bindings, functions, expression_ids)?;
-                let element = check_expression(element, bindings, functions, expression_ids)?;
+                let key = check_expression(key, bindings, functions, types, expression_ids)?;
+                let element =
+                    check_expression(element, bindings, functions, types, expression_ids)?;
                 require_type(&key.value_type, &key_type, "map key")?;
                 require_type(&element.value_type, &element_type, "map value")?;
                 checked.push((key, element));
@@ -406,28 +447,31 @@ fn check_expression(
             Node::Map(checked)
         }
         [Value::Text(tag), subject, selector] if tag == "select" => {
-            let subject = check_expression(subject, bindings, functions, expression_ids)?;
+            let subject = check_expression(subject, bindings, functions, types, expression_ids)?;
             let selector = check_selector(selector)?;
-            let selected_type = selected_type(&subject.value_type, &selector)?;
+            let selected_type = selected_type(&subject.value_type, &selector, types)?;
             require_type(&selected_type, &value_type, "selection result")?;
             Node::Select(Box::new(subject), selector)
         }
         [Value::Text(tag), Value::Text(operator), operand] if tag == "unary" => {
-            let operand = check_expression(operand, bindings, functions, expression_ids)?;
+            let operand = check_expression(operand, bindings, functions, types, expression_ids)?;
             validate_unary(operator, &operand.value_type, &value_type)?;
             Node::Unary(operator.clone(), Box::new(operand))
         }
         [Value::Text(tag), Value::Text(operator), left, right] if tag == "binary" => {
-            let left = check_expression(left, bindings, functions, expression_ids)?;
-            let right = check_expression(right, bindings, functions, expression_ids)?;
+            let left = check_expression(left, bindings, functions, types, expression_ids)?;
+            let right = check_expression(right, bindings, functions, types, expression_ids)?;
             validate_binary(operator, &left.value_type, &right.value_type, &value_type)?;
             Node::Binary(operator.clone(), Box::new(left), Box::new(right))
         }
         [Value::Text(tag), condition, then_branch, else_branch] if tag == "if" => {
-            let condition = check_expression(condition, bindings, functions, expression_ids)?;
+            let condition =
+                check_expression(condition, bindings, functions, types, expression_ids)?;
             require_type(&condition.value_type, &bool_type()?, "if condition")?;
-            let then_branch = check_expression(then_branch, bindings, functions, expression_ids)?;
-            let else_branch = check_expression(else_branch, bindings, functions, expression_ids)?;
+            let then_branch =
+                check_expression(then_branch, bindings, functions, types, expression_ids)?;
+            let else_branch =
+                check_expression(else_branch, bindings, functions, types, expression_ids)?;
             require_type(&then_branch.value_type, &value_type, "then branch")?;
             require_type(&else_branch.value_type, &value_type, "else branch")?;
             Node::If {
@@ -438,10 +482,11 @@ fn check_expression(
         }
         [Value::Text(tag), binding, initializer, body] if tag == "let" => {
             let (binding_id, binding_type) = checked_binding(binding)?;
-            let initializer = check_expression(initializer, bindings, functions, expression_ids)?;
+            let initializer =
+                check_expression(initializer, bindings, functions, types, expression_ids)?;
             require_type(&initializer.value_type, &binding_type, "let initializer")?;
             let nested = nested_bindings(bindings, &binding_id, binding_type)?;
-            let body = check_expression(body, &nested, functions, expression_ids)?;
+            let body = check_expression(body, &nested, functions, types, expression_ids)?;
             require_type(&body.value_type, &value_type, "let body")?;
             Node::Let {
                 binding: binding_id,
@@ -450,7 +495,7 @@ fn check_expression(
             }
         }
         [Value::Text(tag), subject, Value::Array(arms)] if tag == "match" && !arms.is_empty() => {
-            let subject = check_expression(subject, bindings, functions, expression_ids)?;
+            let subject = check_expression(subject, bindings, functions, types, expression_ids)?;
             let mut checked_arms = Vec::with_capacity(arms.len());
             for arm in arms {
                 let (pattern, guard, body) = match arm.as_array()? {
@@ -463,7 +508,8 @@ fn check_expression(
                     }
                 };
                 let mut pattern_bindings = BTreeMap::new();
-                let pattern = check_pattern(pattern, &subject.value_type, &mut pattern_bindings)?;
+                let pattern =
+                    check_pattern(pattern, &subject.value_type, &mut pattern_bindings, types)?;
                 let mut nested = bindings.clone();
                 for (id, value_type) in pattern_bindings {
                     if nested.insert(id, value_type).is_some() {
@@ -471,12 +517,12 @@ fn check_expression(
                     }
                 }
                 let guard = guard
-                    .map(|guard| check_expression(guard, &nested, functions, expression_ids))
+                    .map(|guard| check_expression(guard, &nested, functions, types, expression_ids))
                     .transpose()?;
                 if let Some(guard) = &guard {
                     require_type(&guard.value_type, &bool_type()?, "match guard")?;
                 }
-                let body = check_expression(body, &nested, functions, expression_ids)?;
+                let body = check_expression(body, &nested, functions, types, expression_ids)?;
                 require_type(&body.value_type, &value_type, "match arm body")?;
                 checked_arms.push(MatchArm {
                     pattern,
@@ -484,7 +530,7 @@ fn check_expression(
                     body,
                 });
             }
-            validate_exhaustive(&subject.value_type, &checked_arms)?;
+            validate_exhaustive(&subject.value_type, &checked_arms, types)?;
             Node::Match {
                 subject: Box::new(subject),
                 arms: checked_arms,
@@ -500,14 +546,14 @@ fn check_expression(
             let quantifier = checked_quantifier(quantifier)?;
             require_type(&value_type, &bool_type()?, "quantifier result")?;
             let (binding_id, binding_type) = checked_binding(binding)?;
-            let domain = check_expression(domain, bindings, functions, expression_ids)?;
+            let domain = check_expression(domain, bindings, functions, types, expression_ids)?;
             require_type(
                 &collection_element_any(&domain.value_type)?,
                 &binding_type,
                 "quantifier binding",
             )?;
             let nested = nested_bindings(bindings, &binding_id, binding_type)?;
-            let predicate = check_expression(predicate, &nested, functions, expression_ids)?;
+            let predicate = check_expression(predicate, &nested, functions, types, expression_ids)?;
             require_type(&predicate.value_type, &bool_type()?, "quantifier predicate")?;
             Node::Quantify {
                 quantifier,
@@ -528,7 +574,7 @@ fn check_expression(
             let quantifier = checked_quantifier(quantifier)?;
             require_type(&value_type, &bool_type()?, "quantifier result")?;
             let (binding_id, binding_type) = checked_binding(binding)?;
-            let domain = check_expression(domain, bindings, functions, expression_ids)?;
+            let domain = check_expression(domain, bindings, functions, types, expression_ids)?;
             require_type(
                 &collection_element_any(&domain.value_type)?,
                 &binding_type,
@@ -536,7 +582,7 @@ fn check_expression(
             )?;
             let verifier = checked_verifier_binding(verifier, &domain.value_type)?;
             let nested = nested_bindings(bindings, &binding_id, binding_type)?;
-            let predicate = check_expression(predicate, &nested, functions, expression_ids)?;
+            let predicate = check_expression(predicate, &nested, functions, types, expression_ids)?;
             require_type(&predicate.value_type, &bool_type()?, "quantifier predicate")?;
             Node::Quantify {
                 quantifier,
@@ -562,7 +608,8 @@ fn check_expression(
             require_type(&function.result, &value_type, "pure function call result")?;
             let mut checked = Vec::with_capacity(arguments.len());
             for (argument, (_, parameter_type)) in arguments.iter().zip(&function.parameters) {
-                let argument = check_expression(argument, bindings, functions, expression_ids)?;
+                let argument =
+                    check_expression(argument, bindings, functions, types, expression_ids)?;
                 require_type(
                     &argument.value_type,
                     parameter_type,
@@ -581,7 +628,7 @@ fn check_expression(
             }
         }
         [Value::Text(tag), source, target] if tag == "cast-dynamic" => {
-            let source = check_expression(source, bindings, functions, expression_ids)?;
+            let source = check_expression(source, bindings, functions, types, expression_ids)?;
             require_type(&source.value_type, &dynamic_type()?, "dynamic cast source")?;
             let target = CheckedType::from_value(target)?;
             require_type(&target, &value_type, "dynamic cast target")?;
@@ -828,6 +875,7 @@ fn check_pattern(
     value: &Value,
     subject_type: &CheckedType,
     bindings: &mut BTreeMap<String, CheckedType>,
+    types: &BTreeMap<String, RegisteredType>,
 ) -> Result<CheckedPattern> {
     let Value::Array(parts) = value else {
         return Err(invalid("pattern must be an array"));
@@ -847,7 +895,7 @@ fn check_pattern(
             PatternNode::Bind(id)
         }
         [Value::Text(tag), Value::Text(case), Value::Array(patterns)] if tag == "variant" => {
-            let payload_types = variant_payload(subject_type, case)?;
+            let payload_types = variant_payload(subject_type, case, types)?;
             if payload_types.len() != patterns.len() {
                 return Err(invalid("variant pattern has the wrong arity"));
             }
@@ -856,12 +904,14 @@ fn check_pattern(
                 patterns
                     .iter()
                     .zip(&payload_types)
-                    .map(|(pattern, value_type)| check_pattern(pattern, value_type, bindings))
+                    .map(|(pattern, value_type)| {
+                        check_pattern(pattern, value_type, bindings, types)
+                    })
                     .collect::<Result<_>>()?,
             )
         }
         [Value::Text(tag), Value::Array(patterns)] if tag == "tuple" => {
-            let element_types = tuple_elements(subject_type)?;
+            let element_types = tuple_elements(subject_type, types)?;
             if element_types.len() != patterns.len() {
                 return Err(invalid("tuple pattern has the wrong arity"));
             }
@@ -869,12 +919,14 @@ fn check_pattern(
                 patterns
                     .iter()
                     .zip(&element_types)
-                    .map(|(pattern, value_type)| check_pattern(pattern, value_type, bindings))
+                    .map(|(pattern, value_type)| {
+                        check_pattern(pattern, value_type, bindings, types)
+                    })
                     .collect::<Result<_>>()?,
             )
         }
         [Value::Text(tag), Value::Map(patterns)] if tag == "record" => {
-            let field_types = record_fields(subject_type)?;
+            let field_types = record_fields(subject_type, types)?;
             let mut checked = Vec::with_capacity(patterns.len());
             for (name, pattern) in patterns {
                 let Some((field_type, _)) = field_types.get(name) else {
@@ -882,7 +934,10 @@ fn check_pattern(
                         "record pattern has undeclared field {name:?}"
                     )));
                 };
-                checked.push((name.clone(), check_pattern(pattern, field_type, bindings)?));
+                checked.push((
+                    name.clone(),
+                    check_pattern(pattern, field_type, bindings, types)?,
+                ));
             }
             PatternNode::Record(checked)
         }
@@ -970,7 +1025,11 @@ fn match_pattern_sequence(
     Ok(true)
 }
 
-fn validate_exhaustive(subject_type: &CheckedType, arms: &[MatchArm]) -> Result<()> {
+fn validate_exhaustive(
+    subject_type: &CheckedType,
+    arms: &[MatchArm],
+    types: &BTreeMap<String, RegisteredType>,
+) -> Result<()> {
     if arms.iter().any(|arm| {
         arm.guard.is_none()
             && matches!(
@@ -980,6 +1039,7 @@ fn validate_exhaustive(subject_type: &CheckedType, arms: &[MatchArm]) -> Result<
     }) {
         return Ok(());
     }
+    let subject_type = resolve_registered_type(subject_type, types)?;
     let Value::Array(parts) = subject_type.to_value() else {
         unreachable!()
     };
@@ -997,26 +1057,33 @@ fn validate_exhaustive(subject_type: &CheckedType, arms: &[MatchArm]) -> Result<
             return Ok(());
         }
     }
-    if let [Value::Text(tag), Value::Array(cases)] = parts.as_slice()
-        && tag == "variant"
-    {
-        let declared = cases
+    let declared = match parts.as_slice() {
+        [Value::Text(tag), Value::Array(cases)] if tag == "variant" => cases
             .iter()
             .filter_map(|case| match case.as_array() {
                 Ok([Value::Text(name), _]) => Some(name.clone()),
                 _ => None,
             })
-            .collect::<BTreeSet<_>>();
+            .collect::<BTreeSet<_>>(),
+        [Value::Text(tag), _, _] if tag == "result" => {
+            BTreeSet::from(["Err".to_owned(), "Ok".to_owned()])
+        }
+        [Value::Text(tag), _] if tag == "option" => {
+            BTreeSet::from(["None".to_owned(), "Some".to_owned()])
+        }
+        _ => BTreeSet::new(),
+    };
+    if !declared.is_empty() {
         let covered = arms
             .iter()
             .filter(|arm| arm.guard.is_none())
             .filter_map(|arm| match &arm.pattern.node {
-                PatternNode::Variant(name, patterns) => variant_payload(subject_type, name)
+                PatternNode::Variant(name, patterns) => variant_payload(&subject_type, name, types)
                     .ok()
                     .filter(|payload| {
                         patterns.len() == payload.len()
                             && patterns.iter().zip(payload).all(|(pattern, value_type)| {
-                                pattern_is_irrefutable(pattern, value_type)
+                                pattern_is_irrefutable(pattern, value_type, types)
                             })
                     })
                     .map(|_| name.clone()),
@@ -1030,21 +1097,24 @@ fn validate_exhaustive(subject_type: &CheckedType, arms: &[MatchArm]) -> Result<
     Err(invalid("match expression is not statically exhaustive"))
 }
 
-fn pattern_is_irrefutable(pattern: &CheckedPattern, value_type: &CheckedType) -> bool {
+fn pattern_is_irrefutable(
+    pattern: &CheckedPattern,
+    value_type: &CheckedType,
+    types: &BTreeMap<String, RegisteredType>,
+) -> bool {
     match &pattern.node {
         PatternNode::Wildcard | PatternNode::Bind(_) => true,
         PatternNode::Literal(_) | PatternNode::Variant(_, _) => false,
-        PatternNode::Tuple(patterns) => tuple_elements(value_type).is_ok_and(|elements| {
+        PatternNode::Tuple(patterns) => tuple_elements(value_type, types).is_ok_and(|elements| {
             patterns.len() == elements.len()
-                && patterns
-                    .iter()
-                    .zip(elements)
-                    .all(|(pattern, value_type)| pattern_is_irrefutable(pattern, &value_type))
+                && patterns.iter().zip(elements).all(|(pattern, value_type)| {
+                    pattern_is_irrefutable(pattern, &value_type, types)
+                })
         }),
-        PatternNode::Record(patterns) => record_fields(value_type).is_ok_and(|fields| {
+        PatternNode::Record(patterns) => record_fields(value_type, types).is_ok_and(|fields| {
             patterns.iter().all(|(name, pattern)| {
                 fields.get(name).is_some_and(|(value_type, optional)| {
-                    !optional && pattern_is_irrefutable(pattern, value_type)
+                    !optional && pattern_is_irrefutable(pattern, value_type, types)
                 })
             })
         }),
@@ -1203,7 +1273,22 @@ fn check_selector(value: &Value) -> Result<Selector> {
     }
 }
 
-fn selected_type(subject: &CheckedType, selector: &Selector) -> Result<CheckedType> {
+fn selected_type(
+    subject: &CheckedType,
+    selector: &Selector,
+    types: &BTreeMap<String, RegisteredType>,
+) -> Result<CheckedType> {
+    let subject = resolve_registered_type(subject, types)?;
+    let subject = match subject.to_value() {
+        Value::Array(parts) if matches!(parts.first(), Some(Value::Text(tag)) if tag == "handle") =>
+        {
+            let value_type = parts
+                .get(5)
+                .ok_or_else(|| invalid("selected handle type is malformed"))?;
+            resolve_registered_type(&CheckedType::from_value(value_type)?, types)?
+        }
+        _ => subject,
+    };
     let Value::Array(parts) = subject.to_value() else {
         unreachable!()
     };
@@ -1379,7 +1464,11 @@ fn require_type(actual: &CheckedType, expected: &CheckedType, context: &str) -> 
         .ok_or_else(|| invalid(format!("{context} type differs from its declaration")))
 }
 
-fn record_fields(value_type: &CheckedType) -> Result<BTreeMap<String, (CheckedType, bool)>> {
+fn record_fields(
+    value_type: &CheckedType,
+    types: &BTreeMap<String, RegisteredType>,
+) -> Result<BTreeMap<String, (CheckedType, bool)>> {
+    let value_type = resolve_registered_type(value_type, types)?;
     let Value::Array(parts) = value_type.to_value() else {
         unreachable!()
     };
@@ -1403,7 +1492,11 @@ fn record_fields(value_type: &CheckedType) -> Result<BTreeMap<String, (CheckedTy
         .collect()
 }
 
-fn record_is_open(value_type: &CheckedType) -> Result<bool> {
+fn record_is_open(
+    value_type: &CheckedType,
+    types: &BTreeMap<String, RegisteredType>,
+) -> Result<bool> {
+    let value_type = resolve_registered_type(value_type, types)?;
     let Value::Array(parts) = value_type.to_value() else {
         unreachable!()
     };
@@ -1416,7 +1509,11 @@ fn record_is_open(value_type: &CheckedType) -> Result<bool> {
     Ok(*open)
 }
 
-fn tuple_elements(value_type: &CheckedType) -> Result<Vec<CheckedType>> {
+fn tuple_elements(
+    value_type: &CheckedType,
+    types: &BTreeMap<String, RegisteredType>,
+) -> Result<Vec<CheckedType>> {
+    let value_type = resolve_registered_type(value_type, types)?;
     let Value::Array(parts) = value_type.to_value() else {
         unreachable!()
     };
@@ -1429,15 +1526,42 @@ fn tuple_elements(value_type: &CheckedType) -> Result<Vec<CheckedType>> {
     elements.iter().map(CheckedType::from_value).collect()
 }
 
-fn variant_payload(value_type: &CheckedType, case: &str) -> Result<Vec<CheckedType>> {
+fn variant_payload(
+    value_type: &CheckedType,
+    case: &str,
+    types: &BTreeMap<String, RegisteredType>,
+) -> Result<Vec<CheckedType>> {
+    let value_type = resolve_registered_type(value_type, types)?;
     let Value::Array(parts) = value_type.to_value() else {
         unreachable!()
     };
+    if let [Value::Text(tag), ok, error] = parts.as_slice()
+        && tag == "result"
+    {
+        return match case {
+            "Ok" => Ok(vec![CheckedType::from_value(ok)?]),
+            "Err" => Ok(vec![CheckedType::from_value(error)?]),
+            _ => Err(invalid(format!("result type has no case {case:?}"))),
+        };
+    }
+    if let [Value::Text(tag), element] = parts.as_slice()
+        && tag == "option"
+    {
+        return match case {
+            "Some" => Ok(vec![CheckedType::from_value(element)?]),
+            "None" => Ok(vec![]),
+            _ => Err(invalid(format!("option type has no case {case:?}"))),
+        };
+    }
     let [Value::Text(tag), Value::Array(cases)] = parts.as_slice() else {
-        return Err(invalid("variant form requires a variant type"));
+        return Err(invalid(
+            "variant form requires a variant, Result, or Option type",
+        ));
     };
     if tag != "variant" {
-        return Err(invalid("variant form requires a variant type"));
+        return Err(invalid(
+            "variant form requires a variant, Result, or Option type",
+        ));
     }
     let payload = cases
         .iter()
@@ -1447,6 +1571,75 @@ fn variant_payload(value_type: &CheckedType, case: &str) -> Result<Vec<CheckedTy
         })
         .ok_or_else(|| invalid(format!("variant type has no case {case:?}")))?;
     payload.iter().map(CheckedType::from_value).collect()
+}
+
+fn resolve_registered_type(
+    value_type: &CheckedType,
+    types: &BTreeMap<String, RegisteredType>,
+) -> Result<CheckedType> {
+    let Value::Array(parts) = value_type.to_value() else {
+        return Ok(value_type.clone());
+    };
+    let [
+        Value::Text(tag),
+        Value::Text(symbol),
+        Value::Array(arguments),
+    ] = parts.as_slice()
+    else {
+        return Ok(value_type.clone());
+    };
+    if tag != "nominal" {
+        return Ok(value_type.clone());
+    }
+    let registered = types.get(symbol).ok_or_else(|| {
+        invalid(format!(
+            "nominal expression type {symbol:?} is not registered"
+        ))
+    })?;
+    if registered.parameter_count != arguments.len() {
+        return Err(invalid("nominal expression type has the wrong arity"));
+    }
+    let arguments = arguments
+        .iter()
+        .map(CheckedType::from_value)
+        .collect::<Result<Vec<_>>>()?;
+    substitute_type_parameters(&registered.definition, &arguments)
+}
+
+fn substitute_type_parameters(
+    value_type: &CheckedType,
+    arguments: &[CheckedType],
+) -> Result<CheckedType> {
+    fn substitute(value: &Value, arguments: &[CheckedType]) -> Result<Value> {
+        if let Value::Array(parts) = value
+            && let [Value::Text(tag), Value::Integer(index)] = parts.as_slice()
+            && tag == "parameter"
+        {
+            let index = usize::try_from(*index)
+                .map_err(|_| invalid("generic type parameter index is invalid"))?;
+            return arguments
+                .get(index)
+                .map(CheckedType::to_value)
+                .ok_or_else(|| invalid("generic type parameter does not resolve"));
+        }
+        Ok(match value {
+            Value::Array(values) => Value::Array(
+                values
+                    .iter()
+                    .map(|value| substitute(value, arguments))
+                    .collect::<Result<_>>()?,
+            ),
+            Value::Map(entries) => Value::owned_map(
+                entries
+                    .iter()
+                    .map(|(key, value)| Ok((key.clone(), substitute(value, arguments)?)))
+                    .collect::<Result<Vec<_>>>()?,
+            ),
+            Value::Tag(tag, nested) => Value::Tag(*tag, Box::new(substitute(nested, arguments)?)),
+            other => other.clone(),
+        })
+    }
+    CheckedType::from_value(&substitute(&value_type.to_value(), arguments)?)
 }
 
 fn variant_payload_type(payload: &[CheckedType]) -> Result<CheckedType> {

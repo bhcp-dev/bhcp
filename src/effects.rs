@@ -203,7 +203,7 @@ fn project_resource(
         .iter()
         .find_map(|clause| match &clause.kind {
             ClauseKind::Fact {
-                kind: "input",
+                kind: "input" | "resource" | "state",
                 binding,
             } if binding.id == *resource => Some(binding.name.as_str()),
             _ => None,
@@ -240,7 +240,7 @@ fn project_resource(
                 .iter()
                 .find_map(|clause| match &clause.kind {
                     ClauseKind::Fact {
-                        kind: "input",
+                        kind: "input" | "resource" | "state",
                         binding,
                     } if binding.name == *parent_name => Some(binding),
                     _ => None,

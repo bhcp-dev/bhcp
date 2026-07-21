@@ -9,13 +9,37 @@
 §type bhcp.reference/Delivery@0 = {
     tree_checked: Unit,
     review_checkpoint: Unit,
-    approval: variant { Excluded, Included(Text) },
-    sequence: Text,
-    delivery: Result<bhcp.reference/Receipt@0, bhcp.reference/DeliveryError@0>
+    approval: variant { Excluded, Included({ approval: Text }) },
+    sequence: { confirmation: Text },
+    delivery: { receipt: Result<bhcp.reference/Receipt@0, bhcp.reference/DeliveryError@0> }
 };
 
 §function bhcp.reference/isHighRisk@0(risk: bhcp.reference/Risk@0): Bool
     = match risk { High => true; Low => false; };
+
+§function bhcp.reference/patchDigestIsNonEmpty@0(patch: owned affine bhcp.reference/Patch@0): Bool
+    = patch.digest != "";
+
+§function bhcp.reference/treeDepthMatches@0(
+    tree: bhcp.reference/Node@0,
+    expected: Integer
+): Bool = tree.depth == expected;
+
+§function bhcp.reference/leafAtZero@0(
+    node: bhcp.reference/Node@0,
+    remaining: Integer
+): Bool = remaining != 0 || node.children == [];
+
+§function bhcp.reference/isSuccessful@0(
+    receipt: Result<bhcp.reference/Receipt@0, bhcp.reference/DeliveryError@0>
+): Bool = match receipt { Ok(_) => true; Err(_) => false; };
+
+§function bhcp.reference/hasStoredDigest@0(
+    receipt: Result<bhcp.reference/Receipt@0, bhcp.reference/DeliveryError@0>
+): Bool = match receipt {
+    Ok(value) => value.digest != "";
+    Err(_) => false;
+};
 
 §predicate bhcp.reference/nonEmpty@0(value: Text): Bool
     = value != "" with bhcp.verifier/expression@0;
@@ -25,7 +49,7 @@
 }
 
 §goal bhcp.reference/ConfirmDelivery@0 {
-    §input token: Text;
+    §input started: { token: Text };
     §output confirmation: Text;
 }
 
@@ -42,14 +66,8 @@
     §output receipt: Result<bhcp.reference/Receipt@0, bhcp.reference/DeliveryError@0>;
     §allows bhcp-effect/fs.read@0(repository), bhcp-effect/fs.write@0(repository);
     §forbids bhcp-effect/network@0;
-    §ensures "safe-result": match receipt {
-        Ok(_) => true;
-        Err(_) => false;
-    };
-    §ensures "stored": match receipt {
-        Ok(value) => bhcp.reference/nonEmpty@0(value.digest);
-        Err(_) => false;
-    };
+    §ensures "safe-result": bhcp.reference/isSuccessful@0(receipt);
+    §ensures "stored": bhcp.reference/hasStoredDigest@0(receipt);
     §verify "scanner": with bhcp.verifier/static-analysis@0 for "safe-result";
 }
 
@@ -57,13 +75,28 @@
     §input node: bhcp.reference/Node@0;
     §input remaining: Integer;
     §requires "non-negative-depth": 0 <= remaining;
-    §requires "leaf-at-zero": remaining != 0 || node.children == [];
+    §requires "leaf-at-zero": bhcp.reference/leafAtZero@0(node, remaining);
     §limit "depth": bhcp.reference/limit.depth@0: remaining <= 64;
-    §all forall child in node.children {
+    §gate when 0 < remaining {
         walked = bhcp.reference/WalkTree@0(
-            node = child,
+            node = node,
             remaining = remaining - 1
         );
+    };
+}
+
+§goal bhcp.reference/ReviewApproval@0 {
+    §input risk: bhcp.reference/Risk@0;
+    §gate when bhcp.reference/isHighRisk@0(risk) {
+        accepted = bhcp.reference/Approve@0(risk = risk);
+    };
+}
+
+§goal bhcp.reference/DeliverySequence@0 {
+    §output confirmation: Text;
+    §chain {
+        started = bhcp.reference/StartDelivery@0();
+        confirmed = bhcp.reference/ConfirmDelivery@0(started = started);
     };
 }
 
@@ -74,9 +107,13 @@
     §input tree_depth: Integer;
     §resource repository: owned linear bhcp.reference/Repository@0;
     §state attempts: Integer;
-    §output outcome: bhcp.reference/Delivery@0;
-    §requires "non-empty-digest": bhcp.reference/nonEmpty@0(patch.digest);
-    §requires "tree-depth-matches": tree.depth == tree_depth;
+    §output tree_checked: Unit;
+    §output review_checkpoint: Unit;
+    §output approval: variant { Excluded, Included({ approval: Text }) };
+    §output sequence: { confirmation: Text };
+    §output delivery: { receipt: Result<bhcp.reference/Receipt@0, bhcp.reference/DeliveryError@0> };
+    §requires "non-empty-digest": bhcp.reference/patchDigestIsNonEmpty@0(patch);
+    §requires "tree-depth-matches": bhcp.reference/treeDepthMatches@0(tree, tree_depth);
     §allows bhcp-effect/fs.read@0(repository), bhcp-effect/fs.write@0(repository), bhcp-effect/process@0("cargo");
     §forbids bhcp-effect/network@0;
     §limit "attempts": bhcp.reference/limit.attempts@0: attempts <= 3;
@@ -87,13 +124,8 @@
             remaining = tree_depth
         );
         review_checkpoint = bhcp.reference/review@0(risk = risk);
-        approval = §gate when bhcp.reference/isHighRisk@0(risk) {
-            accepted = bhcp.reference/Approve@0(risk = risk);
-        };
-        sequence = §chain {
-            started = bhcp.reference/StartDelivery@0();
-            confirmed = bhcp.reference/ConfirmDelivery@0(token = started);
-        };
+        approval = bhcp.reference/ReviewApproval@0(risk = risk);
+        sequence = bhcp.reference/DeliverySequence@0();
         delivery = bhcp.reference/Persist@0(
             patch = move patch,
             repository = move repository

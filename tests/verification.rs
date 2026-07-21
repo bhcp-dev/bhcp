@@ -175,7 +175,7 @@ fn verifier_target_diagnostics_are_stable() {
         "§ensures \"public\": oraclePassed;",
     );
     let diagnostic = compile_source(&duplicate, "duplicate.bhcp").unwrap_err();
-    assert_eq!(diagnostic.code, "BHCP2002");
+    assert_eq!(diagnostic.code, "BHCP1003");
 
     let fact = SOURCE
         .replace(
