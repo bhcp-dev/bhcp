@@ -2050,30 +2050,49 @@ fn semantic_projection(value: &Value, kind: GraphKind) -> Value {
     for field in ["semantic_id", "artifact_id", "provenance", "authorization"] {
         remove_field(&mut value, field);
     }
-    remove_locations(&mut value);
-    if kind == GraphKind::Evidence
-        && let Some(Value::Array(items)) = map_field_mut(&mut value, "items")
-    {
-        for item in items {
-            for field in ["produced_at", "fresh_until", "provenance"] {
-                remove_field(item, field);
+
+    project_content_reference_field(&mut value, "semantic_ir");
+    match kind {
+        GraphKind::Obligation | GraphKind::Capability | GraphKind::Execution => {}
+        GraphKind::State => {
+            if let Some(Value::Array(nodes)) = map_field_mut(&mut value, "nodes") {
+                for node in nodes {
+                    let Some(cell) = map_field_mut(node, "cell") else {
+                        continue;
+                    };
+                    let Some(Value::Array(parts)) = map_field_mut(cell, "state") else {
+                        continue;
+                    };
+                    if matches!(parts.first(), Some(Value::Text(state)) if state == "captured") {
+                        parts[3] = Value::Null;
+                    }
+                }
+            }
+        }
+        GraphKind::Evidence => {
+            project_content_reference_field(&mut value, "execution_graph");
+            if let Some(Value::Array(claims)) = map_field_mut(&mut value, "claims") {
+                for claim in claims {
+                    project_content_reference_field(claim, "subject");
+                }
+            }
+            if let Some(Value::Array(items)) = map_field_mut(&mut value, "items") {
+                for item in items {
+                    project_content_reference_field(item, "verifier_artifact");
+                    project_content_reference_field(item, "payload");
+                    for field in ["produced_at", "fresh_until", "provenance"] {
+                        remove_field(item, field);
+                    }
+                }
             }
         }
     }
     value
 }
 
-fn remove_locations(value: &mut Value) {
-    match value {
-        Value::Array(items) => items.iter_mut().for_each(remove_locations),
-        Value::Map(entries) => {
-            entries.retain(|(key, _)| key != "locations");
-            for (_, item) in entries {
-                remove_locations(item);
-            }
-        }
-        Value::Tag(_, item) => remove_locations(item),
-        _ => {}
+fn project_content_reference_field(value: &mut Value, field: &str) {
+    if let Some(reference) = map_field_mut(value, field) {
+        remove_field(reference, "locations");
     }
 }
 

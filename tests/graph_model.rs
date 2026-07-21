@@ -233,6 +233,14 @@ fn field_mut<'a>(value: &'a mut Value, field: &str) -> &'a mut Value {
     &mut entries.iter_mut().find(|(key, _)| key == field).unwrap().1
 }
 
+fn materialized(value: Value) -> GraphDocument {
+    let mut document = GraphDocument::from_value(&value).unwrap();
+    document
+        .materialize_identities(HashAlgorithm::default())
+        .unwrap();
+    document
+}
+
 fn assert_cbor_item_sorted(items: &[Value]) {
     let encoded = items
         .iter()
@@ -301,6 +309,112 @@ fn ordering_and_presentation_do_not_change_semantic_identity() {
         .materialize_identities(HashAlgorithm::default())
         .unwrap();
     assert_ne!(first.semantic_id(), changed.semantic_id());
+}
+
+#[test]
+fn opaque_locations_in_capability_values_change_semantic_identity() {
+    fn node(payload_location: &str, scope_location: &str) -> Value {
+        Value::map([
+            ("id", Value::Text("request".to_owned())),
+            ("kind", Value::Text("request".to_owned())),
+            (
+                "capability",
+                Value::map([
+                    (
+                        "effect",
+                        Value::map([("id", Value::Text("bhcp-effect/fs.read@0".to_owned()))]),
+                    ),
+                    (
+                        "scope",
+                        Value::map([(
+                            "locations",
+                            Value::Array(vec![Value::Text(scope_location.to_owned())]),
+                        )]),
+                    ),
+                    ("decision", Value::Text("allow".to_owned())),
+                    (
+                        "sources",
+                        Value::Array(vec![Value::Text("policy".to_owned())]),
+                    ),
+                ]),
+            ),
+            (
+                "payload",
+                Value::map([(
+                    "locations",
+                    Value::Array(vec![Value::Text(payload_location.to_owned())]),
+                )]),
+            ),
+        ])
+    }
+
+    let baseline = materialized(capability_graph(vec![node("payload-a", "scope-a")]));
+    let changed_payload = materialized(capability_graph(vec![node("payload-b", "scope-a")]));
+    let changed_scope = materialized(capability_graph(vec![node("payload-a", "scope-b")]));
+
+    assert_ne!(baseline.semantic_id(), changed_payload.semantic_id());
+    assert_ne!(baseline.semantic_id(), changed_scope.semantic_id());
+}
+
+#[test]
+fn typed_content_reference_locations_change_artifact_but_not_semantic_identity() {
+    fn graph(location: &str) -> Value {
+        let mut value = obligation_graph(vec![obligation("obligation", "open")], Vec::new());
+        replace_field(
+            field_mut(&mut value, "semantic_ir"),
+            "locations",
+            Value::Array(vec![Value::Text(location.to_owned())]),
+        );
+        value
+    }
+
+    let first = materialized(graph("file:///first"));
+    let second = materialized(graph("file:///second"));
+
+    assert_eq!(first.semantic_id(), second.semantic_id());
+    assert_ne!(first.artifact_id(), second.artifact_id());
+}
+
+#[test]
+fn captured_state_provenance_changes_artifact_but_not_semantic_identity() {
+    fn graph(producer: &str) -> Value {
+        let mut capture_provenance = provenance(None);
+        replace_field(
+            &mut capture_provenance,
+            "producer",
+            Value::Text(producer.to_owned()),
+        );
+        let captured = Value::Array(vec![
+            Value::Text("captured".to_owned()),
+            Value::Bool(true),
+            Value::Array(vec![Value::Text("evidence".to_owned())]),
+            capture_provenance,
+            Value::Tag(0, Box::new(Value::Text("2026-01-01T00:00:00Z".to_owned()))),
+            literal_expression("capture", true),
+        ]);
+        state_graph(
+            vec![Value::map([
+                ("id", Value::Text("cell".to_owned())),
+                ("kind", Value::Text("cell".to_owned())),
+                (
+                    "cell",
+                    Value::map([
+                        ("key", Value::Text("key".to_owned())),
+                        ("type", bool_type()),
+                        ("state", captured),
+                        ("atomic_version", Value::Integer(0)),
+                    ]),
+                ),
+            ])],
+            Vec::new(),
+        )
+    }
+
+    let first = materialized(graph("example/capture-one@0"));
+    let second = materialized(graph("example/capture-two@0"));
+
+    assert_eq!(first.semantic_id(), second.semantic_id());
+    assert_ne!(first.artifact_id(), second.artifact_id());
 }
 
 #[test]
