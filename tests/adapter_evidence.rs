@@ -134,6 +134,7 @@ fn verify(
         .verify(VerificationRequest {
             compilation,
             goal: "example/Verify@0",
+            execution_instance: None,
             input: &input,
             output: &output,
             subject: reference("subject"),
@@ -322,6 +323,7 @@ fn process_registration_order_does_not_change_bundle_order_or_bytes() {
             .verify(VerificationRequest {
                 compilation: &compilation,
                 goal: "example/OrderedVerify@0",
+                execution_instance: None,
                 input: &input,
                 output: &output,
                 subject: reference("subject"),

@@ -256,6 +256,7 @@ impl VerifierRegistry {
 pub struct VerificationRequest<'a> {
     pub compilation: &'a Compilation,
     pub goal: &'a str,
+    pub execution_instance: Option<&'a str>,
     pub input: &'a Value,
     pub output: &'a Value,
     pub subject: ContentReference,
@@ -1171,13 +1172,20 @@ fn verify(
         let obligation = contract_targets
             .get(&clause.id)
             .expect("contract target map covers every contract clause");
-        let payload_value = Value::map([
-            ("goal", Value::Text(goal.id.clone())),
-            ("input", request.input.clone()),
-            ("obligation", Value::Text(obligation.clone())),
-            ("output", request.output.clone()),
-            ("result", Value::Bool(accepted)),
-        ]);
+        let mut payload_fields = vec![
+            ("goal".to_owned(), Value::Text(goal.id.clone())),
+            ("input".to_owned(), request.input.clone()),
+            ("obligation".to_owned(), Value::Text(obligation.clone())),
+            ("output".to_owned(), request.output.clone()),
+            ("result".to_owned(), Value::Bool(accepted)),
+        ];
+        if let Some(instance) = request.execution_instance {
+            payload_fields.push((
+                "execution_instance".to_owned(),
+                Value::Text(instance.to_owned()),
+            ));
+        }
+        let payload_value = Value::owned_map(payload_fields);
         builder.evidence(
             EXPRESSION_VERIFIER,
             expression_artifact.clone(),

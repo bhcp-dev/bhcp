@@ -377,8 +377,8 @@ accepted evidence or counter-evidence. It revalidates semantic-IR, graph, candid
 payload, producer, decision-time, contract-expression, and policy-minimum boundaries;
 rejects target, identity, premise, reason, and dependency substitution; and preserves
 satisfied, refuted, unresolved, and faulted results without behavior-specific proof
-tags. Built-in expression evidence carries its sealed typed input/output context for
-deterministic re-evaluation, and every observed child result must agree with the
+tags. Built-in expression evidence carries its sealed execution-instance identity
+and typed input/output context for deterministic re-evaluation, and every observed child result must agree with the
 aggregate statuses of that child's structural obligations. The obligation builder
 emits deterministic open nodes for requirements,
 guarantees, invariants, limits, retained cases, verifier bindings, parent/child

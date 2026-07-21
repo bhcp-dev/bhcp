@@ -52,6 +52,7 @@ pub struct ObligationProofRequest<'a> {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ProofEvaluationContext {
+    pub instance: String,
     pub goal: String,
     pub input: Value,
     pub output: Value,
@@ -433,7 +434,7 @@ fn validate_claim_channel(
     claim: &EvidenceClaim,
     item: &EvidenceItem,
     payloads: &HashMap<String, &[u8]>,
-    contexts: &HashMap<String, (Value, Value)>,
+    contexts: &HashMap<(String, String), (Value, Value)>,
     verifier_registry: &VerifierRegistry,
 ) -> Result<()> {
     if compilation
@@ -528,7 +529,7 @@ fn validate_expression_payload(
     target: &GraphNode,
     claim: &EvidenceClaim,
     compilation: &Compilation,
-    contexts: &HashMap<String, (Value, Value)>,
+    contexts: &HashMap<(String, String), (Value, Value)>,
 ) -> Result<()> {
     let value = decode_deterministic(bytes).map_err(|error| {
         invalid_input(format!("invalid expression evidence: {}", error.message))
@@ -556,9 +557,13 @@ fn validate_expression_payload(
             "expression evidence payload does not match its structural target",
         ));
     }
-    let (input, output) = contexts.get(&goal.symbol).ok_or_else(|| {
-        invalid_input("expression evidence has no sealed input and output evaluation context")
-    })?;
+    let instance = text(&value, "execution_instance")
+        .ok_or_else(|| invalid_input("expression evidence has no execution instance"))?;
+    let (input, output) = contexts
+        .get(&(goal.symbol.clone(), instance.to_owned()))
+        .ok_or_else(|| {
+            invalid_input("expression evidence has no sealed input and output evaluation context")
+        })?;
     if value.get("input") != Some(input) || value.get("output") != Some(output) {
         return Err(invalid_input(
             "expression evidence payload does not match its sealed evaluation context",
@@ -579,19 +584,31 @@ fn goal_contexts(
     request: &ObligationProofRequest<'_>,
     parent_goal: &GoalDefinition,
     targets: &BTreeSet<String>,
-) -> Result<HashMap<String, (Value, Value)>> {
+) -> Result<HashMap<(String, String), (Value, Value)>> {
     let (_, network) = resolve_network(request.compilation, request.network)?;
-    let mut allowed = targets
+    let allowed_goals = targets
         .iter()
         .flat_map(|target| node_goals(node(request.obligation_graph, target)))
         .collect::<BTreeSet<_>>();
-    allowed.insert(parent_goal.symbol.as_str());
+    let mut allowed = HashMap::from([(request.network.to_owned(), parent_goal.symbol.as_str())]);
+    for child in &network.children {
+        let child_goal = request
+            .compilation
+            .ir
+            .goals
+            .iter()
+            .find(|goal| goal.id == child.goal)
+            .expect("validated semantic IR resolves every child goal");
+        if allowed_goals.contains(child_goal.symbol.as_str()) {
+            allowed.insert(child.id.clone(), child_goal.symbol.as_str());
+        }
+    }
     let mut contexts = HashMap::new();
     for context in request.evaluation_contexts {
-        if !allowed.contains(context.goal.as_str())
+        if allowed.get(&context.instance).copied() != Some(context.goal.as_str())
             || contexts
                 .insert(
-                    context.goal.clone(),
+                    (context.goal.clone(), context.instance.clone()),
                     (context.input.clone(), context.output.clone()),
                 )
                 .is_some()
@@ -602,7 +619,7 @@ fn goal_contexts(
         }
     }
     if contexts
-        .get(&parent_goal.symbol)
+        .get(&(parent_goal.symbol.clone(), request.network.to_owned()))
         .is_some_and(|(input, _)| input != request.parent)
     {
         return Err(invalid_input(
@@ -617,6 +634,7 @@ fn goal_contexts(
         insert_or_match_context(
             &mut contexts,
             parent_goal,
+            request.network,
             request.parent.clone(),
             output.clone(),
         )?;
@@ -636,7 +654,7 @@ fn goal_contexts(
             .expect("validated semantic IR resolves every child goal");
         let input = child_input(network, child, request.parent, request.observations)?;
         if contexts
-            .get(&child_goal.symbol)
+            .get(&(child_goal.symbol.clone(), child.id.clone()))
             .is_some_and(|(expected, _)| expected != &input)
         {
             return Err(invalid_input(
@@ -644,26 +662,28 @@ fn goal_contexts(
             ));
         }
         if let ExecutionResult::Completed(Verdict::Satisfied { output, .. }) = &observation.result {
-            insert_or_match_context(&mut contexts, child_goal, input, output.clone())?;
+            insert_or_match_context(&mut contexts, child_goal, &child.id, input, output.clone())?;
         }
     }
     Ok(contexts)
 }
 
 fn insert_or_match_context(
-    contexts: &mut HashMap<String, (Value, Value)>,
+    contexts: &mut HashMap<(String, String), (Value, Value)>,
     goal: &GoalDefinition,
+    instance: &str,
     input: Value,
     output: Value,
 ) -> Result<()> {
-    if let Some(expected) = contexts.get(&goal.symbol) {
+    let key = (goal.symbol.clone(), instance.to_owned());
+    if let Some(expected) = contexts.get(&key) {
         if expected != &(input, output) {
             return Err(invalid_input(
                 "proof evaluation context does not match the reconstructed execution value",
             ));
         }
     } else {
-        contexts.insert(goal.symbol.clone(), (input, output));
+        contexts.insert(key, (input, output));
     }
     Ok(())
 }

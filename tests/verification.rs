@@ -114,6 +114,7 @@ fn verify(
     registry.verify(VerificationRequest {
         compilation,
         goal: "experiment/Verify@0",
+        execution_instance: None,
         input: &input(),
         output: candidate,
         subject: reference("subject"),
@@ -356,6 +357,7 @@ fn registry_and_external_value_boundaries_reject_invalid_inputs() {
         .verify(VerificationRequest {
             compilation: &compilation,
             goal: "experiment/Verify@0",
+            execution_instance: None,
             input: &input,
             output: &output,
             subject: reference("subject"),

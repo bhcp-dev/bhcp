@@ -191,6 +191,7 @@ fn verify_candidate(arguments: &[String]) -> Result<(), (u8, String)> {
         .verify(VerificationRequest {
             compilation: &compilation,
             goal,
+            execution_instance: None,
             input,
             output,
             subject,

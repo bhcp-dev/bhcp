@@ -168,6 +168,26 @@ fn any_compilation() -> Compilation {
     compile_source(source, "proof-checker-any.bhcp").unwrap()
 }
 
+fn repeated_goal_compilation() -> Compilation {
+    let source = r#"
+§goal example/Child@0 {
+    §output value: Bool;
+    §requires "ready": true;
+    §verify "audit": with example/verifier.audit@0 for "ready";
+}
+
+§goal example/Parent@0 {
+    §output first: { value: Bool };
+    §output second: { value: Bool };
+    §all {
+        first = example/Child@0();
+        second = example/Child@0();
+    };
+}
+"#;
+    compile_source(source, "proof-checker-repeated-goal.bhcp").unwrap()
+}
+
 fn policy_compilation() -> Compilation {
     let source = r#"
 §goal example/Child@0 {
@@ -287,6 +307,7 @@ fn verification(
         .verify(VerificationRequest {
             compilation,
             goal: "example/Child@0",
+            execution_instance: Some("child-1"),
             input: &input,
             output: &output,
             subject: candidate(),
@@ -301,6 +322,7 @@ fn verification_for(
     compilation: &Compilation,
     registry: &VerifierRegistry,
     goal: &str,
+    execution_instance: &str,
 ) -> bhcp::verification::VerificationReport {
     let input = Value::owned_map(vec![]);
     let output = Value::map([("value", Value::Bool(true))]);
@@ -308,6 +330,7 @@ fn verification_for(
         .verify(VerificationRequest {
             compilation,
             goal,
+            execution_instance: Some(execution_instance),
             input: &input,
             output: &output,
             subject: candidate(),
@@ -410,6 +433,7 @@ fn proof(
         .reduce("network-1", parent.clone(), &observations)
         .unwrap();
     let evaluation_contexts = [ProofEvaluationContext {
+        instance: "child-1".to_owned(),
         goal: "example/Child@0".to_owned(),
         input: Value::owned_map(vec![]),
         output: Value::map([("value", Value::Bool(true))]),
@@ -583,6 +607,201 @@ fn satisfied_child_aggregates_multiple_structural_discharges() {
         }),
     );
     assert_eq!(checked.unwrap().state, ProofState::Satisfied);
+}
+
+#[test]
+fn repeated_goal_invocations_keep_distinct_evaluation_contexts() {
+    let compilation = repeated_goal_compilation();
+    let graph = build_obligation_graph(&compilation).unwrap();
+    let mut registry = VerifierRegistry::new();
+    registry.register(accepted_verifier()).unwrap();
+    let first = verification_for(&compilation, &registry, "example/Child@0", "child-1");
+    let second = verification_for(&compilation, &registry, "example/Child@0", "child-2");
+    let (bundle, payloads) = merge_evidence(first, second);
+    let first_evidence = accepted_claims(&bundle, "supports")
+        .into_iter()
+        .filter(|claim| !claim.starts_with("second-"))
+        .collect();
+    let second_evidence = accepted_claims(&bundle, "supports")
+        .into_iter()
+        .filter(|claim| claim.starts_with("second-"))
+        .collect();
+    let child_output = Value::map([("value", Value::Bool(true))]);
+    let observations = [
+        ChildObservation {
+            child: "child-1".to_owned(),
+            result: ExecutionResult::Completed(Verdict::Satisfied {
+                output: child_output.clone(),
+                evidence: first_evidence,
+            }),
+        },
+        ChildObservation {
+            child: "child-2".to_owned(),
+            result: ExecutionResult::Completed(Verdict::Satisfied {
+                output: child_output.clone(),
+                evidence: second_evidence,
+            }),
+        },
+    ];
+    let parent = Value::owned_map(vec![]);
+    let claimed = KernelRuntime::new(&compilation.ir)
+        .reduce("network-1", parent.clone(), &observations)
+        .unwrap();
+    let evaluation_contexts = [
+        ProofEvaluationContext {
+            instance: "child-1".to_owned(),
+            goal: "example/Child@0".to_owned(),
+            input: Value::owned_map(vec![]),
+            output: child_output.clone(),
+        },
+        ProofEvaluationContext {
+            instance: "child-2".to_owned(),
+            goal: "example/Child@0".to_owned(),
+            input: Value::owned_map(vec![]),
+            output: child_output,
+        },
+    ];
+    let checked = verify_obligation_proof(ObligationProofRequest {
+        compilation: &compilation,
+        obligation_graph: &graph,
+        network: "network-1",
+        parent: &parent,
+        observations: &observations,
+        claimed: &claimed,
+        evidence: &bundle,
+        payloads: &payloads,
+        evaluation_contexts: &evaluation_contexts,
+        verifier_registry: &registry,
+        candidate: &candidate(),
+        candidate_bytes: b"candidate-v1",
+        produced_at: "2026-07-21T09:30:00Z",
+    })
+    .unwrap();
+    assert_eq!(checked.state, ProofState::Satisfied);
+}
+
+#[test]
+fn satisfied_child_with_no_structural_requirements_is_vacuously_consistent() {
+    let source = r#"
+§goal example/Child@0 {
+    §output value: Bool;
+}
+
+§goal example/Parent@0 {
+    §output child: { value: Bool };
+    §requires "parent-ready": true;
+    §all {
+        child = example/Child@0();
+    };
+}
+"#;
+    let compilation = compile_source(source, "proof-checker-zero-requirements.bhcp").unwrap();
+    let graph = build_obligation_graph(&compilation).unwrap();
+    assert!(!graph.nodes().iter().any(|node| {
+        node.kind == "discharge"
+            && node.value().get("source_clauses")
+                == Some(&Value::Array(vec![Value::Text("child-1".to_owned())]))
+    }));
+    let registry = VerifierRegistry::new();
+    let parent = Value::owned_map(vec![]);
+    let output = Value::map([("child", Value::map([("value", Value::Bool(true))]))]);
+    let report = registry
+        .verify(VerificationRequest {
+            compilation: &compilation,
+            goal: "example/Parent@0",
+            execution_instance: Some("network-1"),
+            input: &parent,
+            output: &output,
+            subject: candidate(),
+            subject_bytes: b"candidate-v1",
+            execution_graph: reference("application/cbor", b"execution-graph"),
+            produced_at: "2026-07-21T09:30:00Z",
+        })
+        .unwrap();
+    let observations = [ChildObservation {
+        child: "child-1".to_owned(),
+        result: ExecutionResult::Completed(Verdict::Satisfied {
+            output: Value::map([("value", Value::Bool(true))]),
+            evidence: vec!["derivation-child-proof".to_owned()],
+        }),
+    }];
+    let claimed = KernelRuntime::new(&compilation.ir)
+        .reduce("network-1", parent.clone(), &observations)
+        .unwrap();
+    let evaluation_contexts = [ProofEvaluationContext {
+        instance: "network-1".to_owned(),
+        goal: "example/Parent@0".to_owned(),
+        input: parent.clone(),
+        output: output.clone(),
+    }];
+    let checked = verify_obligation_proof(ObligationProofRequest {
+        compilation: &compilation,
+        obligation_graph: &graph,
+        network: "network-1",
+        parent: &parent,
+        observations: &observations,
+        claimed: &claimed,
+        evidence: &report.bundle,
+        payloads: &report.payloads,
+        evaluation_contexts: &evaluation_contexts,
+        verifier_registry: &registry,
+        candidate: &candidate(),
+        candidate_bytes: b"candidate-v1",
+        produced_at: "2026-07-21T09:30:00Z",
+    })
+    .unwrap();
+    assert_eq!(checked.state, ProofState::Satisfied);
+
+    let non_satisfied = [
+        ExecutionResult::Completed(Verdict::Refuted {
+            counter_evidence: vec!["missing-child-counter-evidence".to_owned()],
+        }),
+        ExecutionResult::Completed(Verdict::Unresolved {
+            reason: Reason {
+                code: "bhcp.unresolved/no-requirement@0".to_owned(),
+                message: "no structural prerequisite is unresolved".to_owned(),
+                details: None,
+            },
+            partial_evidence: vec!["missing-child-partial-evidence".to_owned()],
+        }),
+        ExecutionResult::Faulted(OperationalFault {
+            error: Reason {
+                code: "bhcp.fault/no-requirement@0".to_owned(),
+                message: "no structural prerequisite faulted".to_owned(),
+                details: None,
+            },
+            trace: vec![],
+        }),
+    ];
+    for result in non_satisfied {
+        let observations = [ChildObservation {
+            child: "child-1".to_owned(),
+            result,
+        }];
+        let claimed = KernelRuntime::new(&compilation.ir)
+            .reduce("network-1", parent.clone(), &observations)
+            .unwrap();
+        assert_eq!(
+            verify_obligation_proof(ObligationProofRequest {
+                compilation: &compilation,
+                obligation_graph: &graph,
+                network: "network-1",
+                parent: &parent,
+                observations: &observations,
+                claimed: &claimed,
+                evidence: &report.bundle,
+                payloads: &report.payloads,
+                evaluation_contexts: &evaluation_contexts,
+                verifier_registry: &registry,
+                candidate: &candidate(),
+                candidate_bytes: b"candidate-v1",
+                produced_at: "2026-07-21T09:30:00Z",
+            })
+            .unwrap_err()
+            .code,
+            "BHCP7302"
+        );
+    }
 }
 
 #[test]
@@ -915,6 +1134,7 @@ fn reducer_re_evaluation_rejects_hidden_output_or_premise_choice() {
     };
     derivation.premises.reverse();
     let evaluation_contexts = [ProofEvaluationContext {
+        instance: "child-1".to_owned(),
         goal: "example/Child@0".to_owned(),
         input: Value::owned_map(vec![]),
         output: Value::map([("value", Value::Bool(true))]),
@@ -985,6 +1205,37 @@ fn expression_payload_goal_and_production_edges_are_exact() {
             &graph,
             &wrong_goal_bundle,
             &wrong_goal_payloads,
+            &registry,
+            child_result.clone(),
+        )
+        .1
+        .unwrap_err()
+        .code,
+        "BHCP7301"
+    );
+
+    let mut wrong_instance = bhcp::cbor::decode_deterministic(&expression_payload.bytes).unwrap();
+    let Value::Map(fields) = &mut wrong_instance else {
+        unreachable!()
+    };
+    fields
+        .iter_mut()
+        .find(|(field, _)| field == "execution_instance")
+        .unwrap()
+        .1 = Value::Text("child-substituted".to_owned());
+    let mut wrong_instance_bundle = report.bundle.clone();
+    let mut wrong_instance_payloads = report.payloads.clone();
+    replace_expression_payload(
+        &mut wrong_instance_bundle,
+        &mut wrong_instance_payloads,
+        wrong_instance,
+    );
+    assert_eq!(
+        proof(
+            &compilation,
+            &graph,
+            &wrong_instance_bundle,
+            &wrong_instance_payloads,
             &registry,
             child_result.clone(),
         )
@@ -1099,8 +1350,13 @@ fn decisive_any_proof_keeps_an_unused_dependency_unresolved() {
     let graph = build_obligation_graph(&compilation).unwrap();
     let mut registry = VerifierRegistry::new();
     registry.register(accepted_verifier()).unwrap();
-    let first = verification_for(&compilation, &registry, "example/ChildA@0");
-    let second = verification_for(&compilation, &VerifierRegistry::new(), "example/ChildB@0");
+    let first = verification_for(&compilation, &registry, "example/ChildA@0", "child-1");
+    let second = verification_for(
+        &compilation,
+        &VerifierRegistry::new(),
+        "example/ChildB@0",
+        "child-2",
+    );
     let (bundle, payloads) = merge_evidence(first, second);
     let first_obligation = graph
         .nodes()
@@ -1138,11 +1394,13 @@ fn decisive_any_proof_keeps_an_unused_dependency_unresolved() {
         .unwrap();
     let evaluation_contexts = [
         ProofEvaluationContext {
+            instance: "child-1".to_owned(),
             goal: "example/ChildA@0".to_owned(),
             input: Value::owned_map(vec![]),
             output: Value::map([("value", Value::Bool(true))]),
         },
         ProofEvaluationContext {
+            instance: "child-2".to_owned(),
             goal: "example/ChildB@0".to_owned(),
             input: Value::owned_map(vec![]),
             output: Value::map([("value", Value::Bool(true))]),
@@ -1189,6 +1447,7 @@ fn policy_minimum_counts_distinct_producers_not_duplicated_items() {
         .verify(VerificationRequest {
             compilation: &compilation,
             goal: "example/Parent@0",
+            execution_instance: None,
             input: &input,
             output: &output,
             subject: candidate(),

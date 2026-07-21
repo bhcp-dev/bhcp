@@ -69,8 +69,8 @@ authority must validate before they affect meaning.
 - Obligation proofs reject graph/dependency deletion, target substitution, forged or
   colliding derivation tokens, cross-wired item/claim edges, unsealed payload bytes,
   unretained producers, and mismatched candidate or semantic-IR identities. Contract
-  expression evidence is tied to the exact retained goal and always re-evaluated
-  against its sealed input/output context; observed child results must agree with
+  expression evidence is tied to the exact retained goal and execution instance and
+  always re-evaluated against its sealed input/output context; observed child results must agree with
   the aggregate statuses of their structural prerequisites; policy evidence must
   satisfy the retained class and distinct-producer minimum.
 - A refutation is not an operational fault, and an unresolved result is not accepted
