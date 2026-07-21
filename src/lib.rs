@@ -22,6 +22,7 @@ pub mod pipeline;
 pub mod policy;
 pub mod prelude;
 pub mod profile;
+pub mod proof;
 pub mod schema;
 pub mod typecheck;
 pub mod value;

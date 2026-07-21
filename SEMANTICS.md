@@ -674,6 +674,16 @@ IR omits `body`; its input and output types are derived from its fact clauses. E
 networks are permitted because a reducer can immediately conclude a logical identity
 without requesting a child.
 
+**Implementation status:** the safe-Rust obligation proof checker validates the
+exact compiled IR and reconstructed obligation graph, re-evaluates the retained
+network reducer over its parent input and sealed observations, and binds derivation
+premises to matching child dependency edges and accepted evidence or
+counter-evidence. Candidate and payload bytes, producers, timestamps, contract
+expressions, policy evidence minima, derivation identities, and unresolved/fault
+reasons fail closed on substitution. The checked report preserves satisfied,
+refuted, unresolved, and faulted states. Execution-graph construction, runtime
+enforcement, and final evidence-graph assembly remain separate stages.
+
 Composition quantifiers are stricter than logical quantifiers in S5: their domains
 MUST normalize during elaboration to a statically known finite collection. They then
 expand to explicit, deterministically ordered children before kernel-network IR and
@@ -1299,8 +1309,10 @@ cycles, and exposes graph inspection. The obligation builder now deterministical
 lowers contract clauses, retained cases, verifier targeting, parent/child discharge
 dependencies, and effective-policy requirement/evidence/limit rules. Its structural
 IDs exclude generated clause IDs and labels; exact policy source provenance remains
-artifact-only audit data; every initial status is open. Capability/state construction,
-planning, runtime execution, and complete proof checking remain later stages.
+artifact-only audit data; every initial status is open. The generic proof checker now
+validates the complete obligation closure against sealed reducer observations and
+evidence while preserving all four result states. Capability/state construction,
+planning, runtime execution, and final evidence-graph assembly remain later stages.
 
 ## S11. Wire encoding, normalization, and identity
 

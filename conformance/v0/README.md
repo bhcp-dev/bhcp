@@ -110,7 +110,12 @@ The registered verifier slice additionally executes EVD-01 through EVD-06, inclu
 capability-bounded project adapters and their deterministic evidence mapping. The
 obligation builder constructs normalized contract, retained-case, verifier,
 parent/child, and effective-policy nodes with exact audit provenance and open initial
-status. Freshness windows, signatures, and full proof coverage remain unclaimed.
+status. `tests/proof_checker.rs` composes those EVD boundaries with KRN-03, KRN-08,
+and the existing KRN-02/06/09/10/13 kernel evidence: it checks exact reducer,
+observation, dependency, candidate, payload, producer, policy-minimum, and four-state
+bindings, including generic counter-evidence premises for `none`. Freshness windows,
+signatures, execution graphs, and final evidence-graph assembly remain unclaimed;
+full proof coverage remains unclaimed at the v0 runtime boundary.
 
 The manifest at `policy/manifest.txt` makes the complete no-waiver POL-01 through
 POL-08 slice executable. Its canonical sources cover organization, team, repository,

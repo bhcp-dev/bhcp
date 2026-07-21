@@ -1524,6 +1524,27 @@ fn fact_bindings(
     Ok(bindings)
 }
 
+pub(crate) fn evaluate_contract_condition(
+    goal: &GoalDefinition,
+    clause_id: &str,
+    input: &Value,
+    output: &Value,
+) -> Result<bool> {
+    let clause = goal
+        .clauses
+        .iter()
+        .find(|clause| clause.id == clause_id)
+        .ok_or_else(|| invalid("contract evidence source clause does not resolve"))?;
+    let ClauseKind::Contract { condition, .. } = &clause.kind else {
+        return Err(invalid("contract evidence source is not a contract clause"));
+    };
+    let bindings = fact_bindings(goal, input, output)?;
+    match evaluate(condition, &bindings)? {
+        Value::Bool(value) => Ok(value),
+        _ => Err(invalid("contract condition did not evaluate to Bool")),
+    }
+}
+
 fn evaluate(expression: &Expression, bindings: &HashMap<String, Value>) -> Result<Value> {
     match &expression.form {
         ExpressionForm::Literal(value) => Ok(value.clone()),
