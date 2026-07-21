@@ -325,6 +325,7 @@ fn proof(
     graph: &GraphDocument,
     bundle: &EvidenceBundle,
     payloads: &[PayloadArtifact],
+    verifier_registry: &VerifierRegistry,
     child_result: ExecutionResult,
 ) -> (
     Reduction,
@@ -347,6 +348,7 @@ fn proof(
         claimed: &claimed,
         evidence: bundle,
         payloads,
+        verifier_registry,
         candidate: &candidate(),
         candidate_bytes: b"candidate-v1",
         produced_at: "2026-07-21T09:30:00Z",
@@ -366,6 +368,7 @@ fn complete_graph_proofs_preserve_satisfied_refuted_unresolved_and_faulted() {
         &satisfied_graph,
         &satisfied_evidence.bundle,
         &satisfied_evidence.payloads,
+        &registry,
         ExecutionResult::Completed(Verdict::Satisfied {
             output: Value::map([("value", Value::Bool(true))]),
             evidence: accepted_claims(&satisfied_evidence.bundle, "supports"),
@@ -381,6 +384,7 @@ fn complete_graph_proofs_preserve_satisfied_refuted_unresolved_and_faulted() {
         &refuted_graph,
         &refuted_evidence.bundle,
         &refuted_evidence.payloads,
+        &registry,
         ExecutionResult::Completed(Verdict::Refuted {
             counter_evidence: accepted_claims(&refuted_evidence.bundle, "refutes"),
         }),
@@ -389,13 +393,15 @@ fn complete_graph_proofs_preserve_satisfied_refuted_unresolved_and_faulted() {
 
     let unresolved_compilation = compilation(true);
     let unresolved_graph = build_obligation_graph(&unresolved_compilation).unwrap();
-    let unresolved_evidence = verification(&unresolved_compilation, &VerifierRegistry::new());
+    let unresolved_registry = VerifierRegistry::new();
+    let unresolved_evidence = verification(&unresolved_compilation, &unresolved_registry);
     let reason = unresolved_evidence.bundle.gaps[0].reason.clone();
     let (_, checked) = proof(
         &unresolved_compilation,
         &unresolved_graph,
         &unresolved_evidence.bundle,
         &unresolved_evidence.payloads,
+        &unresolved_registry,
         ExecutionResult::Completed(Verdict::Unresolved {
             reason,
             partial_evidence: accepted_claims(&unresolved_evidence.bundle, "supports"),
@@ -416,6 +422,7 @@ fn complete_graph_proofs_preserve_satisfied_refuted_unresolved_and_faulted() {
         &faulted_graph,
         &faulted_evidence.bundle,
         &faulted_evidence.payloads,
+        &faulted_registry,
         ExecutionResult::Faulted(OperationalFault {
             error: faults[0].clone(),
             trace: vec![],
@@ -465,6 +472,7 @@ fn exact_obligation_closure_rejects_target_and_dependency_substitution() {
             &graph,
             &substituted,
             &report.payloads,
+            &registry,
             valid_result.clone(),
         )
         .1
@@ -497,6 +505,7 @@ fn exact_obligation_closure_rejects_target_and_dependency_substitution() {
             &missing_dependency,
             &report.bundle,
             &report.payloads,
+            &registry,
             valid_result,
         )
         .1
@@ -522,6 +531,7 @@ fn candidate_payload_producer_and_derivation_identity_are_not_substitutable() {
         &graph,
         &report.bundle,
         &report.payloads,
+        &registry,
         child_result.clone(),
     );
     valid.unwrap();
@@ -537,6 +547,7 @@ fn candidate_payload_producer_and_derivation_identity_are_not_substitutable() {
             &graph,
             &wrong_subject,
             &report.payloads,
+            &registry,
             child_result.clone(),
         )
         .1
@@ -560,6 +571,7 @@ fn candidate_payload_producer_and_derivation_identity_are_not_substitutable() {
             &graph,
             &unsupported,
             &report.payloads,
+            &registry,
             child_result.clone(),
         )
         .1
@@ -587,6 +599,7 @@ fn candidate_payload_producer_and_derivation_identity_are_not_substitutable() {
             &graph,
             &collision,
             &report.payloads,
+            &registry,
             child_result,
         )
         .1
@@ -612,6 +625,7 @@ fn reducer_re_evaluation_rejects_hidden_output_or_premise_choice() {
         &graph,
         &report.bundle,
         &report.payloads,
+        &registry,
         child_result.clone(),
     );
     let Reduction::Concluded { derivation, .. } = &mut claimed else {
@@ -631,6 +645,7 @@ fn reducer_re_evaluation_rejects_hidden_output_or_premise_choice() {
             claimed: &claimed,
             evidence: &report.bundle,
             payloads: &report.payloads,
+            verifier_registry: &registry,
             candidate: &candidate(),
             candidate_bytes: b"candidate-v1",
             produced_at: "2026-07-21T09:30:00Z",
@@ -682,6 +697,7 @@ fn expression_payload_goal_and_production_edges_are_exact() {
             &graph,
             &wrong_goal_bundle,
             &wrong_goal_payloads,
+            &registry,
             child_result.clone(),
         )
         .1
@@ -702,6 +718,7 @@ fn expression_payload_goal_and_production_edges_are_exact() {
             &graph,
             &crossed_edges,
             &report.payloads,
+            &registry,
             child_result,
         )
         .1
@@ -715,7 +732,8 @@ fn expression_payload_goal_and_production_edges_are_exact() {
 fn unresolved_and_faulted_results_bind_the_exact_sealed_reason() {
     let unresolved_compilation = compilation(true);
     let unresolved_graph = build_obligation_graph(&unresolved_compilation).unwrap();
-    let unresolved_evidence = verification(&unresolved_compilation, &VerifierRegistry::new());
+    let unresolved_registry = VerifierRegistry::new();
+    let unresolved_evidence = verification(&unresolved_compilation, &unresolved_registry);
     let wrong_reason = Reason {
         code: "bhcp.unresolved/substituted@0".to_owned(),
         message: "substituted unresolved reason".to_owned(),
@@ -727,6 +745,7 @@ fn unresolved_and_faulted_results_bind_the_exact_sealed_reason() {
             &unresolved_graph,
             &unresolved_evidence.bundle,
             &unresolved_evidence.payloads,
+            &unresolved_registry,
             ExecutionResult::Completed(Verdict::Unresolved {
                 reason: wrong_reason,
                 partial_evidence: accepted_claims(&unresolved_evidence.bundle, "supports"),
@@ -749,6 +768,7 @@ fn unresolved_and_faulted_results_bind_the_exact_sealed_reason() {
             &faulted_graph,
             &faulted_evidence.bundle,
             &faulted_evidence.payloads,
+            &faulted_registry,
             ExecutionResult::Faulted(OperationalFault {
                 error: Reason {
                     code: "bhcp.fault/substituted@0".to_owned(),
@@ -777,6 +797,7 @@ fn generic_checker_accepts_counter_evidence_as_a_none_reducer_premise() {
         &graph,
         &report.bundle,
         &report.payloads,
+        &registry,
         ExecutionResult::Completed(Verdict::Refuted {
             counter_evidence: accepted_claims(&report.bundle, "refutes"),
         }),
@@ -836,6 +857,7 @@ fn decisive_any_proof_keeps_an_unused_dependency_unresolved() {
         claimed: &claimed,
         evidence: &bundle,
         payloads: &payloads,
+        verifier_registry: &registry,
         candidate: &candidate(),
         candidate_bytes: b"candidate-v1",
         produced_at: "2026-07-21T09:30:00Z",
@@ -856,6 +878,7 @@ fn policy_minimum_counts_distinct_producers_not_duplicated_items() {
     let graph = build_obligation_graph(&compilation).unwrap();
     let mut registry = VerifierRegistry::new();
     registry.register(PolicyVerifier).unwrap();
+    registry.register(accepted_verifier()).unwrap();
     registry
         .bind_policy_evidence("example/obligation.audit@0", "example/verifier.policy@0")
         .unwrap();
@@ -928,6 +951,66 @@ fn policy_minimum_counts_distinct_producers_not_duplicated_items() {
             claimed: &claimed,
             evidence: &duplicated,
             payloads: &report.payloads,
+            verifier_registry: &registry,
+            candidate: &candidate(),
+            candidate_bytes: b"candidate-v1",
+            produced_at: "2026-07-21T09:30:00Z",
+        })
+        .unwrap_err()
+        .code,
+        "BHCP7301"
+    );
+
+    let mut forged_producer = duplicated.clone();
+    let forged_item = forged_producer
+        .items
+        .iter_mut()
+        .find(|item| item.id == "duplicate-policy-item")
+        .unwrap();
+    forged_item.verifier = "example/verifier.forged@0".to_owned();
+    forged_item.producer = "example/verifier.forged@0".to_owned();
+    rematerialize(&mut forged_producer);
+    assert_eq!(
+        verify_obligation_proof(ObligationProofRequest {
+            compilation: &compilation,
+            obligation_graph: &graph,
+            network: "network-1",
+            parent: &input,
+            observations: &observations,
+            claimed: &claimed,
+            evidence: &forged_producer,
+            payloads: &report.payloads,
+            verifier_registry: &registry,
+            candidate: &candidate(),
+            candidate_bytes: b"candidate-v1",
+            produced_at: "2026-07-21T09:30:00Z",
+        })
+        .unwrap_err()
+        .code,
+        "BHCP7301"
+    );
+
+    let mut unbound_producer = duplicated.clone();
+    let unbound_item = unbound_producer
+        .items
+        .iter_mut()
+        .find(|item| item.id == "duplicate-policy-item")
+        .unwrap();
+    unbound_item.verifier = "example/verifier.audit@0".to_owned();
+    unbound_item.producer = "example/verifier.audit@0".to_owned();
+    unbound_item.verifier_artifact = accepted_verifier().artifact();
+    rematerialize(&mut unbound_producer);
+    assert_eq!(
+        verify_obligation_proof(ObligationProofRequest {
+            compilation: &compilation,
+            obligation_graph: &graph,
+            network: "network-1",
+            parent: &input,
+            observations: &observations,
+            claimed: &claimed,
+            evidence: &unbound_producer,
+            payloads: &report.payloads,
+            verifier_registry: &registry,
             candidate: &candidate(),
             candidate_bytes: b"candidate-v1",
             produced_at: "2026-07-21T09:30:00Z",
@@ -950,6 +1033,7 @@ fn policy_minimum_counts_distinct_producers_not_duplicated_items() {
             claimed: &claimed,
             evidence: &forged_provenance,
             payloads: &report.payloads,
+            verifier_registry: &registry,
             candidate: &candidate(),
             candidate_bytes: b"candidate-v1",
             produced_at: "2026-07-21T09:30:00Z",
@@ -986,6 +1070,7 @@ fn retained_verifier_type_trust_and_freshness_are_rechecked() {
             &graph,
             &wrong_class,
             &report.payloads,
+            &registry,
             child_result.clone(),
         )
         .1
@@ -1000,10 +1085,17 @@ fn retained_verifier_type_trust_and_freshness_are_rechecked() {
     }
     rematerialize(&mut stale);
     assert_eq!(
-        proof(&compilation, &graph, &stale, &report.payloads, child_result,)
-            .1
-            .unwrap_err()
-            .code,
+        proof(
+            &compilation,
+            &graph,
+            &stale,
+            &report.payloads,
+            &registry,
+            child_result,
+        )
+        .1
+        .unwrap_err()
+        .code,
         "BHCP7301"
     );
 }

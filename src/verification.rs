@@ -214,6 +214,37 @@ impl VerifierRegistry {
     pub fn verify(&self, request: VerificationRequest<'_>) -> Result<VerificationReport> {
         verify(self, request)
     }
+
+    pub(crate) fn validates_evidence_authority(
+        &self,
+        policy_obligation: Option<&str>,
+        item: &EvidenceItem,
+    ) -> Result<bool> {
+        if let Some(obligation) = policy_obligation
+            && !self
+                .policy_producers
+                .get(obligation)
+                .is_some_and(|producers| {
+                    producers
+                        .binary_search_by(|producer| producer.as_str().cmp(&item.verifier))
+                        .is_ok()
+                })
+        {
+            return Ok(false);
+        }
+        let Some(verifier) = self.verifiers.get(&item.verifier) else {
+            return Ok(false);
+        };
+        match verifier {
+            RegisteredVerifier::InProcess { artifact, .. } => {
+                Ok(item.verifier_artifact == *artifact && item.provenance_source.is_none())
+            }
+            RegisteredVerifier::Adapter { declaration, .. } => {
+                let registration = crate::adapter::registration_reference(declaration)?;
+                Ok(item.provenance_source.as_ref() == Some(&registration))
+            }
+        }
+    }
 }
 
 pub struct VerificationRequest<'a> {

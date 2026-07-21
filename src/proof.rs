@@ -11,7 +11,9 @@ use crate::model::{BhcpType, ClauseKind, ContentReference, GoalDefinition, Verif
 use crate::obligation::{contract_target_map, validate_compilation, validate_obligation_graph};
 use crate::pipeline::Compilation;
 use crate::value::Value;
-use crate::verification::{EvidenceBundle, EvidenceClaim, EvidenceItem, PayloadArtifact};
+use crate::verification::{
+    EvidenceBundle, EvidenceClaim, EvidenceItem, PayloadArtifact, VerifierRegistry,
+};
 
 const INVALID_PROOF_INPUT: &str = "BHCP7301";
 const INVALID_PROOF: &str = "BHCP7302";
@@ -41,6 +43,7 @@ pub struct ObligationProofRequest<'a> {
     pub claimed: &'a Reduction,
     pub evidence: &'a EvidenceBundle,
     pub payloads: &'a [PayloadArtifact],
+    pub verifier_registry: &'a VerifierRegistry,
     pub candidate: &'a ContentReference,
     pub candidate_bytes: &'a [u8],
     pub produced_at: &'a str,
@@ -395,6 +398,7 @@ fn validate_evidence_bindings(
                 item,
                 payloads,
                 &contexts,
+                request.verifier_registry,
             )?;
         }
     }
@@ -423,6 +427,7 @@ fn validate_claim_channel(
     item: &EvidenceItem,
     payloads: &HashMap<String, &[u8]>,
     contexts: &HashMap<String, (Value, Value)>,
+    verifier_registry: &VerifierRegistry,
 ) -> Result<()> {
     if compilation
         .ir
@@ -448,6 +453,11 @@ fn validate_claim_channel(
             if !classes.contains(&item.evidence_class.as_str()) {
                 return Err(invalid_input(
                     "policy evidence class is outside the retained rule",
+                ));
+            }
+            if !verifier_registry.validates_evidence_authority(Some(expected), item)? {
+                return Err(invalid_input(
+                    "policy evidence producer is not registered and bound to the retained obligation",
                 ));
             }
         }
@@ -496,6 +506,11 @@ fn validate_claim_channel(
     {
         return Err(invalid_input(
             "evidence class is outside the retained verifier type or trust declaration",
+        ));
+    }
+    if !verifier_registry.validates_evidence_authority(None, item)? {
+        return Err(invalid_input(
+            "evidence producer is not bound to the trusted verifier registry",
         ));
     }
     Ok(())

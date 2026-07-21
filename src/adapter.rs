@@ -112,7 +112,6 @@ impl VerifierProcessRunner {
         cancellation: &CancellationToken,
     ) -> Result<AdapterRun> {
         validate_request(declaration, request)?;
-        let registration_bytes = encode_deterministic(&declaration_value(declaration))?;
         let request_bytes = encode_deterministic(&request_value(request))?;
         if request_bytes.len() > MAX_ADAPTER_INPUT_BYTES {
             return Err(invalid("encoded adapter request exceeds the input limit"));
@@ -120,7 +119,7 @@ impl VerifierProcessRunner {
         let mut record = AdapterExecutionRecord {
             declaration: declaration.clone(),
             obligations: request.obligations.to_vec(),
-            registration_artifact: reference(REGISTRATION_MEDIA_TYPE, &registration_bytes),
+            registration_artifact: registration_reference(declaration)?,
             executable_artifact: None,
             request_artifact: reference(REQUEST_MEDIA_TYPE, &request_bytes),
             response_artifact: None,
@@ -387,6 +386,13 @@ impl VerifierProcessRunner {
         }
         Ok(resolved)
     }
+}
+
+pub(crate) fn registration_reference(
+    declaration: &VerifierAdapterDeclaration,
+) -> Result<ContentReference> {
+    let bytes = encode_deterministic(&declaration_value(declaration))?;
+    Ok(reference(REGISTRATION_MEDIA_TYPE, &bytes))
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
