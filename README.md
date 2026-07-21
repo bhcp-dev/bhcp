@@ -382,8 +382,11 @@ tags. Every evidence claim, item, and gap carries its sealed execution-instance
 identity; built-in expression evidence additionally carries its typed input/output
 context for deterministic re-evaluation. Every observed child result must agree
 with the instance-specific aggregate statuses of that child's structural
-obligations. The obligation builder
-emits deterministic open nodes for requirements,
+obligations. The exact retained reducer remains authoritative for child composition;
+its result combines with parent-local obligation dispositions under
+`Refuted > Faulted > Unresolved > Satisfied`, so the checker rejects a weaker reducer
+result and no child-discharge label becomes a behavior-specific parent rule. The obligation
+builder emits deterministic open nodes for requirements,
 guarantees, invariants, limits, retained cases, verifier bindings, parent/child
 discharge dependencies, and effective policy requirements/evidence/limits. Generated
 clause IDs and labels are audit data, not structural identity; duplicate policy rules

@@ -1378,12 +1378,23 @@ fn validate_outcome(
         ExecutionResult::Completed(Verdict::Unresolved { .. }) => ProofState::Unresolved,
         ExecutionResult::Faulted(_) => ProofState::Faulted,
     };
-    let required_state = if local_has(CheckedStatus::Refuted) {
+    let local_state = if local_has(CheckedStatus::Refuted) {
         ProofState::Refuted
     } else if local_has(CheckedStatus::Faulted) {
         ProofState::Faulted
     } else if local_has(CheckedStatus::Unresolved) {
         ProofState::Unresolved
+    } else {
+        ProofState::Satisfied
+    };
+    let rank = |state| match state {
+        ProofState::Satisfied => 0,
+        ProofState::Unresolved => 1,
+        ProofState::Faulted => 2,
+        ProofState::Refuted => 3,
+    };
+    let required_state = if rank(local_state) > rank(result_state) {
+        local_state
     } else {
         result_state
     };
