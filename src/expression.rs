@@ -12,6 +12,7 @@ use crate::value::Value;
 
 const INVALID_EXPRESSION: &str = "BHCP4201";
 const EXPRESSION_FAULT: &str = "BHCP4202";
+const MAX_EXECUTABLE_DECIMAL_EXPONENT: u32 = 4096;
 
 #[derive(Clone, Debug, Default)]
 pub struct ExpressionContext {
@@ -1557,6 +1558,14 @@ fn exact_ratio(value: &Value) -> Result<(BigInt, BigInt)> {
         ] if tag == "decimal" => {
             let magnitude = u32::try_from(exponent.unsigned_abs())
                 .map_err(|_| fault("decimal exponent exceeds the executable number domain"))?;
+            if *coefficient == 0 {
+                return Ok((BigInt::zero(), BigInt::one()));
+            }
+            if magnitude > MAX_EXECUTABLE_DECIMAL_EXPONENT {
+                return Err(fault(format!(
+                    "decimal exponent exceeds the bounded evaluation ceiling of {MAX_EXECUTABLE_DECIMAL_EXPONENT}"
+                )));
+            }
             let power = BigInt::from(10_u8).pow(magnitude);
             if *exponent >= 0 {
                 Ok((BigInt::from(*coefficient) * power, BigInt::one()))

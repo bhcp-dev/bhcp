@@ -822,6 +822,39 @@ fn totality_attacks_are_rejected_or_fault_with_stable_categories() {
         "BHCP4201"
     );
 
+    let huge_decimal = |id: &str, coefficient: i128| {
+        expression(
+            id,
+            r#"["exact-number", "Decimal"]"#,
+            Value::Array(vec![
+                Value::Text("literal".to_owned()),
+                Value::Array(vec![
+                    Value::Text("decimal".to_owned()),
+                    Value::Integer(coefficient),
+                    Value::Integer(4_000_000_000),
+                ]),
+            ]),
+        )
+    };
+    let allocation_attack = expression(
+        "decimal-allocation-attack",
+        r#"["primitive", "Bool"]"#,
+        Value::Array(vec![
+            Value::Text("binary".to_owned()),
+            Value::Text("<".to_owned()),
+            huge_decimal("huge-decimal-one", 1),
+            huge_decimal("huge-decimal-two", 2),
+        ]),
+    );
+    assert_eq!(
+        CheckedExpression::check(&allocation_attack, &ExpressionContext::default())
+            .unwrap()
+            .evaluate(&EvaluationContext::default())
+            .unwrap_err()
+            .code,
+        "BHCP4202"
+    );
+
     let hidden_call = expression(
         "hidden-call-if",
         r#"["primitive", "Text"]"#,
