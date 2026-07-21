@@ -65,11 +65,14 @@ authority must validate before they affect meaning.
   capability-bounded sandbox with no shell, `PATH`, ambient network, or inherited
   descriptor authority. Missing enforcement fails before launch.
 - Reducer conclusions are re-evaluated by the generic checker against sealed child
-  observations and typed outputs. Behavior-specific proof tags are not trusted.
+  observations and typed outputs. The exact reducer result remains authoritative for
+  child composition and combines with parent-local obligations under
+  `Refuted > Faulted > Unresolved > Satisfied`; a child-discharge label is not a
+  behavior-specific parent rule.
 - Obligation proofs reject graph/dependency deletion, target substitution, forged or
   colliding derivation tokens, cross-wired item/claim edges, unsealed payload bytes,
-  unretained producers, and mismatched candidate or semantic-IR identities. Contract
-  every evidence claim, item, and gap is tied to its exact execution instance;
+  unretained producers, and mismatched candidate or semantic-IR identities. Every
+  evidence claim, item, and gap is tied to its exact execution instance;
   expression evidence is also tied to the exact retained goal and always re-evaluated
   against its sealed input/output context; observed child results must agree with
   the instance-specific aggregate statuses of their structural prerequisites; policy
