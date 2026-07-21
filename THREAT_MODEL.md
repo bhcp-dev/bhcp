@@ -119,8 +119,9 @@ graph, or execution graph. The obligation-graph proof-checker slice is implement
 but it is not a substitute for the deferred executor and evidence-graph assembly.
 Effect rows are conservative declarations, not proof that
 an implementation cannot perform undeclared host effects; runtime capability
-enforcement remains required. State-graph construction, signature policy and key
-distribution, revocation services, durable clock attestation, and full CDDL instance
-interpretation are deferred implementation work. A
+enforcement remains required. The implemented state-analysis graph records ownership,
+retention, freshness, and guarded transitions but performs no mutation. State/CAS
+runtime execution, signature policy and key distribution, revocation services,
+durable clock attestation, and full CDDL instance interpretation are deferred. A
 deployment must not treat a normative artifact shape or decision vector as proof
 that those runtime services already exist.

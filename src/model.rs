@@ -1784,11 +1784,21 @@ fn validate_network_arguments(
             .iter()
             .find(|goal| goal.id == child.goal)
             .expect("child goal resolution was checked before argument validation");
-        let BhcpType::Record(fields) = &goal.input else {
-            return Err(Diagnostic::plain(
-                "BHCP4001",
-                "kernel child goal input must be a record",
-            ));
+        let scalar_field;
+        let fields = if let BhcpType::Record(fields) = &goal.input {
+            fields.as_slice()
+        } else {
+            let [argument] = child.arguments.as_slice() else {
+                return Err(Diagnostic::plain(
+                    "BHCP4001",
+                    "a scalar kernel child input requires exactly one named argument",
+                ));
+            };
+            scalar_field = vec![FieldType {
+                name: argument.name.clone(),
+                value_type: goal.input.clone(),
+            }];
+            scalar_field.as_slice()
         };
         if child.arguments.len() != fields.len() {
             return Err(Diagnostic::plain(

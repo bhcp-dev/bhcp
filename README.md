@@ -16,9 +16,9 @@ algorithm-tagged semantic or artifact identities. A shared safe-Rust graph bound
 now decodes, validates, normalizes, identifies, and inspects obligation, capability,
 state, execution, and evidence graph documents. It is not yet a complete v0 front
 end, planner, runtime, or SDK: source-expression forms beyond the currently parsed
-slice, state/execution graph construction, planner budget allocation, and execution
-remain roadmap work. Deterministic obligation and capability graph construction are
-implemented as separate, exactly reconstructable artifacts.
+slice, execution-graph construction, planner budget allocation, and execution remain
+roadmap work. Deterministic obligation graph, capability graph, and state-analysis
+graph construction are implemented as separate, exactly reconstructable artifacts.
 
 ## Start here
 
@@ -181,8 +181,10 @@ generic/refinement declarations, all four fact kinds and initializers, invariant
 limits, authority, preferences, verifier arguments, executable cases, standalone
 goal calls, quantified composition, and recursively nested finite composition.
 These additional goal forms retain deterministic AST structure and fail closed
-before executable IR until their remaining finite-domain and case-execution stages
-land. Direct recursive child calls now require a matching positive static limit or a
+before executable IR until explicitly assigned finite-domain and case-execution
+stages land. The practical v0 completion-manifest slice, including the frozen
+reference program, now reaches governed semantic IR. Direct recursive child calls
+require a matching positive static limit or a
 checked decreasing integer measure whose retained requirements or execution guard
 prove the child remains non-negative before IR emission. Direct self-recursive gates
 are supported for the finite Unit-output base-case slice; a closed base branch accepts
@@ -190,8 +192,8 @@ no observation for its unselected recursive child.
 
 | Canonical definition | Implemented source slice | Explicitly deferred |
 | --- | --- | --- |
-| `§goal` / `§function` | Complete goal and general-function parsing/AST construction; parsed pure function bodies resolve deterministically, type-check, infer bounded generics, monomorphize, and materialize beside the checked executable goal/prelude-function slice; ownership/resource flow, bounded or well-founded direct recursion, effect propagation, authority/prohibition ceilings, direct exact limits, and compatible preference groups are checked before IR emission | Source-expression grammar beyond the current parsed slice, finite-domain proof, case execution, mutual-recursion analysis, state/execution graph construction, and planner allocation/retry decisions |
-| `§type` / `§predicate` / `§refines` | Complete parsing plus checked type/refinement lowering and parsed predicate elaboration: every v0 wire type normalizes, local generics enforce arity/bounds, total refinements retain candidate-bound evidence, and canonical predicate verifier interfaces/configuration materialize in semantic IR | Source-expression grammar beyond the current parsed slice and its complete source-to-IR audit |
+| `§goal` / `§function` | Complete goal and general-function parsing/AST construction; the practical v0 source-to-IR ledger and canonical/remapped reference program execute through governed IR; parsed pure functions support retained calls, selection, lists, exhaustive matching, bounded generics, and deterministic specialization; ownership/resource flow, bounded recursion, effects, authority, exact limits, and preferences are checked before IR | Generic-goal execution, case execution, standalone call statements, unexpanded finite/nested composition, mutual recursion, execution graphs, and planner allocation/retry decisions |
+| `§type` / `§predicate` / `§refines` | Complete parsing plus checked type/refinement lowering and parsed predicate elaboration: every v0 wire type normalizes, local generics enforce arity/bounds, total refinements retain candidate-bound evidence, and canonical predicate verifier interfaces/configuration materialize in semantic IR | Canonical expression forms outside the practical completion ledger retain stable pre-IR diagnostics until explicitly assigned |
 | `§policy` | Complete canonical source parsing for layer, `§extends`, six closed typed rules, scopes/parameters, waivability, and issuers; inline and explicit composition, inspection, policy-aware elaboration, and governed semantic IR | Expression-valued policy clauses and enforcement beyond the compile-time/evidence boundary |
 | `§syntax` / `§profile` | Complete closed source-definition lowering into identified typed artifacts and one atomically validated source-local syntax/profile/policy registry; fixed byte-level selection, exact one-parent resolution, monotonic attached overlays, resolved-profile inspection, span-aware custom-source compilation, and deterministic profile-aware formatting | Arbitrary grammars, executable macros, parser plugins, implicit parents, fallback search, and per-definition profile switching remain outside v0 |
 | `§waiver` / `§extension` | Complete closed source-definition parsing for all six typed waiver changes, canonical scopes/targets, authority/time fields, and wire-compatible derived/native descriptors. Fully materialized inline waivers apply through the exact waiver engine with an injected decision time. Derived extensions execute one concrete total pure BHCP lowerer and disappear into checked core IR; explicitly registered native extensions retain an exact-schema, must-understand node. | Resolving frozen symbolic waiver references remains governed. Native support is closed to exact host registrations; planning and execution do not interpret unknown native payloads. |
@@ -382,10 +384,10 @@ and checked result construction. Unknown calls cannot become host callbacks, eve
 an unreachable branch. Every satisfied conclusion is checked against the network
 output type before the generic derivation checker can accept it.
 
-The retained reducer currently calls a small, fixed typed API for sealed-observation
-queries and checked result construction. The complete checked S5 calculus is now
-available as the replacement boundary; wiring general source-defined
-functions and predicates into semantic IR remains the next stage. Adding derived
+The retained reducer calls a small, fixed typed API for sealed-observation queries
+and checked result construction. General source-defined functions and predicates in
+the practical S5 ledger now elaborate into semantic IR; canonical expression forms
+outside that bounded ledger retain stable pre-IR diagnostics. Adding derived
 behaviors must not introduce behavior-specific Rust primitives.
 
 The obligation-graph proof checker re-evaluates the exact retained reducer and binds
@@ -428,8 +430,8 @@ effective rule index and every originating layer, policy symbol, and source rule
 Missing mappings or registrations remain required unresolved gaps; rejection and
 operational fault behavior is unchanged.
 
-This library boundary builds deterministic obligation and capability graphs, but not
-state or execution graphs. Their common typed wire boundary rejects unknown fields,
+This library boundary builds deterministic obligation, capability, and state-analysis
+graphs, but not execution graphs. Their common typed wire boundary rejects unknown fields,
 duplicate IDs, dangling local references, and cycles in obligation/execution graphs;
 normalizes semantic sets; validates materialized semantic/artifact identities; and
 exposes nodes, edges, references, provenance, and validation errors without a JSON
@@ -745,14 +747,12 @@ effect scopes, ownership/data flow, obligations, and operational outcomes.
 
 The nontrivial
 [`conformance/v0/reference-program/`](conformance/v0/reference-program/) subject
-crosses complete source, checking, governance, graph, planning, execution, evidence,
-SDK, CLI, and conformance boundaries. It is an acceptance target, not current runtime
-support: the partial compiler is required and tested to reject it at the first
-unsupported checking or lowering boundary without emitting a misleading later-stage
-artifact. End-to-end
-success becomes a valid implementation claim only after the assigned roadmap issues
-make the same frozen subject pass through the public Rust SDK and CLI with
-deterministic per-obligation evidence.
+crosses source, checking, governance, graph, planning, execution, evidence, SDK, CLI,
+and conformance boundaries. Its canonical and substantially remapped sources now
+compile with the derived extension to identical governed semantic IR while retaining
+distinct AST artifact identities. End-to-end success remains a later claim: the same
+frozen subject must pass through the public Rust SDK and CLI with deterministic
+per-obligation evidence.
 
 ## Contributing and autonomous delivery
 

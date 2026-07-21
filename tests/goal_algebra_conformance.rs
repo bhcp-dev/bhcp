@@ -292,8 +292,11 @@ fn graph_builder_completion_claims_stay_bounded_and_consistent() {
         let normalized = document.to_lowercase();
         assert!(
             normalized.contains("deterministic obligation")
-                && normalized.contains("capability graph"),
-            "{name} does not describe both completed graph-builder boundaries"
+                && normalized.contains("capability graph")
+                && (normalized.contains("state-graph")
+                    || normalized.contains("state graph")
+                    || normalized.contains("state-analysis")),
+            "{name} does not describe all three completed graph-builder boundaries"
         );
         assert!(
             normalized.contains("planning") && normalized.contains("runtime"),

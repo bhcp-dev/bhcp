@@ -1,16 +1,19 @@
 # Practical v0 reference program
 
 This directory freezes the milestone-7 end-to-end acceptance subject. It is a
-normative target, not a claim that the current partial front end can execute it.
-Until issues #100–#132 close, the current compiler must reject `program.bhcp` at
-the first unsupported definition instead of emitting a partial AST or IR.
+normative target. The practical front end now compiles its canonical and remapped
+program sources, together with the derived extension, to equivalent governed
+semantic IR. Both paths retain the resolved profile type mode and policy overlays,
+including the exact reviewed waiver applied at its injected decision time. Downstream
+graph, planner, runtime, evidence, SDK, CLI, and end-to-end claims remain assigned to
+later roadmap issues.
 
 The source inventory deliberately crosses every practical v0 boundary:
 
-- `program.bhcp` uses named/refined types, a total function, a verifier-backed
-  predicate, affine/linear ownership and moves, effects, nested `all`/`gate` goals,
-  an input-free-first predecessor-only `chain`, a bounded decreasing recursive walk,
-  budgets, preferences, and exact evidence labels.
+- `program.bhcp` uses named/refined types, total functions with selection and
+  exhaustive matching, a verifier-backed predicate, affine/linear ownership and
+  moves, effects, ordinary helper goals for `all`/`gate`/`chain`, a bounded decreasing
+  recursive walk, budgets, preferences, and exact evidence labels.
 - `program.words.bhcp` is the same source structure under the checked-in
   `goal` → `intent` profile mapping. `program-contract.txt` is the reviewed typed
   projection that closes definitions, facts, calls, transfer modes, and consumption.
@@ -31,9 +34,10 @@ The source inventory deliberately crosses every practical v0 boundary:
   `outcome-matrix.txt` preserves planning refusal, completed verdict, cancellation,
   stale-evidence, and operational-fault distinctions.
 
-Passing the reference program eventually means deterministic source and artifact
-identities, checked semantic IR, mutually consistent governed graphs, a valid
-explained plan, capability-bounded execution, and deterministic evidence through
-both the public Rust SDK and CLI. It does not require full theorem proving,
+The source-to-IR portion now means deterministic source and artifact identities and
+checked governed semantic IR. Full reference-program completion additionally means
+mutually consistent governed graphs, a valid explained plan, capability-bounded
+execution, and deterministic evidence through both the public Rust SDK and CLI. It
+does not require full theorem proving,
 unrestricted macros or grammar plugins, comprehensive temporal/reactive logic, or
 universal workflow synthesis.

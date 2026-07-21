@@ -791,6 +791,36 @@ fn surface_expression_shape(expression: &SurfaceExpression, binder: &str) -> Val
             surface_expression_shape(consequent, binder),
             surface_expression_shape(alternative, binder),
         ]),
+        SurfaceExpression::List { elements, .. } => Value::Array(vec![
+            text("list"),
+            Value::Array(
+                elements
+                    .iter()
+                    .map(|element| surface_expression_shape(element, binder))
+                    .collect(),
+            ),
+        ]),
+        SurfaceExpression::Select { subject, field, .. } => Value::Array(vec![
+            text("select"),
+            surface_expression_shape(subject, binder),
+            text(field),
+        ]),
+        SurfaceExpression::Match { subject, arms, .. } => Value::Array(vec![
+            text("match"),
+            surface_expression_shape(subject, binder),
+            Value::Array(
+                arms.iter()
+                    .map(|arm| {
+                        let mut values = vec![Value::Text(format!("{:?}", arm.pattern))];
+                        if let Some(guard) = &arm.guard {
+                            values.push(surface_expression_shape(guard, binder));
+                        }
+                        values.push(surface_expression_shape(&arm.body, binder));
+                        Value::Array(values)
+                    })
+                    .collect(),
+            ),
+        ]),
     }
 }
 
@@ -900,6 +930,13 @@ fn lower_refinement_expression(
         SurfaceExpression::Call { .. } => {
             return Err(invalid(
                 "refinement calls require a resolved total pure predicate",
+            ));
+        }
+        SurfaceExpression::List { .. }
+        | SurfaceExpression::Select { .. }
+        | SurfaceExpression::Match { .. } => {
+            return Err(invalid(
+                "refinement predicates do not admit aggregate or match source forms",
             ));
         }
     };

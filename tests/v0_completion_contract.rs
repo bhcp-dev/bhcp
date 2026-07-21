@@ -5,8 +5,8 @@ use std::path::{Component, Path, PathBuf};
 use bhcp::hash::{HashAlgorithm, format_hash};
 use bhcp::model::ContentReference;
 use bhcp::pipeline::{
-    compile_source, parse_policy_source, parse_profile_source,
-    parse_source_bytes_with_profile_registry,
+    compile_source, compile_source_bytes_with_profile_registry_and_waivers,
+    compile_source_with_policy, parse_policy_source, parse_profile_source,
 };
 use bhcp::policy::{ExactNumber, WaiverDocument, WaiverWeakening, apply_waiver, compose_policies};
 use bhcp::profile::PresentationDocument;
@@ -89,6 +89,7 @@ const ARTIFACTS: &[&str] = &[
     "execution-input",
     "expected-obligations",
     "outcome-matrix",
+    "frontend-completion-report",
 ];
 
 const FEATURES: &[&str] = &[
@@ -109,6 +110,273 @@ const NON_GOALS: &[&str] = &[
     "unrestricted-macros-or-grammar-plugins",
     "comprehensive-temporal-or-reactive-logic",
     "universal-workflow-synthesis",
+];
+
+const FRONTEND_LEDGER: &[(&str, &str, &str, &str)] = &[
+    (
+        "NUM-01",
+        "S4",
+        "tests/type_checker.rs::num_01_preserves_bits_rejects_overflow_and_requires_canonical_rationals",
+        "schemas/v0/bhcp-v0.cddl",
+    ),
+    (
+        "OWN-01",
+        "S4",
+        "tests/ownership_analysis.rs::own_01_overlapping_read_borrows_are_accepted",
+        "conformance/v0/fixtures/own-01-read-overlap.bhcp",
+    ),
+    (
+        "OWN-02",
+        "S4",
+        "tests/ownership_analysis.rs::own_02_write_borrow_conflicts_with_an_overlapping_read",
+        "conformance/v0/fixtures/own-02-write-conflict.bhcp",
+    ),
+    (
+        "OWN-03",
+        "S4",
+        "tests/ownership_analysis.rs::own_03_move_then_reuse_is_rejected_after_a_nested_branch_join",
+        "conformance/v0/fixtures/own-03-use-after-move.bhcp",
+    ),
+    (
+        "OWN-04",
+        "S4",
+        "tests/ownership_analysis.rs::own_04_persistent_state_rejects_an_expiring_borrow",
+        "conformance/v0/fixtures/own-04-expired-retention.bhcp",
+    ),
+    (
+        "PLN-03",
+        "S4",
+        "tests/type_checker.rs::every_v0_wire_type_has_a_closed_deterministic_checked_model",
+        "schemas/v0/bhcp-v0.cddl",
+    ),
+    (
+        "TYP-01",
+        "S4",
+        "tests/type_checker.rs::typ_01_infer_strict_materializes_types_without_implicit_dynamic",
+        "schemas/v0/bhcp-v0.cddl",
+    ),
+    (
+        "TYP-02",
+        "S4",
+        "tests/type_checker.rs::typ_02_03_dynamic_boundaries_require_and_materialize_runtime_checks",
+        "schemas/v0/bhcp-v0.cddl",
+    ),
+    (
+        "TYP-03",
+        "S4",
+        "tests/type_checker.rs::typ_02_03_dynamic_boundaries_require_and_materialize_runtime_checks",
+        "schemas/v0/bhcp-v0.cddl",
+    ),
+    (
+        "TYP-04",
+        "S4",
+        "tests/type_checker.rs::typ_04_05_nominal_identity_and_structural_width_are_distinct",
+        "schemas/v0/bhcp-v0.cddl",
+    ),
+    (
+        "TYP-05",
+        "S4",
+        "tests/type_checker.rs::typ_04_05_nominal_identity_and_structural_width_are_distinct",
+        "schemas/v0/bhcp-v0.cddl",
+    ),
+    (
+        "TYP-06",
+        "S4",
+        "tests/type_checker.rs::typ_06_refinement_introduction_requires_predicate_evidence",
+        "schemas/v0/bhcp-v0.cddl",
+    ),
+    (
+        "TYP-07",
+        "S4",
+        "tests/type_checker.rs::typ_07_08_option_and_result_preserve_explicit_tags_and_payloads",
+        "schemas/v0/bhcp-v0.cddl",
+    ),
+    (
+        "TYP-08",
+        "S4",
+        "tests/type_checker.rs::typ_07_08_option_and_result_preserve_explicit_tags_and_payloads",
+        "schemas/v0/bhcp-v0.cddl",
+    ),
+    (
+        "EXP-01",
+        "S5",
+        "tests/expression_calculus.rs::exp_01_static_finite_quantification_is_checked_and_deterministic",
+        "schemas/v0/bhcp-v0.cddl",
+    ),
+    (
+        "EXP-02",
+        "S5",
+        "tests/expression_calculus.rs::exp_02_unknown_calls_and_partial_arithmetic_fail_before_evaluation",
+        "schemas/v0/bhcp-v0.cddl",
+    ),
+    (
+        "EFF-01",
+        "S6",
+        "tests/effect_authority_analysis.rs::eff_01_child_effects_propagate_without_becoming_kernel_metadata",
+        "conformance/v0/fixtures/canonical-all.ir.cbor",
+    ),
+    (
+        "EFF-02",
+        "S6",
+        "tests/effect_authority_analysis.rs::eff_02_unsafe_effects_remain_visible_as_unresolved_evidence",
+        "conformance/v0/fixtures/canonical-simple.ir.cbor",
+    ),
+    (
+        "EFF-03",
+        "S6",
+        "tests/effect_authority_analysis.rs::eff_03_parent_prohibitions_and_explicit_ceilings_deny_child_excess",
+        "conformance/v0/reference-program/program.bhcp",
+    ),
+    (
+        "SYN-01",
+        "S7",
+        "tests/profile_source_lowering.rs::source_definitions_materialize_canonical_documents_and_a_validated_registry",
+        "conformance/v0/reference-program/program.words.bhcp",
+    ),
+    (
+        "SYN-02",
+        "S7",
+        "tests/goal_parser.rs::complete_goal_forms_build_a_closed_ordered_schema_valid_ast",
+        "conformance/v0/reference-program/program.bhcp",
+    ),
+    (
+        "SYN-03",
+        "S7",
+        "tests/pipeline.rs::complete_definition_forms_build_a_closed_schema_valid_ast",
+        "conformance/v0/reference-program/program.bhcp",
+    ),
+    (
+        "SYN-04",
+        "S7",
+        "tests/governance_parser.rs::complete_governance_forms_build_closed_ordered_schema_valid_ast",
+        "conformance/v0/reference-program/policy.bhcp",
+    ),
+    (
+        "SYN-05",
+        "S7",
+        "tests/profile_source_lowering.rs::source_definitions_materialize_canonical_documents_and_a_validated_registry",
+        "conformance/v0/reference-program/profile.bhcp",
+    ),
+    (
+        "SYN-06",
+        "S7",
+        "tests/profile_source_lowering.rs::invalid_source_registries_fail_atomically_before_custom_program_parsing",
+        "conformance/v0/reference-program/syntax.bhcp",
+    ),
+    (
+        "SYN-07",
+        "S7",
+        "tests/profile_source_lowering.rs::source_definitions_materialize_canonical_documents_and_a_validated_registry",
+        "conformance/v0/reference-program/program.words.bhcp",
+    ),
+    (
+        "KRN-11",
+        "S8",
+        "tests/recursion_retention_lowering.rs::recursive_children_retain_static_bounds_and_decreasing_measure_evidence",
+        "conformance/v0/reference-program/program.bhcp",
+    ),
+    (
+        "KRN-12",
+        "S8",
+        "tests/extension_lowering.rs::checked_in_reference_extension_is_executable_and_fully_lowered",
+        "conformance/v0/reference-program/extension.bhcp",
+    ),
+    (
+        "REC-01",
+        "S8",
+        "tests/recursion_retention_lowering.rs::recursive_children_retain_static_bounds_and_decreasing_measure_evidence",
+        "conformance/v0/reference-program/program.bhcp",
+    ),
+    (
+        "REC-02",
+        "S8",
+        "tests/recursion_retention_lowering.rs::unbounded_recursion_is_rejected_before_semantic_ir",
+        "conformance/v0/reference-program/program.bhcp",
+    ),
+    (
+        "REC-03",
+        "S8",
+        "tests/recursion_retention_lowering.rs::retained_ir_revalidates_recursion_metadata_against_the_recursive_edge",
+        "conformance/v0/fixtures/canonical-gate.ir.cbor",
+    ),
+    (
+        "EXT-01",
+        "S9",
+        "tests/extension_lowering.rs::derived_extension_executes_to_core_and_removes_its_meta_definition",
+        "conformance/v0/reference-program/extension.bhcp",
+    ),
+    (
+        "EXT-02",
+        "S9",
+        "tests/extension_lowering.rs::derived_lowerer_identity_is_unobservable_after_equivalent_execution",
+        "conformance/v0/reference-program/extension.bhcp",
+    ),
+    (
+        "EXT-03",
+        "S9",
+        "tests/extension_lowering.rs::missing_or_core_overriding_derived_extensions_fail_before_ir",
+        "conformance/v0/reference-program/extension.bhcp",
+    ),
+    (
+        "EXT-04",
+        "S9",
+        "tests/extension_lowering.rs::supported_native_extension_retains_exact_schema_payload_and_identity",
+        "conformance/v0/reference-program/extension.diag",
+    ),
+    (
+        "POL-01",
+        "S9",
+        "tests/policy_waiver_lowering.rs::source_policy_and_waiver_match_the_canonical_document_path",
+        "conformance/v0/reference-program/policy.bhcp",
+    ),
+    (
+        "POL-02",
+        "S9",
+        "tests/policy_waiver_lowering.rs::unwaived_inline_policy_enforces_goal_expressions_before_ir",
+        "conformance/v0/reference-program/policy.bhcp",
+    ),
+    (
+        "POL-03",
+        "S9",
+        "tests/policy_waiver_lowering.rs::governance_order_normalizes_and_unresolved_or_partial_waivers_fail_closed",
+        "conformance/v0/reference-program/policy.bhcp",
+    ),
+    (
+        "POL-04",
+        "S9",
+        "tests/policy_waiver_lowering.rs::all_six_source_waiver_categories_match_canonical_application",
+        "conformance/v0/reference-program/waiver.bhcp",
+    ),
+    (
+        "POL-05",
+        "S9",
+        "tests/policy_waiver_lowering.rs::inline_policy_composes_with_derived_extension_lowering",
+        "conformance/v0/reference-program/extension.bhcp",
+    ),
+    (
+        "POL-06",
+        "S9",
+        "tests/policy_waiver_lowering.rs::policy_and_waiver_presentation_is_artifact_only",
+        "conformance/v0/reference-program/waiver.diag",
+    ),
+    (
+        "POL-07",
+        "S9",
+        "tests/policy_waiver_lowering.rs::native_extension_only_ir_cannot_bypass_waiver_validation",
+        "conformance/v0/reference-program/extension.diag",
+    ),
+    (
+        "WAV-01",
+        "S9",
+        "tests/policy_waiver_lowering.rs::waiver_time_is_required_injected_and_fail_closed",
+        "conformance/v0/reference-program/waiver.bhcp",
+    ),
+    (
+        "WAV-02",
+        "S9",
+        "tests/policy_waiver_lowering.rs::delegated_source_authority_matches_canonical_application",
+        "conformance/v0/reference-program/waiver.diag",
+    ),
 ];
 
 const REGISTRY: &[(&str, &str)] = &[
@@ -211,7 +479,7 @@ const EXTENSION_RULES: &[(&str, &str, &str)] = &[
 
 const PROGRAM_SEMANTICS: &[&str] = &[
     "type|bhcp.reference/StartDelivery@0|output|token|Text",
-    "type|bhcp.reference/ConfirmDelivery@0|input|token|Text",
+    "type|bhcp.reference/ConfirmDelivery@0|input|started|{token:Text}",
     "type|bhcp.reference/ConfirmDelivery@0|output|confirmation|Text",
     "type|bhcp.reference/Approve@0|input|risk|bhcp.reference/Risk@0",
     "type|bhcp.reference/Approve@0|output|approval|Text",
@@ -221,22 +489,28 @@ const PROGRAM_SEMANTICS: &[&str] = &[
     "type|bhcp.reference/WalkTree@0|input|node|bhcp.reference/Node@0",
     "type|bhcp.reference/WalkTree@0|input|remaining|Integer",
     "type|bhcp.reference/WalkTree@0|output|result|Unit",
+    "type|bhcp.reference/ReviewApproval@0|input|risk|bhcp.reference/Risk@0",
+    "type|bhcp.reference/DeliverySequence@0|output|confirmation|Text",
     "type|bhcp.reference/DeliverChange@0|input|patch|owned affine bhcp.reference/Patch@0",
     "type|bhcp.reference/DeliverChange@0|input|risk|bhcp.reference/Risk@0",
     "type|bhcp.reference/DeliverChange@0|input|tree|bhcp.reference/Node@0",
     "type|bhcp.reference/DeliverChange@0|input|tree_depth|Integer",
     "type|bhcp.reference/DeliverChange@0|resource|repository|owned linear bhcp.reference/Repository@0",
     "type|bhcp.reference/DeliverChange@0|state|attempts|Integer",
-    "type|bhcp.reference/DeliverChange@0|output|outcome|bhcp.reference/Delivery@0",
+    "type|bhcp.reference/DeliverChange@0|output|tree_checked|Unit",
+    "type|bhcp.reference/DeliverChange@0|output|review_checkpoint|Unit",
+    "type|bhcp.reference/DeliverChange@0|output|approval|variant{Excluded,Included({approval:Text})}",
+    "type|bhcp.reference/DeliverChange@0|output|sequence|{confirmation:Text}",
+    "type|bhcp.reference/DeliverChange@0|output|delivery|{receipt:Result<bhcp.reference/Receipt@0,bhcp.reference/DeliveryError@0>}",
     "type|bhcp.reference/review@0|input|risk|bhcp.reference/Risk@0",
     "type|bhcp.reference/review@0|output|result|Unit",
     "clause|bhcp.reference/Approve@0|high-risk|requires|Bool|bhcp.reference/isHighRisk@0(risk)",
     "clause|bhcp.reference/WalkTree@0|non-negative-depth|requires|Bool|0 <= remaining",
-    "clause|bhcp.reference/WalkTree@0|leaf-at-zero|requires|Bool|remaining != 0 || node.children == []",
-    "clause|bhcp.reference/DeliverChange@0|non-empty-digest|requires|Bool|bhcp.reference/nonEmpty@0(patch.digest)",
-    "clause|bhcp.reference/DeliverChange@0|tree-depth-matches|requires|Bool|tree.depth == tree_depth",
-    "clause|bhcp.reference/Persist@0|safe-result|ensures|Bool|match receipt",
-    "clause|bhcp.reference/Persist@0|stored|ensures|Bool|match receipt",
+    "clause|bhcp.reference/WalkTree@0|leaf-at-zero|requires|Bool|bhcp.reference/leafAtZero@0(node,remaining)",
+    "clause|bhcp.reference/DeliverChange@0|non-empty-digest|requires|Bool|bhcp.reference/patchDigestIsNonEmpty@0(patch)",
+    "clause|bhcp.reference/DeliverChange@0|tree-depth-matches|requires|Bool|bhcp.reference/treeDepthMatches@0(tree,tree_depth)",
+    "clause|bhcp.reference/Persist@0|safe-result|ensures|Bool|bhcp.reference/isSuccessful@0(receipt)",
+    "clause|bhcp.reference/Persist@0|stored|ensures|Bool|bhcp.reference/hasStoredDigest@0(receipt)",
     "limit|bhcp.reference/WalkTree@0|depth|bhcp.reference/limit.depth@0|remaining|64|Bool",
     "limit|bhcp.reference/DeliverChange@0|attempts|bhcp.reference/limit.attempts@0|attempts|3|Bool",
     "effect|bhcp.reference/Persist@0|allow|bhcp-effect/fs.read@0|resource.repository",
@@ -246,9 +520,9 @@ const PROGRAM_SEMANTICS: &[&str] = &[
     "effect|bhcp.reference/DeliverChange@0|allow|bhcp-effect/fs.write@0|resource.repository",
     "effect|bhcp.reference/DeliverChange@0|allow|bhcp-effect/process@0|literal.cargo",
     "effect|bhcp.reference/DeliverChange@0|forbid|bhcp-effect/network@0|-",
-    "recursion|bhcp.reference/WalkTree@0|children.*|well-founded|remaining|remaining - 1|0 <= remaining|remaining != 0 || node.children == []",
-    "chain|bhcp.reference/DeliverChange@0|sequence|sequence.1.started|bhcp.reference/StartDelivery@0|input-free|-",
-    "chain|bhcp.reference/DeliverChange@0|sequence|sequence.2.confirmed|bhcp.reference/ConfirmDelivery@0|predecessor-whole|step.sequence.1.started",
+    "recursion|bhcp.reference/WalkTree@0|walked|well-founded|remaining|remaining - 1|0 < remaining|bhcp.reference/leafAtZero@0(node,remaining)",
+    "chain|bhcp.reference/DeliverySequence@0|body|started|bhcp.reference/StartDelivery@0|input-free|-",
+    "chain|bhcp.reference/DeliverySequence@0|body|confirmed|bhcp.reference/ConfirmDelivery@0|predecessor-whole|step.started",
     "reducer|bhcp.reference/reviewReducer@0|bhcp.reference/Risk@0|{}|Reduction<Unit>|pending-or-concluded",
     "lowerer|bhcp.reference/lowerReview@0|Meta<DerivedForm,bhcp.reference/Risk@0,Unit>|Meta<NetworkShape,bhcp.reference/Risk@0,Unit>|bhcp/meta.network-shape@0",
     "extension-shape|bhcp.reference/review@0|bhcp.reference/Risk@0|Unit|no-children",
@@ -265,12 +539,19 @@ const PROGRAM_DEFINITIONS: &[(&str, &str)] = &[
     ("type", "bhcp.reference/WalkInput@0"),
     ("type", "bhcp.reference/Delivery@0"),
     ("function", "bhcp.reference/isHighRisk@0"),
+    ("function", "bhcp.reference/patchDigestIsNonEmpty@0"),
+    ("function", "bhcp.reference/treeDepthMatches@0"),
+    ("function", "bhcp.reference/leafAtZero@0"),
+    ("function", "bhcp.reference/isSuccessful@0"),
+    ("function", "bhcp.reference/hasStoredDigest@0"),
     ("predicate", "bhcp.reference/nonEmpty@0"),
     ("goal", "bhcp.reference/StartDelivery@0"),
     ("goal", "bhcp.reference/ConfirmDelivery@0"),
     ("goal", "bhcp.reference/Approve@0"),
     ("goal", "bhcp.reference/Persist@0"),
     ("goal", "bhcp.reference/WalkTree@0"),
+    ("goal", "bhcp.reference/ReviewApproval@0"),
+    ("goal", "bhcp.reference/DeliverySequence@0"),
     ("goal", "bhcp.reference/DeliverChange@0"),
     ("function", "bhcp.reference/reviewReducer@0"),
     ("function", "bhcp.reference/lowerReview@0"),
@@ -286,15 +567,22 @@ const PROGRAM_SOURCE_HASHES: &[&str] = &[
     "source-hash|type|bhcp.reference/DeliveryError@0|bhcp.hash/sha3-512@0:8f1c479e5181dda73cf2f3688a85a962abe4872dc28894030b8110e073f853ec13d32dd1fc87d037977e67545bb07ed86bb656951047c06565ee748992c304d1",
     "source-hash|type|bhcp.reference/Node@0|bhcp.hash/sha3-512@0:da7de285a7ad42c2bd9a5c77be2a6b27e4f9563e9eba71311db8a248c0c11c038b83a4ec45b2d28a561d0fcff0da24f14eef49eb4036f4a2d4d33ce9eb7b8a0d",
     "source-hash|type|bhcp.reference/WalkInput@0|bhcp.hash/sha3-512@0:af77aa62cb078671b8476325108e1f6ff9aeb22f33ec5df639f42869af1af55d70a45018066df62d83c2503d09b7cfe6f9c76c79d0d13ff436efb0baa9d6b693",
-    "source-hash|type|bhcp.reference/Delivery@0|bhcp.hash/sha3-512@0:d6ef939bd09c7da78068f8c56fa234601c6bc39c68c5d617c7caf333a36d351b6ae87a858acd2e352c9d98fe3da19ae0e5612cb49a3bbdc79de2050d6a5d4bed",
+    "source-hash|type|bhcp.reference/Delivery@0|bhcp.hash/sha3-512@0:8c85168b01c3379cce760bc96da647a4ba48b927e1d271cf34235f755f3b8ac3eb1b283cf3b37fbeea083a1911aea62ceed63d902b46c54a91d9bf262e4dde9a",
     "source-hash|function|bhcp.reference/isHighRisk@0|bhcp.hash/sha3-512@0:d2eec7944f101557e4e9645798f5d1e30e4a3b07bd629cef6504d9c3ce0e4bf3bc94ba77b7419e2d4c7b7be077f45c50c547c864bba4a0ff100bb71da60fb0f7",
+    "source-hash|function|bhcp.reference/patchDigestIsNonEmpty@0|bhcp.hash/sha3-512@0:3d3beb3903a2cf0ca4e5dbf7b6cedbe230e5bd1c8d9238a6a0ae0325f83441eff34451fac3da44b85248c5bf360aaa0a95831706294b29751a00f1d79b8f3ed8",
+    "source-hash|function|bhcp.reference/treeDepthMatches@0|bhcp.hash/sha3-512@0:e6f8a9a7312aa2efb47817d1ea98006cfe451a781d795a67505c8392324fa4047d6de714adcf580e32943d04ff77768338a700620d7cecb2810fb2f884d8317e",
+    "source-hash|function|bhcp.reference/leafAtZero@0|bhcp.hash/sha3-512@0:bbce64af0ff307716266ec2c57ad9de2b20212b7186f69382ec7ed9132f0073a6f860d5cd3fafe884641c7527eb35cc26aa15eabee63b8ff0820191a95c9b921",
+    "source-hash|function|bhcp.reference/isSuccessful@0|bhcp.hash/sha3-512@0:a8aa239cba1ec77eafb51bc821f6331c1c16c0186ed29a4ae1306ffedb3225fab20970dbeafdb55a78570688804a11d74cf642978b720f20e6b668e6e34f2300",
+    "source-hash|function|bhcp.reference/hasStoredDigest@0|bhcp.hash/sha3-512@0:e3963668cf16f657c3391fd1f0214256678a3301c5a11c48ee9e151f29bb19accd0538f7105eb9f1f9863901484467d8a62a5a5be18755b5f29201039e1974ba",
     "source-hash|predicate|bhcp.reference/nonEmpty@0|bhcp.hash/sha3-512@0:a76335b2b3d4bf66b4133f4ac135a899448823ac285fcdcc2dce3eb7a66162d0224429b702767cec40c1671f48331bdd3e36b5287a32c42ec9dbe31353d72902",
     "source-hash|goal|bhcp.reference/StartDelivery@0|bhcp.hash/sha3-512@0:f5c2041eba4034ad467bcd00e472002d4147112de9198bd125164a3353630f393d31e4708756060d8f4b29b6d58925fc74ffd8eea6f740f9fe85331b4cbf6739",
-    "source-hash|goal|bhcp.reference/ConfirmDelivery@0|bhcp.hash/sha3-512@0:397a5d6aa9b1e6af0e217af858fbaa650fa5450423232bcf1e04c826a13c3dcbb5181870dbc18b248cd1f75449489b7fa71cd71d8c637e5fef1cac5ad3e7938f",
+    "source-hash|goal|bhcp.reference/ConfirmDelivery@0|bhcp.hash/sha3-512@0:bf5a7ff6f4efcf2e449a6a7721be4fbe80d4899f1e04caf54536e820fa111512af5ae79dcf617ef5b4aedd6e67af0b99858fd841051397bc12dbc96529c12239",
     "source-hash|goal|bhcp.reference/Approve@0|bhcp.hash/sha3-512@0:c2afc08120e2c85932b4e2169f04f82b4f16aaecab46a065712a82dd63bb04de49da990deb9264b5c64ead20616628b63da367d2e6f63a7ab75f45d4ab6c71d7",
-    "source-hash|goal|bhcp.reference/Persist@0|bhcp.hash/sha3-512@0:b1bdc2cdba8f68b305932c74be0350535958246ce9837836ebfd8213a860042701adb8ae95afc4084b5970bb1a55f8e22edf1e1bdc18e908b0ffb794cc2069f2",
-    "source-hash|goal|bhcp.reference/WalkTree@0|bhcp.hash/sha3-512@0:539d34e088362769ccb7912730bf4660f8706f99283dcd9b4f775e4d9e4f103c2006baf7f3593ef93d6df5882f8e727f847001f9eef86a2cf59c254b4b3f85df",
-    "source-hash|goal|bhcp.reference/DeliverChange@0|bhcp.hash/sha3-512@0:f755f87acf338bee5754481cbf979dc8fd1e91dffb6d69ecc5e6d94f531cb4990f8729e65556bcd23e1be996ab6c180a42c0f3d5f91422a8d8b9563ea74e7a31",
+    "source-hash|goal|bhcp.reference/Persist@0|bhcp.hash/sha3-512@0:5773e726376ff260d1f131373ff65da0f1c300230b6d5062cd08a4931a95063589a37a19121a4000e7e71e6cce1ec65d5cefea6315691d07cef8aa9506751d21",
+    "source-hash|goal|bhcp.reference/WalkTree@0|bhcp.hash/sha3-512@0:7abb7c286c8188a07112e7fe757e7dda91a553fecf5a12b02d71963b2dc4fe45523ecf73212dc9e3a1e43f2c5202cf21924f5bca31f2d6988907b1682bf9e84c",
+    "source-hash|goal|bhcp.reference/ReviewApproval@0|bhcp.hash/sha3-512@0:e8188a64f264a0c223bf2cd31a01a290c2a3c2f4b9b7d08da5109b5a242acde749bef4d1c05321047e513f82bd9553fbb8de4de6120a7feeae449a674d644ebe",
+    "source-hash|goal|bhcp.reference/DeliverySequence@0|bhcp.hash/sha3-512@0:d6b8ee30e0d350850a6da0011b850c2ebf1fe834399ea9983a7ed974fc76491a64335ae06697cb29b5f24fbf0a8a2b3d76031d15d56a2dee8b5b9ed752692d89",
+    "source-hash|goal|bhcp.reference/DeliverChange@0|bhcp.hash/sha3-512@0:5eeff8a17a050b42eda0421bd0db97a57934ed59af4bc3f40d4a42be1b5757874520097a91fa5825999ebe6daa9b3027563bcdccc41ee6793ce9ce21045b5e38",
     "source-hash|function|bhcp.reference/reviewReducer@0|bhcp.hash/sha3-512@0:a371bd995c73a30e6ee2ee3ed7e89e4682d1e41843a1a12cf9b6df3bda4cc91eceb6038a7f149ad982c8944c81e8461c08219db1b00c5d7b6f0f610a8609bb38",
     "source-hash|function|bhcp.reference/lowerReview@0|bhcp.hash/sha3-512@0:03d6b8313992e4b03eaf910d333d25bd04496095d96bafd2c49d3a5530a8bbe7ef6f986e23d365012ea5df07d2f9396d0af56b73722d1d1b89e2330da06562bf",
     "source-hash|extension|bhcp.reference/review@0|bhcp.hash/sha3-512@0:a4efad8f3a560339836d309788349afc204d30a42dc675d00fe7ff43968114c99c485bb13dd48bfeff11713de6a3e549df8c101fd49db45d336137b47729ee0b",
@@ -303,7 +591,7 @@ const PROGRAM_SOURCE_HASHES: &[&str] = &[
 const PROGRAM_FILE_HASHES: &[(&str, &str)] = &[
     (
         "program.bhcp",
-        "bhcp.hash/sha3-512@0:bd3ff373c5bf642196fa263eaaed808a49163e0a55d3cfb06f9045dc8f228ab308a446351c56e2f433594dec31fab750c03dde6575ce394239f4b826e3016c76",
+        "bhcp.hash/sha3-512@0:28c25c87b4709b83b2eeb20a1e45c599cfb50d90ae76507f5884ab217a92389bec2fbb7d407079371e7ec83096df3a971dbf6728f9713b09950affd18afb840f",
     ),
     (
         "extension.bhcp",
@@ -324,11 +612,19 @@ struct Feature {
     needles: Vec<String>,
 }
 
+#[derive(Debug, Eq, PartialEq)]
+struct FrontendScenario {
+    section: String,
+    test: String,
+    artifact: PathBuf,
+}
+
 #[derive(Debug, Default)]
 struct CompletionContract {
     version: Option<String>,
     issues: BTreeMap<u64, String>,
     scenarios: BTreeMap<String, String>,
+    frontend: BTreeMap<String, FrontendScenario>,
     roots: BTreeMap<String, String>,
     stages: BTreeMap<String, Stage>,
     artifacts: BTreeMap<String, PathBuf>,
@@ -381,6 +677,16 @@ fn parse_contract(text: &str) -> Result<CompletionContract, String> {
                 (*id).to_owned(),
                 (*owner).to_owned(),
                 "scenario",
+            )?,
+            ["frontend", id, section, test, artifact] => insert_unique(
+                &mut contract.frontend,
+                (*id).to_owned(),
+                FrontendScenario {
+                    section: (*section).to_owned(),
+                    test: (*test).to_owned(),
+                    artifact: PathBuf::from(artifact),
+                },
+                "front-end scenario",
             )?,
             ["root", kind, owner] => insert_unique(
                 &mut contract.roots,
@@ -790,6 +1096,9 @@ fn validate_program_projection_sources(
         .filter(|((owner, kind, name), _)| {
             owner != "bhcp.reference/review@0"
                 && !(owner == "bhcp.reference/WalkTree@0" && kind == "output" && name == "result")
+                && !(owner == "bhcp.reference/ReviewApproval@0"
+                    && kind == "output"
+                    && name == "result")
         })
         .map(|(key, mode)| (key.clone(), mode.clone()))
         .collect::<BTreeMap<_, _>>();
@@ -916,6 +1225,7 @@ fn validate_program_projection_sources(
     let deliver = definition_block(canonical, "goal", "bhcp.reference/DeliverChange@0")?;
     let persist = definition_block(canonical, "goal", "bhcp.reference/Persist@0")?;
     let walk = definition_block(canonical, "goal", "bhcp.reference/WalkTree@0")?;
+    let sequence = definition_block(canonical, "goal", "bhcp.reference/DeliverySequence@0")?;
     for (block, marker) in [
         (
             walk,
@@ -936,10 +1246,10 @@ fn validate_program_projection_sources(
             "§allows bhcp-effect/fs.read@0(repository), bhcp-effect/fs.write@0(repository), bhcp-effect/process@0(\"cargo\");",
         ),
         (deliver, "§forbids bhcp-effect/network@0;"),
-        (deliver, "started = bhcp.reference/StartDelivery@0();"),
+        (sequence, "started = bhcp.reference/StartDelivery@0();"),
         (
-            deliver,
-            "confirmed = bhcp.reference/ConfirmDelivery@0(token = started);",
+            sequence,
+            "confirmed = bhcp.reference/ConfirmDelivery@0(started = started);",
         ),
     ] {
         if !compact(block).contains(&compact(marker)) {
@@ -1059,15 +1369,15 @@ fn validate_program_projection_sources(
         "§type bhcp.reference/WalkInput@0 = { node: bhcp.reference/Node@0, remaining: Integer };",
         "§input patch: owned affine bhcp.reference/Patch@0;",
         "§output token: Text;",
-        "§input token: Text;",
+        "§input started: { token: Text };",
         "§resource repository: owned linear bhcp.reference/Repository@0;",
         "§input remaining: Integer;",
         "§input tree_depth: Integer;",
         "§state attempts: Integer;",
-        "§output outcome: bhcp.reference/Delivery@0;",
+        "§output delivery: { receipt: Result<bhcp.reference/Receipt@0, bhcp.reference/DeliveryError@0> };",
         "§requires \"non-negative-depth\": 0 <= remaining;",
-        "§requires \"leaf-at-zero\": remaining != 0 || node.children == [];",
-        "§requires \"tree-depth-matches\": tree.depth == tree_depth;",
+        "§requires \"leaf-at-zero\": bhcp.reference/leafAtZero@0(node, remaining);",
+        "§requires \"tree-depth-matches\": bhcp.reference/treeDepthMatches@0(tree, tree_depth);",
         "§limit \"depth\": bhcp.reference/limit.depth@0: remaining <= 64;",
         "§limit \"attempts\": bhcp.reference/limit.attempts@0: attempts <= 3;",
         "remaining = remaining - 1",
@@ -1376,26 +1686,81 @@ fn validate_reference_semantics(root: &Path) -> Result<(), String> {
     {
         return Err("source-lowered profile roots omit artifact identities".to_owned());
     }
-    let alternate_error = parse_source_bytes_with_profile_registry(
-        alternate.as_bytes(),
-        "program.words.bhcp",
-        &lowered_profiles.registry,
-    )
-    .unwrap_err();
-    if alternate_error.code != "BHCP1004"
-        || !alternate_error
-            .message
-            .contains("expression syntax \"match\"")
-    {
-        return Err(format!(
-            "source-local profile registry did not reach the expected deferred front-end boundary: {alternate_error}"
-        ));
-    }
-
+    let resolved_profile = lowered_profiles
+        .registry
+        .resolve("bhcp.reference/review-profile@0", HashAlgorithm::default())
+        .map_err(|error| error.to_string())?;
     let waiver_value = parse_diagnostic(&read_reference(root, "waiver.diag")?)
         .map_err(|error| error.to_string())?;
     validate_root(&waiver_value, "waiver").map_err(|error| error.to_string())?;
     let waiver = WaiverDocument::from_value(&waiver_value).map_err(|error| error.to_string())?;
+    let waived_policy = apply_waiver(
+        &resolved_profile.effective_policy,
+        &waiver,
+        &registry["waiver-decision-at"],
+        HashAlgorithm::default(),
+    )
+    .map_err(|error| error.to_string())?;
+    let extension_source = read_reference(root, "extension.bhcp")?;
+    let canonical_compilation = compile_source_with_policy(
+        &format!("{extension_source}\n{canonical}"),
+        "program.bhcp",
+        &waived_policy,
+    )
+    .map_err(|error| error.to_string())?;
+    let alternate_source = format!("{preamble}\n{extension_source}\n{alternate_body}");
+    let unwaived_diagnostic = compile_source_bytes_with_profile_registry_and_waivers(
+        alternate_source.as_bytes(),
+        "program.words.bhcp",
+        &lowered_profiles.registry,
+        &[],
+        &registry["waiver-decision-at"],
+    )
+    .expect_err("the resolved base policy must reject the unwaived attempt limit");
+    if unwaived_diagnostic.code != "BHCP8204"
+        || !unwaived_diagnostic
+            .message
+            .contains("exceeds the effective policy maximum")
+    {
+        return Err("unwaived profile did not reject the retained attempt limit".to_owned());
+    }
+    let alternate_compilation = compile_source_bytes_with_profile_registry_and_waivers(
+        alternate_source.as_bytes(),
+        "program.words.bhcp",
+        &lowered_profiles.registry,
+        std::slice::from_ref(&waiver),
+        &registry["waiver-decision-at"],
+    )
+    .map_err(|error| error.to_string())?;
+    if canonical_compilation.effective_policy.as_ref() != Some(&waived_policy)
+        || alternate_compilation.effective_policy.as_ref() != Some(&waived_policy)
+        || canonical_compilation.ir.type_mode != resolved_profile.type_mode
+        || alternate_compilation.ir.type_mode != resolved_profile.type_mode
+        || !canonical_compilation
+            .ir
+            .goals
+            .iter()
+            .any(|goal| goal.policy_decision.is_some())
+        || !alternate_compilation
+            .ir
+            .goals
+            .iter()
+            .any(|goal| goal.policy_decision.is_some())
+    {
+        return Err("canonical/profile parity omitted resolved governance".to_owned());
+    }
+    if canonical_compilation.semantic_hash != alternate_compilation.semantic_hash
+        || canonical_compilation.ast_hash == alternate_compilation.ast_hash
+        || canonical_compilation.ir_hash != alternate_compilation.ir_hash
+    {
+        return Err(format!(
+            "canonical and remapped sources do not preserve semantic identity and artifact distinction: semantic_equal={}, ast_distinct={}, ir_equal={}",
+            canonical_compilation.semantic_hash == alternate_compilation.semantic_hash,
+            canonical_compilation.ast_hash != alternate_compilation.ast_hash,
+            canonical_compilation.ir_hash == alternate_compilation.ir_hash,
+        ));
+    }
+
     if waiver.symbol != "bhcp.reference/offline-emergency-waiver@0"
         || waiver.targets.len() != 1
         || waiver.targets[0].rule.policy != "bhcp.reference/repository-policy@0"
@@ -1426,13 +1791,9 @@ fn validate_reference_semantics(root: &Path) -> Result<(), String> {
         .map_err(|error| error.to_string())?;
     let base_policy = compose_policies(&waiver_policy.documents, HashAlgorithm::default())
         .map_err(|error| error.to_string())?;
-    let waived_policy = apply_waiver(
-        &base_policy,
-        &waiver,
-        &registry["waiver-decision-at"],
-        HashAlgorithm::default(),
-    )
-    .map_err(|error| error.to_string())?;
+    if base_policy != resolved_profile.effective_policy {
+        return Err("resolved profile policy differs from the reviewed policy source".to_owned());
+    }
     if !waived_policy.effective.limits.iter().any(|rule| {
         rule.value.dimension == "bhcp.reference/limit.attempts@0"
             && rule.value.maximum == ExactNumber::Integer(3)
@@ -1589,6 +1950,57 @@ fn validate_contract(root: &Path, text: &str) -> Result<(), String> {
     if contract.scenarios.keys().cloned().collect::<BTreeSet<_>>() != expected_scenarios {
         return Err("scenario inventory mismatch".to_owned());
     }
+    let expected_frontend = FRONTEND_LEDGER
+        .iter()
+        .map(|(id, section, test, artifact)| {
+            (
+                (*id).to_owned(),
+                FrontendScenario {
+                    section: (*section).to_owned(),
+                    test: (*test).to_owned(),
+                    artifact: PathBuf::from(artifact),
+                },
+            )
+        })
+        .collect::<BTreeMap<_, _>>();
+    if contract.frontend != expected_frontend {
+        return Err("front-end completion ledger mismatch".to_owned());
+    }
+    for (id, entry) in &contract.frontend {
+        if !contract.scenarios.contains_key(id)
+            || !matches!(
+                entry.section.as_str(),
+                "S4" | "S5" | "S6" | "S7" | "S8" | "S9"
+            )
+        {
+            return Err(format!(
+                "front-end scenario {id} is outside the S4-S9 inventory"
+            ));
+        }
+        let (test_file, test_name) = entry
+            .test
+            .split_once("::")
+            .ok_or_else(|| format!("front-end scenario {id} has no exact test target"))?;
+        let test_source = fs::read_to_string(root.join(test_file))
+            .map_err(|error| format!("cannot read front-end test {test_file}: {error}"))?;
+        if !test_source.contains(&format!("fn {test_name}(")) {
+            return Err(format!(
+                "front-end scenario {id} names unknown test {}",
+                entry.test
+            ));
+        }
+        if entry.artifact.is_absolute()
+            || entry
+                .artifact
+                .components()
+                .any(|component| !matches!(component, Component::Normal(_)))
+            || !root.join(&entry.artifact).is_file()
+        {
+            return Err(format!(
+                "front-end scenario {id} names an invalid exact artifact"
+            ));
+        }
+    }
 
     let example_manifest = fs::read_to_string(root.join("schemas/v0/examples/manifest.txt"))
         .map_err(|error| format!("cannot read schema fixture manifest: {error}"))?;
@@ -1740,18 +2152,16 @@ fn completion_manifest_rejects_omitted_duplicate_and_unknown_records() {
 }
 
 #[test]
-fn reference_program_fails_closed_until_the_complete_front_end_exists() {
-    let source =
-        fs::read_to_string(repository().join("conformance/v0/reference-program/program.bhcp"))
-            .unwrap();
-    let diagnostic = compile_source(&source, "reference-program/program.bhcp").unwrap_err();
-    assert_eq!(diagnostic.code, "BHCP1004");
-    assert!(
-        diagnostic
-            .message
-            .contains("outside the implemented vertical slice"),
-        "unexpected boundary: {diagnostic}"
+fn reference_program_reaches_governed_semantic_ir() {
+    let root = repository().join("conformance/v0/reference-program");
+    let source = format!(
+        "{}\n{}",
+        fs::read_to_string(root.join("extension.bhcp")).unwrap(),
+        fs::read_to_string(root.join("program.bhcp")).unwrap()
     );
+    let compilation = compile_source(&source, "reference-program/program.bhcp")
+        .expect("the complete v0 front end must lower the frozen reference program");
+    compilation.ir.validate().unwrap();
 }
 
 #[test]
@@ -1832,7 +2242,7 @@ fn reference_validators_reject_invalid_policy_shapes_and_ownership() {
     );
 
     let omitted_obligation = canonical.replacen(
-        "    §ensures \"stored\": match receipt {\n        Ok(value) => bhcp.reference/nonEmpty@0(value.digest);\n        Err(_) => false;\n    };\n",
+        "    §ensures \"stored\": bhcp.reference/hasStoredDigest@0(receipt);\n",
         "",
         1,
     );
@@ -1846,7 +2256,8 @@ fn reference_validators_reject_invalid_policy_shapes_and_ownership() {
         .contains("clause projection")
     );
 
-    let type_shape_drift = canonical.replacen("sequence: Text", "sequence: Bool", 1);
+    let type_shape_drift =
+        canonical.replacen("sequence: { confirmation: Text }", "sequence: Bool", 1);
     assert!(
         validate_program_projection_sources(
             &typed_projection,

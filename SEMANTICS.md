@@ -350,9 +350,12 @@ incomplete predicates fail before IR. The narrower retained-reducer boundary con
 to expose only a closed versioned primitive set for sealed observation inspection and
 checked result construction. A satisfied conclusion is dynamically checked against
 the network output type, and the generic checker re-evaluates the same definition.
-Source-expression syntax beyond the currently parsed slice remains for the complete
-source-to-IR front-end audit; this status does not claim that the entire canonical
-grammar reaches IR yet.
+The practical S4-S9 completion ledger and the canonical/remapped reference program
+now reach governed semantic IR, including retained calls, list construction, nominal
+and handled-record selection, and exhaustive variant/result matching. Additional S7
+forms already retained in canonical AST—generic goals, executable cases, standalone
+goal-call statements, and unexpanded finite or nested composition—still fail with a
+stable pre-IR diagnostic and are not included in this bounded completion claim.
 
 Schema anchors: `expression`, `pattern`, `function-definition`,
 `predicate-definition`, and `verifier-binding`.

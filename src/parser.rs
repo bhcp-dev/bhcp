@@ -929,6 +929,56 @@ pub enum SurfaceExpression {
         alternative: Box<SurfaceExpression>,
         at: Point,
     },
+    List {
+        elements: Vec<SurfaceExpression>,
+        at: Point,
+    },
+    Select {
+        subject: Box<SurfaceExpression>,
+        field: String,
+        at: Point,
+    },
+    Match {
+        subject: Box<SurfaceExpression>,
+        arms: Vec<SurfaceMatchArm>,
+        at: Point,
+    },
+}
+
+#[derive(Clone, Debug)]
+pub struct SurfaceMatchArm {
+    pub pattern: SurfacePattern,
+    pub guard: Option<SurfaceExpression>,
+    pub body: SurfaceExpression,
+    pub at: Point,
+}
+
+#[derive(Clone, Debug)]
+pub enum SurfacePattern {
+    Wildcard {
+        at: Point,
+    },
+    Literal {
+        value: SurfaceLiteral,
+        at: Point,
+    },
+    Bind {
+        name: String,
+        at: Point,
+    },
+    Variant {
+        case: String,
+        payload: Vec<SurfacePattern>,
+        at: Point,
+    },
+    Tuple {
+        elements: Vec<SurfacePattern>,
+        at: Point,
+    },
+    Record {
+        fields: Vec<(String, SurfacePattern)>,
+        at: Point,
+    },
 }
 
 impl SurfaceExpression {
@@ -939,7 +989,23 @@ impl SurfaceExpression {
             | Self::Unary { at, .. }
             | Self::Binary { at, .. }
             | Self::Call { at, .. }
-            | Self::If { at, .. } => at,
+            | Self::If { at, .. }
+            | Self::List { at, .. }
+            | Self::Select { at, .. }
+            | Self::Match { at, .. } => at,
+        }
+    }
+}
+
+impl SurfacePattern {
+    pub fn at(&self) -> &Point {
+        match self {
+            Self::Wildcard { at }
+            | Self::Literal { at, .. }
+            | Self::Bind { at, .. }
+            | Self::Variant { at, .. }
+            | Self::Tuple { at, .. }
+            | Self::Record { at, .. } => at,
         }
     }
 }
@@ -3027,12 +3093,11 @@ impl Parser<'_> {
         let mut bindings = Vec::new();
         let mut syntax_bindings = Vec::new();
         let mut labels = Vec::new();
-        let mut validate_goal_uniqueness = structured_fact_types;
-        let mut unsupported =
-            (!type_parameters.is_empty() || refines.is_some()).then(|| SurfaceUnsupported {
-                message: "goal syntax is outside the implemented executable slice".to_owned(),
-                at: keyword.start.clone(),
-            });
+        let mut validate_goal_uniqueness = true;
+        let mut unsupported = (!type_parameters.is_empty()).then(|| SurfaceUnsupported {
+            message: "goal syntax is outside the implemented executable slice".to_owned(),
+            at: keyword.start.clone(),
+        });
         while !self.matches("}") {
             if self.current().kind == TokenKind::Eof {
                 return Err(at(
@@ -3125,16 +3190,16 @@ impl Parser<'_> {
             }
         }
         let end = self.consume().end;
-        if unsupported.is_some() {
-            for clause in &mut clauses {
+        for clause in &mut clauses {
+            if unsupported.is_some() || !matches!(clause.kind, SurfaceClauseKind::Fact { .. }) {
                 self.enrich_goal_clause_ast(clause);
                 if let Some(child) = children.iter_mut().find(|child| child.id == clause.ast.id) {
                     *child = clause.ast.clone();
                 }
             }
-            for composition in &compositions {
-                self.enrich_goal_composition_ast(composition, &mut children);
-            }
+        }
+        for composition in &compositions {
+            self.enrich_goal_composition_ast(composition, &mut children);
         }
         let mut attributes = vec![("symbol".to_owned(), Value::Text(symbol.clone()))];
         if !type_parameters.is_empty() {
@@ -3823,7 +3888,7 @@ impl Parser<'_> {
                     "§resource" => "resource",
                     _ => "state",
                 };
-                let clause_kind = if matches!(kind, "input" | "output") && initializer.is_none() {
+                let clause_kind = if initializer.is_none() {
                     SurfaceClauseKind::Fact {
                         kind,
                         name: name.clone(),
@@ -4210,6 +4275,37 @@ impl Parser<'_> {
     }
 
     fn expression(&mut self, minimum: u8) -> Result<SurfaceExpression> {
+        if minimum == 0 && self.matches("match") {
+            let keyword = self.consume();
+            let subject = self.expression(0)?;
+            self.expect("{")?;
+            let mut arms = Vec::new();
+            while !self.matches("}") {
+                let pattern = self.pattern()?;
+                let guard = if self.matches("if") {
+                    self.consume();
+                    Some(self.expression(0)?)
+                } else {
+                    None
+                };
+                self.expect("=>")?;
+                let body = self.expression(0)?;
+                let at = pattern.at().clone();
+                self.expect(";")?;
+                arms.push(SurfaceMatchArm {
+                    pattern,
+                    guard,
+                    body,
+                    at,
+                });
+            }
+            self.expect("}")?;
+            return Ok(SurfaceExpression::Match {
+                subject: Box::new(subject),
+                arms,
+                at: keyword.start,
+            });
+        }
         if minimum == 0 && self.matches("if") {
             let keyword = self.consume();
             let condition = self.expression(0)?;
@@ -4244,7 +4340,7 @@ impl Parser<'_> {
     fn unary(&mut self) -> Result<SurfaceExpression> {
         if matches!(
             self.current().text.as_str(),
-            "let" | "match" | "forall" | "exists" | "set" | "map" | "{" | "["
+            "let" | "forall" | "exists" | "set" | "map" | "{"
         ) {
             return self.fail(
                 "BHCP1004",
@@ -4260,6 +4356,24 @@ impl Parser<'_> {
                 operator: operator.text,
                 operand: Box::new(self.unary()?),
                 at: operator.start,
+            });
+        }
+        if self.matches("[") {
+            let start = self.consume().start;
+            let mut elements = Vec::new();
+            if !self.matches("]") {
+                loop {
+                    elements.push(self.expression(0)?);
+                    if !self.matches(",") {
+                        break;
+                    }
+                    self.consume();
+                }
+            }
+            self.expect("]")?;
+            return Ok(SurfaceExpression::List {
+                elements,
+                at: start,
             });
         }
         let token = self.consume();
@@ -4315,7 +4429,15 @@ impl Parser<'_> {
             }
         };
         loop {
-            if self.matches("(") {
+            if self.matches(".") {
+                let at = self.consume().start;
+                let field = self.identifier("selected field")?;
+                value = SurfaceExpression::Select {
+                    subject: Box::new(value),
+                    field: field.text,
+                    at,
+                };
+            } else if self.matches("(") {
                 let at = value.at().clone();
                 let SurfaceExpression::Reference { name: function, .. } = value else {
                     return self.fail(
@@ -4345,6 +4467,123 @@ impl Parser<'_> {
             }
         }
         Ok(value)
+    }
+
+    fn pattern(&mut self) -> Result<SurfacePattern> {
+        if self.matches("(") {
+            let start = self.consume().start;
+            let first = self.pattern()?;
+            self.expect(",")?;
+            let mut elements = vec![first];
+            if !self.matches(")") {
+                loop {
+                    elements.push(self.pattern()?);
+                    if !self.matches(",") {
+                        break;
+                    }
+                    self.consume();
+                    if self.matches(")") {
+                        break;
+                    }
+                }
+            }
+            self.expect(")")?;
+            return Ok(SurfacePattern::Tuple {
+                elements,
+                at: start,
+            });
+        }
+        if self.matches("{") {
+            let start = self.consume().start;
+            let mut fields = Vec::new();
+            if !self.matches("}") {
+                loop {
+                    let field = self.identifier("record pattern field")?;
+                    let pattern = if self.matches(":") {
+                        self.consume();
+                        self.pattern()?
+                    } else {
+                        SurfacePattern::Bind {
+                            name: field.text.clone(),
+                            at: field.start.clone(),
+                        }
+                    };
+                    if fields
+                        .iter()
+                        .any(|(name, _): &(String, SurfacePattern)| name == &field.text)
+                    {
+                        return Err(at(
+                            "BHCP1003",
+                            "duplicate record pattern field",
+                            self.source_name,
+                            &field.start,
+                        ));
+                    }
+                    fields.push((field.text, pattern));
+                    if !self.matches(",") {
+                        break;
+                    }
+                    self.consume();
+                }
+            }
+            self.expect("}")?;
+            return Ok(SurfacePattern::Record { fields, at: start });
+        }
+        let token = self.consume();
+        match (token.kind, token.value) {
+            (TokenKind::Number, Some(TokenValue::Integer(value))) => Ok(SurfacePattern::Literal {
+                value: SurfaceLiteral::Integer(value),
+                at: token.start,
+            }),
+            (TokenKind::String, Some(TokenValue::Text(value))) => Ok(SurfacePattern::Literal {
+                value: SurfaceLiteral::Text(value),
+                at: token.start,
+            }),
+            (TokenKind::Identifier, _) if token.text == "true" || token.text == "false" => {
+                Ok(SurfacePattern::Literal {
+                    value: SurfaceLiteral::Bool(token.text == "true"),
+                    at: token.start,
+                })
+            }
+            (TokenKind::Identifier, _) if token.text == "_" => {
+                Ok(SurfacePattern::Wildcard { at: token.start })
+            }
+            (TokenKind::Identifier, _) => {
+                let is_variant = token.text.chars().next().is_some_and(char::is_uppercase);
+                if is_variant {
+                    let mut payload = Vec::new();
+                    if self.matches("(") {
+                        self.consume();
+                        if !self.matches(")") {
+                            loop {
+                                payload.push(self.pattern()?);
+                                if !self.matches(",") {
+                                    break;
+                                }
+                                self.consume();
+                            }
+                        }
+                        self.expect(")")?;
+                    }
+                    Ok(SurfacePattern::Variant {
+                        case: token.text,
+                        payload,
+                        at: token.start,
+                    })
+                } else {
+                    Ok(SurfacePattern::Bind {
+                        name: token.text,
+                        at: token.start,
+                    })
+                }
+            }
+            _ => Err(at(
+                "BHCP1001",
+                format!("expected pattern, found {:?}", token.text),
+                self.source_name,
+                &token.start,
+            )),
+        }
     }
 
     fn semantic_name_suffix_follows(&self) -> bool {
@@ -5751,6 +5990,67 @@ fn surface_expression_value(expression: &SurfaceExpression) -> Value {
             surface_expression_value(condition),
             surface_expression_value(consequent),
             surface_expression_value(alternative),
+        ]),
+        SurfaceExpression::List { elements, .. } => Value::Array(vec![
+            Value::Text("list".to_owned()),
+            Value::Array(elements.iter().map(surface_expression_value).collect()),
+        ]),
+        SurfaceExpression::Select { subject, field, .. } => Value::Array(vec![
+            Value::Text("select".to_owned()),
+            surface_expression_value(subject),
+            Value::Text(field.clone()),
+        ]),
+        SurfaceExpression::Match { subject, arms, .. } => Value::Array(vec![
+            Value::Text("match".to_owned()),
+            surface_expression_value(subject),
+            Value::Array(
+                arms.iter()
+                    .map(|arm| {
+                        let mut values = vec![surface_pattern_value(&arm.pattern)];
+                        if let Some(guard) = &arm.guard {
+                            values.push(surface_expression_value(guard));
+                        }
+                        values.push(surface_expression_value(&arm.body));
+                        Value::Array(values)
+                    })
+                    .collect(),
+            ),
+        ]),
+    }
+}
+
+fn surface_pattern_value(pattern: &SurfacePattern) -> Value {
+    match pattern {
+        SurfacePattern::Wildcard { .. } => Value::Array(vec![Value::Text("wildcard".to_owned())]),
+        SurfacePattern::Literal { value, .. } => Value::Array(vec![
+            Value::Text("literal".to_owned()),
+            match value {
+                SurfaceLiteral::Bool(value) => Value::Bool(*value),
+                SurfaceLiteral::Integer(value) => Value::Integer(i128::from(*value)),
+                SurfaceLiteral::Text(value) => Value::Text(value.clone()),
+            },
+        ]),
+        SurfacePattern::Bind { name, .. } => Value::Array(vec![
+            Value::Text("bind".to_owned()),
+            Value::Text(name.clone()),
+        ]),
+        SurfacePattern::Variant { case, payload, .. } => Value::Array(vec![
+            Value::Text("variant".to_owned()),
+            Value::Text(case.clone()),
+            Value::Array(payload.iter().map(surface_pattern_value).collect()),
+        ]),
+        SurfacePattern::Tuple { elements, .. } => Value::Array(vec![
+            Value::Text("tuple".to_owned()),
+            Value::Array(elements.iter().map(surface_pattern_value).collect()),
+        ]),
+        SurfacePattern::Record { fields, .. } => Value::Array(vec![
+            Value::Text("record".to_owned()),
+            Value::owned_map(
+                fields
+                    .iter()
+                    .map(|(name, pattern)| (name.clone(), surface_pattern_value(pattern)))
+                    .collect::<Vec<_>>(),
+            ),
         ]),
     }
 }

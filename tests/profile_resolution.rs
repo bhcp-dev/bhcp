@@ -1,7 +1,9 @@
 use bhcp::hash::HashAlgorithm;
 use bhcp::inspection::render_profile_resolution;
 use bhcp::pipeline::{
-    compile_source_bytes_with_profile_registry, compile_source_with_policy, parse_policy_source,
+    compile_source_bytes_with_profile_registry,
+    compile_source_bytes_with_profile_registry_and_waivers, compile_source_with_policy,
+    parse_policy_source,
 };
 use bhcp::policy::{SourcePolicyDocument, TypeMode};
 use bhcp::profile::{
@@ -231,8 +233,18 @@ fn resolved_profile_compilation_preserves_meaning_and_applies_overlays_before_el
     let custom =
         compile_source_bytes_with_profile_registry(CUSTOM.as_bytes(), "custom.bhcp", &registry)
             .unwrap();
+    let governed_custom = compile_source_bytes_with_profile_registry_and_waivers(
+        CUSTOM.as_bytes(),
+        "custom.bhcp",
+        &registry,
+        &[],
+        "2026-01-01T00:00:00Z",
+    )
+    .unwrap();
 
     assert_eq!(custom.semantic_hash, canonical.semantic_hash);
+    assert_eq!(governed_custom.semantic_hash, canonical.semantic_hash);
+    assert_eq!(governed_custom.ir_hash, custom.ir_hash);
     assert_ne!(custom.ast_hash, canonical.ast_hash);
     assert_eq!(custom.ast.profile, "example/profile.child@0");
     assert_eq!(

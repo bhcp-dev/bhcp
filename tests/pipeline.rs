@@ -76,7 +76,7 @@ fn semantic_changes_change_identity() {
 #[test]
 fn unsupported_and_unresolved_syntax_have_stable_codes() {
     let unsupported =
-        compile_source("§goal example/G@0 { §state cache: Text; }", "bad.bhcp").unwrap_err();
+        compile_source("§goal example/G@0<T> { §input value: T; }", "bad.bhcp").unwrap_err();
     let unresolved =
         compile_source("§goal example/G@0 { §requires missing == 1; }", "bad.bhcp").unwrap_err();
     assert_eq!(unsupported.code, "BHCP1004");
