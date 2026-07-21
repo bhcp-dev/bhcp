@@ -84,13 +84,31 @@ struct LoweredExpression {
     value_type: CheckedType,
 }
 
+#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
+struct InstantiationKey {
+    base_symbol: String,
+    type_arguments: Vec<u8>,
+}
+
+impl InstantiationKey {
+    fn new(base_symbol: &str, type_arguments: &[CheckedType]) -> Result<Self> {
+        Ok(Self {
+            base_symbol: base_symbol.to_owned(),
+            type_arguments: encode_deterministic(&Value::Array(
+                type_arguments.iter().map(CheckedType::to_value).collect(),
+            ))?,
+        })
+    }
+}
+
 pub(crate) struct DefinitionElaborator {
     templates: BTreeMap<String, Template>,
     relations: TypeRelations,
     source_name: String,
     context: ExpressionContext,
     visiting: BTreeSet<String>,
-    completed: BTreeMap<String, ResolvedCall>,
+    completed: BTreeMap<InstantiationKey, ResolvedCall>,
+    emitted_symbols: BTreeMap<String, InstantiationKey>,
     functions: BTreeMap<String, PureFunctionDefinition>,
     predicates: BTreeMap<String, PredicateDefinition>,
     next_function: usize,
@@ -132,6 +150,7 @@ impl DefinitionElaborator {
             context: ExpressionContext::default(),
             visiting: BTreeSet::new(),
             completed: BTreeMap::new(),
+            emitted_symbols: BTreeMap::new(),
             functions: BTreeMap::new(),
             predicates: BTreeMap::new(),
             next_function: 0,
@@ -224,10 +243,24 @@ impl DefinitionElaborator {
             ));
         }
         let type_arguments = self.infer_type_arguments(&template, argument_types, call_at)?;
+        let key = InstantiationKey::new(base_symbol, &type_arguments)?;
         let symbol = specialized_symbol(base_symbol, &type_arguments)?;
-        if let Some(completed) = self.completed.get(&symbol) {
+        if let Some(completed) = self.completed.get(&key) {
             return Ok(completed.clone());
         }
+        if (symbol != base_symbol && self.templates.contains_key(&symbol))
+            || self
+                .emitted_symbols
+                .get(&symbol)
+                .is_some_and(|owner| owner != &key)
+        {
+            return Err(invalid_at(
+                format!("specialization symbol collision for {symbol:?}"),
+                &self.source_name,
+                call_at,
+            ));
+        }
+        self.emitted_symbols.insert(symbol.clone(), key.clone());
         if !self.visiting.insert(base_symbol.to_owned()) {
             return Err(invalid_at(
                 format!("recursive function cycle reaches {base_symbol:?}"),
@@ -248,7 +281,6 @@ impl DefinitionElaborator {
             self.next_parameter += 1;
             let binding = PureBinding {
                 id: format!("pure-parameter-{}", self.next_parameter),
-                name: parameter.name.clone(),
                 value_type: argument_type.clone(),
             };
             environment.insert(parameter.name.clone(), binding.clone());
@@ -345,8 +377,7 @@ impl DefinitionElaborator {
         }
         self.visiting.remove(base_symbol);
         let resolved = ResolvedCall { symbol, result };
-        self.completed
-            .insert(resolved.symbol.clone(), resolved.clone());
+        self.completed.insert(key, resolved.clone());
         Ok(resolved)
     }
 
@@ -437,6 +468,7 @@ impl DefinitionElaborator {
             context: ExpressionContext::default(),
             visiting: BTreeSet::new(),
             completed: BTreeMap::new(),
+            emitted_symbols: BTreeMap::new(),
             functions: BTreeMap::new(),
             predicates: BTreeMap::new(),
             next_function: 0,

@@ -78,6 +78,51 @@ fn generic_calls_are_soundly_inferred_and_monomorphized() {
 }
 
 #[test]
+fn generated_specialization_symbols_cannot_be_captured_by_source_definitions() {
+    let generic = "§function example/identity@0<T: Dynamic>(value: T): T = value;";
+    let forged = "§function example/identity-ad104b86104918735ff62bee38a85729@0(value: Text): Text = \"hijack\";";
+    let caller = "§function example/textIdentity@0(value: Text): Text = example/identity@0(value);";
+
+    for source in [
+        format!("{generic}\n{forged}\n{caller}"),
+        format!("{forged}\n{generic}\n{caller}"),
+    ] {
+        let diagnostic = compile_source(&source, "specialization-collision.bhcp").unwrap_err();
+        assert_eq!(diagnostic.code, "BHCP4301");
+        assert!(
+            diagnostic
+                .message
+                .contains("specialization symbol collision")
+        );
+    }
+}
+
+#[test]
+fn function_and_predicate_parameter_names_are_alpha_metadata() {
+    let function = "§function example/identity@0(value: Text): Text = value;";
+    let renamed_function = "§function example/identity@0(candidate: Text): Text = candidate;";
+    assert_eq!(
+        compile_source(function, "function-alpha-a.bhcp")
+            .unwrap()
+            .semantic_hash,
+        compile_source(renamed_function, "function-alpha-b.bhcp")
+            .unwrap()
+            .semantic_hash
+    );
+
+    let predicate = "§predicate example/nonEmpty@0(value: Text): Bool = value != \"\" with example/static@0(subject = borrow value);";
+    let renamed_predicate = "§predicate example/nonEmpty@0(candidate: Text): Bool = candidate != \"\" with example/static@0(subject = borrow candidate);";
+    assert_eq!(
+        compile_source(predicate, "predicate-alpha-a.bhcp")
+            .unwrap()
+            .semantic_hash,
+        compile_source(renamed_predicate, "predicate-alpha-b.bhcp")
+            .unwrap()
+            .semantic_hash
+    );
+}
+
+#[test]
 fn unused_generic_templates_are_still_validated_without_fake_specializations() {
     let source = r#"
 §function example/first@0<T: Dynamic>(left: T, right: T): T = left;

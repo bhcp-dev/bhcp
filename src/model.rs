@@ -752,7 +752,6 @@ pub struct FunctionDefinition {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct PureBinding {
     pub(crate) id: String,
-    pub(crate) name: String,
     pub(crate) value_type: CheckedType,
 }
 
@@ -760,7 +759,6 @@ impl PureBinding {
     fn to_value(&self) -> Value {
         Value::map([
             ("id", Value::Text(self.id.clone())),
-            ("name", Value::Text(self.name.clone())),
             ("type", self.value_type.to_value()),
         ])
     }
