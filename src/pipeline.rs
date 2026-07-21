@@ -8,9 +8,10 @@ use crate::kernel::{ArgumentMode, KernelArgument, KernelChild, KernelNetwork};
 use crate::model::{
     BhcpType, Binding, CanonicalAstDocument, Clause, ClauseKind, ContentReference, Effect,
     EffectivePolicyReference, Expression, ExpressionForm, FieldType, FunctionDefinition,
-    GoalDefinition, HashId, PolicyDecision, SemanticIrDocument, VariantCaseType, VerifierBinding,
-    features_for, is_symbol,
+    GoalDefinition, HandleType, HashId, PolicyDecision, SemanticIrDocument, VariantCaseType,
+    VerifierBinding, data_edge_type_compatible, features_for, is_symbol,
 };
+use crate::ownership::analyze_program;
 use crate::parser::{
     CANONICAL_PROFILE, ParsedProgram, SurfaceArgumentMode, SurfaceClauseKind, SurfaceComposition,
     SurfaceEffect, SurfaceExpression, SurfaceFunction, SurfaceGoal, SurfaceLiteral, SurfaceType,
@@ -28,6 +29,8 @@ use crate::prelude::{
 use crate::profile::{ProfileRegistry, SyntaxDocument};
 use crate::typecheck::{CheckedType, check_type_definitions};
 use crate::value::Value;
+
+const OWNERSHIP_FEATURE: &str = "bhcp/feature.ownership-analysis@0";
 
 #[derive(Clone, Debug)]
 pub struct Compilation {
@@ -681,6 +684,9 @@ fn parse_internal(
     if uses_self_hosted_gate(&program) {
         features.push(GATE_FEATURE.to_owned());
     }
+    if uses_ownership(&program) {
+        features.push(OWNERSHIP_FEATURE.to_owned());
+    }
     let mut ast = CanonicalAstDocument {
         features,
         profile: selected.profile,
@@ -737,6 +743,7 @@ fn elaborate(
     algorithm: HashAlgorithm,
 ) -> Result<SemanticIrDocument> {
     let checked_types = check_type_definitions(program)?;
+    analyze_program(program, source_name)?;
     let types = checked_types.definitions.clone();
     let mut definitions = DefinitionElaborator::new(program, &checked_types, source_name)?;
     definitions.elaborate_roots()?;
@@ -842,6 +849,9 @@ fn elaborate(
     if uses_self_hosted_gate(program) {
         features.push(GATE_FEATURE.to_owned());
     }
+    if uses_ownership(program) {
+        features.push(OWNERSHIP_FEATURE.to_owned());
+    }
     Ok(SemanticIrDocument {
         features,
         type_mode: TypeMode::InferStrict,
@@ -910,6 +920,104 @@ fn uses_self_hosted_gate(program: &ParsedProgram) -> bool {
         .goals
         .iter()
         .any(|goal| matches!(&goal.body, Some(SurfaceComposition::DerivedGate { .. })))
+}
+
+fn uses_ownership(program: &ParsedProgram) -> bool {
+    program.goals.iter().any(|goal| {
+        goal.clauses.iter().any(|clause| {
+            matches!(
+                &clause.kind,
+                SurfaceClauseKind::Fact { value_type, .. }
+                    if surface_type_contains_handle(value_type)
+            )
+        })
+    }) || program
+        .goals
+        .iter()
+        .any(|goal| ast_contains_handle(&goal.ast))
+        || program
+            .types
+            .iter()
+            .any(|definition| ast_contains_handle(&definition.ast))
+        || program
+            .functions
+            .iter()
+            .any(|definition| ast_contains_handle(&definition.ast))
+        || program
+            .predicates
+            .iter()
+            .any(|definition| ast_contains_handle(&definition.ast))
+}
+
+fn surface_type_contains_handle(value_type: &SurfaceType) -> bool {
+    match value_type {
+        SurfaceType::Handle { .. } => true,
+        SurfaceType::Record(fields) => fields
+            .iter()
+            .any(|field| surface_type_contains_handle(&field.value_type)),
+        SurfaceType::StructuralRecord { fields, .. } => fields
+            .iter()
+            .any(|field| surface_type_contains_handle(&field.value_type)),
+        SurfaceType::Tuple(members) => members.iter().any(surface_type_contains_handle),
+        SurfaceType::Variant(cases) => cases
+            .iter()
+            .flat_map(|case| &case.payload)
+            .any(surface_type_contains_handle),
+        SurfaceType::List(element)
+        | SurfaceType::Set(element)
+        | SurfaceType::Option(element)
+        | SurfaceType::Reduction(element) => surface_type_contains_handle(element),
+        SurfaceType::Map { key, value }
+        | SurfaceType::Result {
+            ok: key,
+            error: value,
+        } => surface_type_contains_handle(key) || surface_type_contains_handle(value),
+        SurfaceType::Nominal { arguments, .. }
+        | SurfaceType::Union(arguments)
+        | SurfaceType::Intersection(arguments) => {
+            arguments.iter().any(surface_type_contains_handle)
+        }
+        SurfaceType::Goal {
+            input,
+            output,
+            evidence,
+            ..
+        } => {
+            surface_type_contains_handle(input)
+                || surface_type_contains_handle(output)
+                || evidence
+                    .as_deref()
+                    .is_some_and(surface_type_contains_handle)
+        }
+        SurfaceType::Refined { value_type, .. } => surface_type_contains_handle(value_type),
+        SurfaceType::Primitive(_)
+        | SurfaceType::Exact(_)
+        | SurfaceType::Parameter(_)
+        | SurfaceType::Dynamic
+        | SurfaceType::Meta { .. }
+        | SurfaceType::Never => false,
+    }
+}
+
+fn ast_contains_handle(node: &crate::model::AstNode) -> bool {
+    node.attributes
+        .iter()
+        .any(|(_, value)| value_contains_handle(value))
+        || node.children.iter().any(ast_contains_handle)
+}
+
+fn value_contains_handle(value: &Value) -> bool {
+    match value {
+        Value::Array(values) => {
+            values.first() == Some(&Value::Text("handle".to_owned()))
+                || values.iter().any(value_contains_handle)
+        }
+        Value::Map(entries) => entries
+            .iter()
+            .any(|(_, value)| value_contains_handle(value)),
+        Value::Tag(_, value) => value_contains_handle(value),
+        _ => false,
+    }
 }
 
 fn gate_output(child: BhcpType) -> BhcpType {
@@ -1565,7 +1673,11 @@ fn lower_chain_arguments(
             &argument.at,
         ));
     }
-    if field.value_type != predecessor.output {
+    if !data_edge_type_compatible(
+        &predecessor.output,
+        &field.value_type,
+        kernel_argument_mode(argument.mode),
+    ) {
         return Err(error(
             "BHCP2003",
             "chain predecessor output does not match the child input type",
@@ -1583,12 +1695,7 @@ fn lower_chain_arguments(
         value_type: predecessor.output.clone(),
         form: ExpressionForm::Call("bhcp/kernel.observed-output@0".to_owned(), vec![tag]),
     };
-    let mode = match argument.mode {
-        SurfaceArgumentMode::Value => ArgumentMode::Value,
-        SurfaceArgumentMode::Move => ArgumentMode::Move,
-        SurfaceArgumentMode::Borrow => ArgumentMode::Borrow,
-        SurfaceArgumentMode::Share => ArgumentMode::Share,
-    };
+    let mode = kernel_argument_mode(argument.mode);
     Ok(vec![KernelArgument {
         name: argument.name.clone(),
         mode,
@@ -1644,7 +1751,11 @@ fn lower_gate_arguments(
                 &argument.at,
             ));
         };
-        if parent_field.value_type != field.value_type {
+        if !data_edge_type_compatible(
+            &parent_field.value_type,
+            &field.value_type,
+            kernel_argument_mode(argument.mode),
+        ) {
             return Err(error(
                 "BHCP2003",
                 "gate parent input does not match the child input type",
@@ -1662,12 +1773,7 @@ fn lower_gate_arguments(
             value_type: field.value_type.clone(),
             form: ExpressionForm::Call("bhcp/kernel.parent-field@0".to_owned(), vec![field_name]),
         };
-        let mode = match argument.mode {
-            SurfaceArgumentMode::Value => ArgumentMode::Value,
-            SurfaceArgumentMode::Move => ArgumentMode::Move,
-            SurfaceArgumentMode::Borrow => ArgumentMode::Borrow,
-            SurfaceArgumentMode::Share => ArgumentMode::Share,
-        };
+        let mode = kernel_argument_mode(argument.mode);
         lowered.push(KernelArgument {
             name: argument.name.clone(),
             mode,
@@ -1685,6 +1791,15 @@ fn parent_field_type<'a>(parent: &'a BhcpType, name: &str) -> Option<&'a BhcpTyp
         .iter()
         .find(|field| field.name == name)
         .map(|field| &field.value_type)
+}
+
+fn kernel_argument_mode(mode: SurfaceArgumentMode) -> ArgumentMode {
+    match mode {
+        SurfaceArgumentMode::Value => ArgumentMode::Value,
+        SurfaceArgumentMode::Move => ArgumentMode::Move,
+        SurfaceArgumentMode::Borrow => ArgumentMode::Borrow,
+        SurfaceArgumentMode::Share => ArgumentMode::Share,
+    }
 }
 
 fn surface_expression_identity(expression: &SurfaceExpression) -> Result<Value> {
@@ -2367,10 +2482,36 @@ fn lower_type(
         SurfaceType::Reduction(output) => {
             BhcpType::Reduction(Box::new(lower_type(output, source_name, at)?))
         }
+        SurfaceType::Nominal { symbol, arguments } => BhcpType::Nominal(
+            symbol.clone(),
+            arguments
+                .iter()
+                .map(|argument| lower_type(argument, source_name, at))
+                .collect::<Result<Vec<_>>>()?,
+        ),
+        SurfaceType::Handle {
+            ownership,
+            access,
+            usage,
+            lifetime,
+            value_type,
+        } => BhcpType::Handle(Box::new(HandleType {
+            ownership: ownership.clone(),
+            access: access.clone().unwrap_or_else(|| {
+                if ownership == "shared" {
+                    "read"
+                } else {
+                    "write"
+                }
+                .to_owned()
+            }),
+            usage: usage.clone().unwrap_or_else(|| "unrestricted".to_owned()),
+            lifetime: lifetime.clone().unwrap_or_else(|| "goal".to_owned()),
+            value_type: lower_type(value_type, source_name, at)?,
+        })),
         SurfaceType::Parameter(_)
         | SurfaceType::Dynamic
         | SurfaceType::Meta { .. }
-        | SurfaceType::Nominal { .. }
         | SurfaceType::Never
         | SurfaceType::StructuralRecord { .. }
         | SurfaceType::Tuple(_)
@@ -2383,7 +2524,6 @@ fn lower_type(
         | SurfaceType::Goal { .. }
         | SurfaceType::Union(_)
         | SurfaceType::Intersection(_)
-        | SurfaceType::Handle { .. }
         | SurfaceType::Refined { .. } => {
             return Err(error(
                 "BHCP2004",

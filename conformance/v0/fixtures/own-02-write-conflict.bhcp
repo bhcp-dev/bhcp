@@ -1,0 +1,15 @@
+§goal conformance/Read@0 {
+    §input file: borrowed read 'scope conformance/File@0;
+}
+
+§goal conformance/Write@0 {
+    §input file: borrowed write 'scope conformance/File@0;
+}
+
+§goal conformance/ConflictingBorrows@0 {
+    §input file: owned write affine 'scope conformance/File@0;
+    §all {
+        reader = conformance/Read@0(file = borrow file);
+        writer = conformance/Write@0(file = borrow file);
+    };
+}

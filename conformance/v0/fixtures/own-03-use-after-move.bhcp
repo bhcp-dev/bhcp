@@ -1,0 +1,20 @@
+§goal conformance/Consume@0 {
+    §input file: owned write affine 'scope conformance/File@0;
+}
+
+§goal conformance/Inspect@0 {
+    §input file: borrowed read 'scope conformance/File@0;
+}
+
+§goal conformance/Noop@0 {}
+
+§goal conformance/UseAfterMove@0 {
+    §input file: owned write affine 'scope conformance/File@0;
+    §chain {
+        choice = §any {
+            take = conformance/Consume@0(file = move file);
+            skip = conformance/Noop@0();
+        };
+        later = conformance/Inspect@0(file = borrow file);
+    };
+}

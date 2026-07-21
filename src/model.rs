@@ -3,7 +3,7 @@ use std::collections::{BTreeMap, BTreeSet, HashSet};
 use crate::diagnostic::{Diagnostic, Result};
 use crate::expression::CheckedExpression;
 use crate::hash::{HashAlgorithm, SHA3_512};
-use crate::kernel::KernelNetwork;
+use crate::kernel::{ArgumentMode, KernelNetwork};
 use crate::policy::TypeMode;
 use crate::typecheck::{CheckedType, CheckedTypeDefinition};
 use crate::value::Value;
@@ -220,6 +220,7 @@ pub enum BhcpType {
     Verdict(Box<BhcpType>),
     ExecutionResult(Box<BhcpType>),
     Reduction(Box<BhcpType>),
+    Handle(Box<HandleType>),
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -232,6 +233,15 @@ pub struct FieldType {
 pub struct VariantCaseType {
     pub tag: String,
     pub payload: Vec<BhcpType>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct HandleType {
+    pub ownership: String,
+    pub access: String,
+    pub usage: String,
+    pub lifetime: String,
+    pub value_type: BhcpType,
 }
 
 impl BhcpType {
@@ -300,6 +310,14 @@ impl BhcpType {
             Self::Reduction(output) => {
                 Value::Array(vec![Value::Text("reduction".to_owned()), output.to_value()])
             }
+            Self::Handle(handle) => Value::Array(vec![
+                Value::Text("handle".to_owned()),
+                Value::Text(handle.ownership.clone()),
+                Value::Text(handle.access.clone()),
+                Value::Text(handle.usage.clone()),
+                Value::Text(handle.lifetime.clone()),
+                handle.value_type.to_value(),
+            ]),
         }
     }
 
@@ -356,6 +374,13 @@ impl BhcpType {
                         _ => false,
                     },
                 }
+            }
+            (Value::Map(entries), Self::Handle(_)) => {
+                matches!(
+                    entries.as_slice(),
+                    [(name, Value::Text(reference))]
+                        if name == "ref" && !reference.is_empty() && reference.len() <= 128
+                )
             }
             _ => false,
         }
@@ -1543,7 +1568,11 @@ fn validate_network_arguments(
                     ));
                 };
                 if parameter.value_type != BhcpType::Primitive("Text")
-                    || argument.value.value_type != parent_field.value_type
+                    || !data_edge_type_compatible(
+                        &parent_field.value_type,
+                        &argument.value.value_type,
+                        argument.mode,
+                    )
                 {
                     return Err(Diagnostic::plain(
                         "BHCP4001",
@@ -1567,7 +1596,11 @@ fn validate_network_arguments(
                 .expect("predecessor child goal resolves");
             if symbol != "bhcp/kernel.observed-output@0"
                 || parameter.value_type != BhcpType::Primitive("Text")
-                || argument.value.value_type != predecessor_goal.output
+                || !data_edge_type_compatible(
+                    &predecessor_goal.output,
+                    &argument.value.value_type,
+                    argument.mode,
+                )
             {
                 return Err(Diagnostic::plain(
                     "BHCP4001",
@@ -1577,6 +1610,34 @@ fn validate_network_arguments(
         }
     }
     Ok(())
+}
+
+pub(crate) fn data_edge_type_compatible(
+    source: &BhcpType,
+    target: &BhcpType,
+    mode: ArgumentMode,
+) -> bool {
+    match mode {
+        ArgumentMode::Value | ArgumentMode::Move => source == target,
+        ArgumentMode::Borrow => match (source, target) {
+            (BhcpType::Handle(source_handle), BhcpType::Handle(target_handle)) => {
+                target_handle.ownership == "borrowed"
+                    && source_handle.value_type == target_handle.value_type
+                    && source_handle.lifetime == target_handle.lifetime
+                    && (target_handle.access == "read" || source_handle.access == "write")
+            }
+            _ => source == target,
+        },
+        ArgumentMode::Share => match (source, target) {
+            (BhcpType::Handle(source_handle), BhcpType::Handle(target_handle)) => {
+                target_handle.ownership == "shared"
+                    && source_handle.ownership != "borrowed"
+                    && source_handle.value_type == target_handle.value_type
+                    && source_handle.lifetime == target_handle.lifetime
+            }
+            _ => source == target,
+        },
+    }
 }
 
 fn header_entries(features: &[String]) -> Vec<(String, Value)> {

@@ -1,0 +1,4 @@
+§goal conformance/ExpiredRetention@0 {
+    §input file: borrowed read 'request conformance/File@0;
+    §state retained: borrowed read 'request conformance/File@0 = file;
+}

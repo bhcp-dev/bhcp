@@ -14,7 +14,7 @@ subtyping, and explicit `Dynamic` boundaries, and materializes checked `§type`
 definitions in semantic IR. Canonical artifacts use deterministic CBOR and
 algorithm-tagged semantic or artifact identities. It is not yet a complete v0
 front end, planner, runtime, or SDK: source-expression forms beyond the currently
-parsed slice, ownership/effects, and graph construction remain roadmap work.
+parsed slice, effect/authority analysis, and graph construction remain roadmap work.
 
 ## Start here
 
@@ -132,6 +132,14 @@ bindings; and makes selection, casts, division, and overflow fault explicitly.
 Pure calls resolve only through retained acyclic checked definitions. Quantifiers
 use a static finite list/set or an exact finite-domain witness attached to a closed
 verifier binding; neither path can invoke an ambient callback.
+Before executable IR is emitted, the ownership pass now materializes every handle
+qualifier and checks `value`, `move`, `borrow`, and `share` arguments through direct,
+nested, recursive, conditional, and concurrency-candidate goal flow. It permits
+overlapping reads, rejects exclusive-write conflicts and every post-move path,
+requires linear consumption on all outcomes, keeps case scopes independent, and
+rejects expired-borrow or unapproved-shared state retention with stable
+`BHCP4401`–`BHCP4405` diagnostics. Executable handle data edges retain the exact
+canonical qualifiers and advertise `bhcp/feature.ownership-analysis@0`.
 Predicate verifier arguments lower in canonical name order to a closed typed input
 record plus retained mode/expression configuration. Argument order is not semantic;
 the verifier symbol, types, modes, expressions, evidence output, and trust
@@ -142,11 +150,12 @@ generic/refinement declarations, all four fact kinds and initializers, invariant
 limits, authority, preferences, verifier arguments, executable cases, standalone
 goal calls, quantified composition, and recursively nested finite composition.
 These additional goal forms retain deterministic AST structure and fail closed
-before executable IR until their checker, ownership/effect, and recursion stages land.
+before executable IR until their remaining effect, case-execution, and recursion or
+retention-lowering stages land.
 
 | Canonical definition | Implemented source slice | Explicitly deferred |
 | --- | --- | --- |
-| `§goal` / `§function` | Complete goal and general-function parsing/AST construction; parsed pure function bodies resolve deterministically, type-check, infer bounded generics, monomorphize, and materialize beside the checked executable goal/prelude-function slice | Source-expression grammar beyond the current parsed slice, finite-domain proof, ownership/effects, cases, and recursion semantics |
+| `§goal` / `§function` | Complete goal and general-function parsing/AST construction; parsed pure function bodies resolve deterministically, type-check, infer bounded generics, monomorphize, and materialize beside the checked executable goal/prelude-function slice; ownership/resource flow is checked before IR | Source-expression grammar beyond the current parsed slice, finite-domain proof, effects/authority, case execution, and recursion semantics |
 | `§type` / `§predicate` / `§refines` | Complete parsing plus checked type/refinement lowering and parsed predicate elaboration: every v0 wire type normalizes, local generics enforce arity/bounds, total refinements retain candidate-bound evidence, and canonical predicate verifier interfaces/configuration materialize in semantic IR | Source-expression grammar beyond the current parsed slice and its complete source-to-IR audit |
 | `§policy` | Complete canonical source parsing for layer, `§extends`, six closed typed rules, scopes/parameters, waivability, and issuers; composition, inspection, policy-aware elaboration, and no-waiver conformance fixtures | Expression-valued policy clauses and enforcement beyond the compile-time/evidence boundary |
 | `§syntax` / `§profile` | Complete closed source-definition parsing into typed deterministic artifacts; fixed byte-level selection, exact one-parent resolution, monotonic attached overlays, resolved-profile inspection, span-aware custom-source compilation, and deterministic profile-aware formatting | Applying newly parsed definitions as source-local registry inputs remains the profile-lowering stage |

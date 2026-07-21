@@ -146,8 +146,12 @@ fn hosted_test_partitions_cover_every_target_once_and_keep_the_required_context(
 }
 
 #[test]
-fn test_only_sha3_hot_path_is_optimised() {
+fn test_profile_bounds_hosted_binaries_and_optimises_the_sha3_hot_path() {
     let manifest = cargo_manifest();
+    assert!(
+        manifest.contains("[profile.test]\ndebug = 0"),
+        "test binaries retain platform-specific debug payload that can exceed adapter limits"
+    );
     for package in ["sha3", "keccak"] {
         let profile = format!("[profile.test.package.{package}]\nopt-level = 3");
         assert!(
