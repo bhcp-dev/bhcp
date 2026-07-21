@@ -135,11 +135,13 @@ construction, and planner/runtime work remain distinct roadmap stages. The imple
 waiver path validates and applies exact typed
 targets and changes across all six categories, scope containment, direct/delegated
 issuer authority, injected half-open time validity, audit material, atomic rejection,
-and identity effects. A common safe-Rust graph model now validates, deterministically
-encodes, identifies, and inspects every graph root while preserving the distinction
-between semantic meaning and provenance-sensitive packaging. Unrepresentable partial
-product-scope subtraction and graph construction/planning stages remain separate roadmap
-work.
+and identity effects. Executable source composes materialized inline policies and
+applies materialized inline waivers through that same path before governed semantic
+IR, with source presentation remaining artifact-only. A common safe-Rust graph model
+now validates, deterministically encodes, identifies, and inspects every graph root
+while preserving the distinction between semantic meaning and provenance-sensitive
+packaging. Unrepresentable partial product-scope subtraction and graph construction
+and planning remain separate roadmap work.
 
 The presentation front end now has fixed raw-byte profile selection, typed
 deterministic syntax/profile artifacts, and a closed registry that validates an

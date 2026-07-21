@@ -302,8 +302,8 @@ target order, authorization/delegation, content references, and exact field orde
 reject stably; and parser callbacks, unrestricted macros, semantic overrides,
 expression-valued policy clauses, and invalid derived/native mixtures fail before
 artifacts. Frozen exact-symbol artifact references remain deferred source bindings.
-This remains parsing evidence for policy, waiver, and profile activation; their
-downstream completion owners are unchanged.
+This remains parsing evidence for profile activation. Executable inline policy and
+waiver lowering and extension execution are pinned separately below.
 
 `tests/extension_lowering.rs` makes EXT-01 through EXT-04 and the extension path of
 KRN-12 executable. It compiles the checked-in reference extension through a restricted
@@ -326,3 +326,11 @@ strong root validation, and applied-waiver inspection. The checked-in waiver roo
 fixture uses the same closed CDDL shapes. The implementation rejects a narrower
 partial scope when its complement cannot be represented exactly by the current v0
 effective-rule shapes.
+
+`tests/policy_waiver_lowering.rs` carries the same POL/WAV boundary from authored
+source through composition, exact waiver application, policy-aware elaboration, and
+semantic IR. It proves source/CBOR parity for all six weakening categories, direct
+and delegated authority, injected half-open interval decisions, exact scopes and
+audits, deterministic governance ordering, artifact-only presentation, effective
+semantic identity, and atomic rejection of unresolved references or unrepresentable
+partial scope changes.

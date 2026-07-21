@@ -25,7 +25,7 @@ use crate::parser::{
 };
 use crate::policy::{
     EffectivePolicyDocument, ExactNumber, PolicyDocument, PolicyScope, SourcePolicyDocument,
-    TypeMode,
+    TypeMode, apply_waiver, compose_policies,
 };
 use crate::prelude::{
     ALL_FEATURE, ALL_LOWERER, ALL_REDUCER, ANY_FEATURE, ANY_LOWERER, ANY_REDUCER, CHAIN_FEATURE,
@@ -237,6 +237,40 @@ pub fn compile_source_with_extension_registry(
         None,
         None,
         Some(extensions),
+        None,
+    )
+}
+
+pub fn compile_source_with_waiver_decision_time(
+    source: &str,
+    source_name: &str,
+    decision_time: &str,
+) -> Result<Compilation> {
+    compile_source_internal(
+        source.as_bytes(),
+        source_name,
+        HashAlgorithm::default(),
+        None,
+        None,
+        None,
+        Some(decision_time),
+    )
+}
+
+pub fn compile_source_with_extension_registry_and_waiver_decision_time(
+    source: &str,
+    source_name: &str,
+    extensions: &ExtensionRegistry,
+    decision_time: &str,
+) -> Result<Compilation> {
+    compile_source_internal(
+        source.as_bytes(),
+        source_name,
+        HashAlgorithm::default(),
+        None,
+        None,
+        Some(extensions),
+        Some(decision_time),
     )
 }
 
@@ -268,6 +302,7 @@ pub fn compile_source_with_policy_and_algorithm(
         Some(policy),
         None,
         None,
+        None,
     )
 }
 
@@ -288,7 +323,7 @@ pub fn compile_source_bytes_with_algorithm(
     source_name: &str,
     algorithm: HashAlgorithm,
 ) -> Result<Compilation> {
-    compile_source_internal(source, source_name, algorithm, None, None, None)
+    compile_source_internal(source, source_name, algorithm, None, None, None, None)
 }
 
 pub fn compile_source_bytes_with_profiles(
@@ -318,7 +353,15 @@ pub fn compile_source_bytes_with_profiles_and_algorithm(
     profiles: &ProfileSyntaxRegistry,
     algorithm: HashAlgorithm,
 ) -> Result<Compilation> {
-    compile_source_internal(source, source_name, algorithm, None, Some(profiles), None)
+    compile_source_internal(
+        source,
+        source_name,
+        algorithm,
+        None,
+        Some(profiles),
+        None,
+        None,
+    )
 }
 
 pub fn compile_source_bytes_with_profile_registry(
@@ -342,7 +385,7 @@ pub fn compile_source_bytes_with_profile_registry_and_algorithm(
 ) -> Result<Compilation> {
     let selected = scan_profile_preamble(source, source_name)?;
     if selected.profile == CANONICAL_PROFILE {
-        return compile_source_internal(source, source_name, algorithm, None, None, None);
+        return compile_source_internal(source, source_name, algorithm, None, None, None, None);
     }
     let resolved = registry.resolve(&selected.profile, algorithm)?;
     let mut syntaxes = ProfileSyntaxRegistry::new();
@@ -353,9 +396,12 @@ pub fn compile_source_bytes_with_profile_registry_and_algorithm(
         program,
         source_name,
         algorithm,
-        Some(&resolved.effective_policy),
-        Some(resolved.type_mode),
-        None,
+        CompilationContext {
+            policy: Some(&resolved.effective_policy),
+            profile_mode: Some(resolved.type_mode),
+            extensions: None,
+            waiver_decision_time: None,
+        },
     )
 }
 
@@ -366,6 +412,7 @@ fn compile_source_internal(
     policy: Option<&EffectivePolicyDocument>,
     profiles: Option<&ProfileSyntaxRegistry>,
     extensions: Option<&ExtensionRegistry>,
+    waiver_decision_time: Option<&str>,
 ) -> Result<Compilation> {
     let (ast, program) = parse_internal(source, source_name, algorithm, profiles)?;
     finish_compilation(
@@ -373,10 +420,20 @@ fn compile_source_internal(
         program,
         source_name,
         algorithm,
-        policy,
-        None,
-        extensions,
+        CompilationContext {
+            policy,
+            profile_mode: None,
+            extensions,
+            waiver_decision_time,
+        },
     )
+}
+
+struct CompilationContext<'a> {
+    policy: Option<&'a EffectivePolicyDocument>,
+    profile_mode: Option<TypeMode>,
+    extensions: Option<&'a ExtensionRegistry>,
+    waiver_decision_time: Option<&'a str>,
 }
 
 fn finish_compilation(
@@ -384,10 +441,26 @@ fn finish_compilation(
     program: ParsedProgram,
     source_name: &str,
     algorithm: HashAlgorithm,
-    policy: Option<&EffectivePolicyDocument>,
-    profile_mode: Option<TypeMode>,
-    extensions: Option<&ExtensionRegistry>,
+    context: CompilationContext<'_>,
 ) -> Result<Compilation> {
+    let CompilationContext {
+        policy,
+        profile_mode,
+        extensions,
+        waiver_decision_time,
+    } = context;
+    if policy.is_some() && !program.policies.is_empty() {
+        return Err(Diagnostic::new(
+            "BHCP8110",
+            "inline source policy cannot be combined with a separately supplied effective policy",
+            source_name,
+            1,
+            1,
+        ));
+    }
+    let inline_policy =
+        inline_effective_policy(&program, source_name, algorithm, waiver_decision_time)?;
+    let policy = policy.or(inline_policy.as_ref());
     let mut ir = elaborate(&program, source_name, algorithm, extensions)?;
     ir.type_mode = profile_mode.unwrap_or(TypeMode::InferStrict);
     for goal in &mut ir.goals {
@@ -415,6 +488,70 @@ fn finish_compilation(
         ir_hash,
         effective_policy: policy.cloned(),
     })
+}
+
+fn inline_effective_policy(
+    program: &ParsedProgram,
+    source_name: &str,
+    algorithm: HashAlgorithm,
+    waiver_decision_time: Option<&str>,
+) -> Result<Option<EffectivePolicyDocument>> {
+    if !program.syntaxes.is_empty()
+        || !program.profiles.is_empty()
+        || (program.goals.is_empty()
+            && program.types.is_empty()
+            && program.functions.is_empty()
+            && program.predicates.is_empty()
+            && program.extensions.is_empty())
+    {
+        return Ok(None);
+    }
+    if program.policies.is_empty() {
+        if let Some(waiver) = program.waivers.first() {
+            return Err(Diagnostic::new(
+                "BHCP8301",
+                "inline source waiver requires at least one inline source policy",
+                source_name,
+                waiver.at.line,
+                waiver.at.column,
+            ));
+        }
+        return Ok(None);
+    }
+    let sources = program
+        .policies
+        .iter()
+        .map(|policy| policy.document.clone())
+        .collect::<Vec<_>>();
+    let mut effective = compose_policies(&sources, algorithm)?;
+    if program.waivers.is_empty() {
+        return Ok(Some(effective));
+    }
+    let decision_time = waiver_decision_time.ok_or_else(|| {
+        let at = &program.waivers[0].at;
+        Diagnostic::new(
+            "BHCP8301",
+            "inline source waiver requires an explicitly injected decision time",
+            source_name,
+            at.line,
+            at.column,
+        )
+    })?;
+    let mut waivers = program.waivers.iter().collect::<Vec<_>>();
+    waivers.sort_by(|left, right| left.symbol.cmp(&right.symbol));
+    for waiver in waivers {
+        let document = waiver.document.as_ref().ok_or_else(|| {
+            Diagnostic::new(
+                "BHCP8301",
+                "source waiver contains unresolved symbolic artifact references",
+                source_name,
+                waiver.at.line,
+                waiver.at.column,
+            )
+        })?;
+        effective = apply_waiver(&effective, document, decision_time, algorithm)?;
+    }
+    Ok(Some(effective))
 }
 
 fn apply_effective_policy(
@@ -811,18 +948,12 @@ fn elaborate(
     let types = checked_types.definitions.clone();
     let mut definitions = DefinitionElaborator::new(program, &checked_types, source_name)?;
     definitions.elaborate_roots()?;
-    if !program.policies.is_empty()
-        || !program.syntaxes.is_empty()
-        || !program.profiles.is_empty()
-        || !program.waivers.is_empty()
-    {
+    if !program.syntaxes.is_empty() || !program.profiles.is_empty() {
         let at = program
-            .policies
+            .syntaxes
             .iter()
             .map(|definition| &definition.at)
-            .chain(program.syntaxes.iter().map(|definition| &definition.at))
             .chain(program.profiles.iter().map(|definition| &definition.at))
-            .chain(program.waivers.iter().map(|definition| &definition.at))
             .min_by_key(|point| point.byte)
             .expect("governance definition was present");
         return Err(error(
@@ -838,6 +969,21 @@ fn elaborate(
         && program.predicates.is_empty()
         && program.extensions.is_empty()
     {
+        if !program.policies.is_empty() || !program.waivers.is_empty() {
+            let at = program
+                .policies
+                .iter()
+                .map(|definition| &definition.at)
+                .chain(program.waivers.iter().map(|definition| &definition.at))
+                .min_by_key(|point| point.byte)
+                .expect("inline governance definition was present");
+            return Err(error(
+                "BHCP2004",
+                "governance definitions lower to typed documents, not executable goal IR",
+                source_name,
+                at,
+            ));
+        }
         return Err(Diagnostic::new(
             "BHCP1001",
             "an executable source file must contain at least one goal",

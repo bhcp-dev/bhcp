@@ -974,9 +974,11 @@ not labels or layout, enter source-rule identity. The current Rust parser implem
 this source-policy slice plus closed canonical `§waiver`, `§syntax`, `§profile`, and
 `§extension` source definitions. Expression-valued policy clauses, parser callbacks,
 unrestricted macros, semantic overrides, and unsupported native payload behavior fail
-before an AST. Parsing these governance forms does not by itself activate waiver or
-profile semantics; their application remains in the assigned stages. Extension
-definitions are activated by the closed executable boundary in S9.3.
+before an AST. In an executable source artifact, materialized inline policy documents
+compose and materialized inline waivers apply before policy-aware elaboration; waiver
+application uses one caller-injected decision time. Profile attachment remains in its
+assigned stage. Extension definitions are activated by the closed executable boundary
+in S9.3.
 Waiver targets are projected through the same six-category typed model as waiver
 documents and must be in unique deterministic order. Inline authorization, audit,
 delegation, payload-schema, and extension-rule references are closed content-reference
@@ -1110,7 +1112,13 @@ artifact identity remains audit-only. The Rust waiver path validates all six typ
 weakening categories, exact representable target scopes, direct or finite delegated
 authority, injected half-open time, complete contributing-source coverage, and
 atomic multi-target application. It materializes new semantic/artifact identities
-and inspectable applied-waiver records. A partial product-scope subtraction whose
+and inspectable applied-waiver records. The compiler composes inline source policies
+and applies fully materialized inline source waivers through that same path before
+semantic IR emission. Source enumeration and presentation remain artifact-only; the
+resulting effective restrictions and applied changes cross the existing policy
+identity and per-goal decision boundary exactly once. Unresolved symbolic artifact
+references, a missing injected decision time, a mixed inline/external policy topology,
+or any invalid waiver fail without IR. A partial product-scope subtraction whose
 complement cannot be represented exactly by the current effective-rule shapes is
 rejected rather than approximated. Broader execution-time enforcement remains a
 separate later boundary.
