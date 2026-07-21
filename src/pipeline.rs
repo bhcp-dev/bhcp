@@ -396,10 +396,12 @@ pub fn compile_source_bytes_with_profile_registry_and_algorithm(
         program,
         source_name,
         algorithm,
-        Some(&resolved.effective_policy),
-        Some(resolved.type_mode),
-        None,
-        None,
+        CompilationContext {
+            policy: Some(&resolved.effective_policy),
+            profile_mode: Some(resolved.type_mode),
+            extensions: None,
+            waiver_decision_time: None,
+        },
     )
 }
 
@@ -418,11 +420,20 @@ fn compile_source_internal(
         program,
         source_name,
         algorithm,
-        policy,
-        None,
-        extensions,
-        waiver_decision_time,
+        CompilationContext {
+            policy,
+            profile_mode: None,
+            extensions,
+            waiver_decision_time,
+        },
     )
+}
+
+struct CompilationContext<'a> {
+    policy: Option<&'a EffectivePolicyDocument>,
+    profile_mode: Option<TypeMode>,
+    extensions: Option<&'a ExtensionRegistry>,
+    waiver_decision_time: Option<&'a str>,
 }
 
 fn finish_compilation(
@@ -430,11 +441,14 @@ fn finish_compilation(
     program: ParsedProgram,
     source_name: &str,
     algorithm: HashAlgorithm,
-    policy: Option<&EffectivePolicyDocument>,
-    profile_mode: Option<TypeMode>,
-    extensions: Option<&ExtensionRegistry>,
-    waiver_decision_time: Option<&str>,
+    context: CompilationContext<'_>,
 ) -> Result<Compilation> {
+    let CompilationContext {
+        policy,
+        profile_mode,
+        extensions,
+        waiver_decision_time,
+    } = context;
     if policy.is_some() && !program.policies.is_empty() {
         return Err(Diagnostic::new(
             "BHCP8110",
