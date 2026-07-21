@@ -1,5 +1,7 @@
+use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use bhcp::cbor::decode_deterministic;
 use bhcp::schema::validate_root;
@@ -48,6 +50,38 @@ fn inspect_and_hash_are_human_interfaces_over_canonical_artifacts() {
     assert_eq!(lines.len(), 1);
     assert!(lines[0].starts_with("bhcp.hash/sha3-512@0:"));
     assert_eq!(lines[0].rsplit_once(':').unwrap().1.len(), 128);
+}
+
+#[test]
+fn released_cli_accepts_a_relative_source_without_a_project_manifest() {
+    let nonce = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let trial =
+        std::env::temp_dir().join(format!("bhcp-relative-cli-{}-{nonce}", std::process::id()));
+    fs::create_dir(&trial).unwrap();
+    let fixture = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("conformance/v0/fixtures/canonical-simple.bhcp");
+    fs::copy(fixture, trial.join("canonical-simple.bhcp")).unwrap();
+
+    let output = Command::new(env!("CARGO_BIN_EXE_bhcp"))
+        .current_dir(&trial)
+        .args(["inspect", "canonical-simple.bhcp"])
+        .output()
+        .unwrap();
+    fs::remove_dir_all(&trial).unwrap();
+
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(
+        String::from_utf8(output.stdout)
+            .unwrap()
+            .contains("goal goal-1 example/Greet@0")
+    );
 }
 
 #[test]

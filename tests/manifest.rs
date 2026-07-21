@@ -210,3 +210,13 @@ fn canonical_and_local_verifier_fields_are_documented_separately() {
     assert!(readme.contains("[[verifier_adapter]]"));
     assert!(readme.contains("target/verifiers/example"));
 }
+
+#[test]
+fn discovers_root_manifest_from_a_nested_relative_source_path() {
+    let manifest = ProjectManifest::discover(&PathBuf::from(
+        "conformance/v0/fixtures/canonical-simple.bhcp",
+    ))
+    .unwrap();
+
+    assert_eq!(manifest.identity_algorithm, HashAlgorithm::Sha3_512);
+}
