@@ -975,6 +975,8 @@ impl SemanticIrDocument {
         let mut goals = HashSet::new();
         let mut child_goals = Vec::new();
         let mut function_symbols = HashSet::new();
+        let mut retained_callable_symbols = HashSet::new();
+        let mut reducer_symbols = HashSet::new();
         let mut reducers = Vec::new();
         let mut type_symbols = HashSet::new();
         for definition in &self.types {
@@ -998,6 +1000,8 @@ impl SemanticIrDocument {
                     "function symbols must be unique symbol-ids",
                 ));
             }
+            retained_callable_symbols.insert(function.symbol.clone());
+            reducer_symbols.insert(function.symbol.clone());
             for parameter in &function.parameters {
                 add_id(&parameter.id, &mut ids)?;
             }
@@ -1020,6 +1024,7 @@ impl SemanticIrDocument {
                     "function symbols must be unique symbol-ids",
                 ));
             }
+            retained_callable_symbols.insert(function.symbol.clone());
             for parameter in &function.parameters {
                 add_id(&parameter.id, &mut ids)?;
             }
@@ -1098,6 +1103,7 @@ impl SemanticIrDocument {
                 verifier_configuration_calls.extend(verifier_calls);
             }
             if predicate.definition.is_some() {
+                retained_callable_symbols.insert(predicate.symbol.clone());
                 pure_dependencies.insert(predicate.symbol.clone(), calls);
             }
         }
@@ -1243,10 +1249,9 @@ impl SemanticIrDocument {
                 "IR reference does not resolve to a structural ID",
             ));
         }
-        if function_calls
-            .iter()
-            .any(|call| !function_symbols.contains(call) && !is_registered_kernel_primitive(call))
-        {
+        if function_calls.iter().any(|call| {
+            !retained_callable_symbols.contains(call) && !is_registered_kernel_primitive(call)
+        }) {
             return Err(Diagnostic::plain(
                 "BHCP4001",
                 "IR function call does not resolve to a retained definition or closed kernel primitive",
@@ -1270,7 +1275,7 @@ impl SemanticIrDocument {
         }
         if reducers
             .iter()
-            .any(|reducer| !function_symbols.contains(reducer))
+            .any(|reducer| !reducer_symbols.contains(reducer))
         {
             return Err(Diagnostic::plain(
                 "BHCP4001",

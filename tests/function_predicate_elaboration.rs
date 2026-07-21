@@ -1,3 +1,4 @@
+use bhcp::model::{BhcpType, Expression, ExpressionForm, FunctionDefinition};
 use bhcp::pipeline::compile_source;
 use bhcp::schema::validate_root;
 use bhcp::value::Value;
@@ -226,6 +227,38 @@ fn verifier_configuration_calls_require_retained_pure_bodies() {
     )
     .unwrap();
     validate_root(&pure_configuration.ir.to_value(true), "semantic-ir").unwrap();
+}
+
+#[test]
+fn retained_ir_rejects_every_ordinary_call_without_a_pure_body() {
+    let mut ir = compile_source(
+        "§predicate example/external@0(value: Text): Bool with example/static@0(subject = value);",
+        "retained-verifier-only.bhcp",
+    )
+    .unwrap()
+    .ir;
+    ir.functions.push(FunctionDefinition {
+        id: "tampered-function".to_owned(),
+        symbol: "example/caller@0".to_owned(),
+        parameters: vec![],
+        result: BhcpType::Primitive("Bool"),
+        definition: Expression {
+            id: "tampered-call".to_owned(),
+            value_type: BhcpType::Primitive("Bool"),
+            form: ExpressionForm::Call(
+                "example/external@0".to_owned(),
+                vec![Expression {
+                    id: "tampered-argument".to_owned(),
+                    value_type: BhcpType::Primitive("Text"),
+                    form: ExpressionForm::Literal(Value::Text("candidate".to_owned())),
+                }],
+            ),
+        },
+    });
+
+    let diagnostic = ir.validate().unwrap_err();
+    assert_eq!(diagnostic.code, "BHCP4001");
+    assert!(diagnostic.message.contains("retained definition"));
 }
 
 #[test]
