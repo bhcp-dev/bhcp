@@ -5,7 +5,7 @@ use std::path::{Component, Path, PathBuf};
 use bhcp::hash::{HashAlgorithm, format_hash};
 use bhcp::model::ContentReference;
 use bhcp::pipeline::{
-    compile_source, compile_source_bytes_with_profile_registry_and_policy,
+    compile_source, compile_source_bytes_with_profile_registry_and_waivers,
     compile_source_with_policy, parse_policy_source, parse_profile_source,
 };
 use bhcp::policy::{ExactNumber, WaiverDocument, WaiverWeakening, apply_waiver, compose_policies};
@@ -1709,11 +1709,27 @@ fn validate_reference_semantics(root: &Path) -> Result<(), String> {
     )
     .map_err(|error| error.to_string())?;
     let alternate_source = format!("{preamble}\n{extension_source}\n{alternate_body}");
-    let alternate_compilation = compile_source_bytes_with_profile_registry_and_policy(
+    let unwaived_diagnostic = compile_source_bytes_with_profile_registry_and_waivers(
         alternate_source.as_bytes(),
         "program.words.bhcp",
         &lowered_profiles.registry,
-        &waived_policy,
+        &[],
+        &registry["waiver-decision-at"],
+    )
+    .expect_err("the resolved base policy must reject the unwaived attempt limit");
+    if unwaived_diagnostic.code != "BHCP8204"
+        || !unwaived_diagnostic
+            .message
+            .contains("exceeds the effective policy maximum")
+    {
+        return Err("unwaived profile did not reject the retained attempt limit".to_owned());
+    }
+    let alternate_compilation = compile_source_bytes_with_profile_registry_and_waivers(
+        alternate_source.as_bytes(),
+        "program.words.bhcp",
+        &lowered_profiles.registry,
+        std::slice::from_ref(&waiver),
+        &registry["waiver-decision-at"],
     )
     .map_err(|error| error.to_string())?;
     if canonical_compilation.effective_policy.as_ref() != Some(&waived_policy)

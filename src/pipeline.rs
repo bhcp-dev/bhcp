@@ -26,7 +26,7 @@ use crate::parser::{
 };
 use crate::policy::{
     EffectivePolicyDocument, ExactNumber, PolicyDocument, PolicyScope, SourcePolicyDocument,
-    TypeMode, apply_waiver, compose_policies,
+    TypeMode, WaiverDocument, apply_waiver, compose_policies,
 };
 use crate::prelude::{
     ALL_FEATURE, ALL_LOWERER, ALL_REDUCER, ANY_FEATURE, ANY_LOWERER, ANY_REDUCER, CHAIN_FEATURE,
@@ -482,40 +482,30 @@ pub fn compile_source_bytes_with_profile_registry(
     )
 }
 
-pub fn compile_source_bytes_with_profile_registry_and_policy(
+pub fn compile_source_bytes_with_profile_registry_and_waivers(
     source: &[u8],
     source_name: &str,
     registry: &ProfileRegistry,
-    policy: &EffectivePolicyDocument,
+    waivers: &[WaiverDocument],
+    decision_time: &str,
 ) -> Result<Compilation> {
-    let algorithm = policy
-        .header
-        .semantic_id
-        .as_ref()
-        .map(|identity| HashAlgorithm::from_id(&identity.algorithm))
-        .transpose()?
-        .unwrap_or_default();
+    let algorithm = HashAlgorithm::default();
     let selected = scan_profile_preamble(source, source_name)?;
     if selected.profile == CANONICAL_PROFILE {
-        return compile_source_internal(
-            source,
-            source_name,
-            algorithm,
-            Some(policy),
-            None,
-            None,
-            None,
-        );
-    }
-    let resolved = registry.resolve(&selected.profile, algorithm)?;
-    if policy.source_layers != resolved.effective_policy.source_layers {
         return Err(Diagnostic::new(
             "BHCP9003",
-            "supplied effective policy does not belong to the selected profile overlays",
+            "waiver-governed profile compilation requires a selected registered profile",
             source_name,
             1,
             1,
         ));
+    }
+    let resolved = registry.resolve(&selected.profile, algorithm)?;
+    let mut policy = resolved.effective_policy;
+    let mut ordered_waivers = waivers.iter().collect::<Vec<_>>();
+    ordered_waivers.sort_by(|left, right| left.symbol.cmp(&right.symbol));
+    for waiver in ordered_waivers {
+        policy = apply_waiver(&policy, waiver, decision_time, algorithm)?;
     }
     let mut syntaxes = ProfileSyntaxRegistry::new();
     syntaxes.register(&selected.profile, resolved.syntax)?;
@@ -526,7 +516,7 @@ pub fn compile_source_bytes_with_profile_registry_and_policy(
         source_name,
         algorithm,
         CompilationContext {
-            policy: Some(policy),
+            policy: Some(&policy),
             profile_mode: Some(resolved.type_mode),
             extensions: None,
             waiver_decision_time: None,
