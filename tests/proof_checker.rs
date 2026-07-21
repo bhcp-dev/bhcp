@@ -208,6 +208,32 @@ fn repeated_goal_any_compilation() -> Compilation {
     compile_source(source, "proof-checker-repeated-goal-any.bhcp").unwrap()
 }
 
+fn parent_unresolved_compilation(child_condition: bool) -> Compilation {
+    let source = r#"
+§goal example/Child@0 {
+    §output value: Bool;
+    §requires "child-ready": CHILD_CONDITION;
+}
+
+§goal example/Parent@0 {
+    §output child: { value: Bool };
+    §requires "parent-ready": true;
+    §verify "parent-audit": with example/verifier.parent@0 for "parent-ready";
+    §all {
+        child = example/Child@0();
+    };
+}
+"#;
+    compile_source(
+        &source.replace(
+            "CHILD_CONDITION",
+            if child_condition { "true" } else { "false" },
+        ),
+        "proof-checker-parent-unresolved.bhcp",
+    )
+    .unwrap()
+}
+
 fn policy_compilation() -> Compilation {
     let source = r#"
 §goal example/Child@0 {
@@ -1970,6 +1996,105 @@ fn none_refutation_is_derived_from_a_satisfied_child() {
         }),
     );
     assert_eq!(checked.unwrap().state, ProofState::Refuted);
+}
+
+fn parent_unresolved_proof(
+    child_condition: bool,
+) -> bhcp::diagnostic::Result<bhcp::proof::ProofReport> {
+    let compilation = parent_unresolved_compilation(child_condition);
+    let graph = build_obligation_graph(&compilation).unwrap();
+    let registry = VerifierRegistry::new();
+    let child = verification_for(&compilation, &registry, "example/Child@0", "child-1");
+    let parent = Value::owned_map(vec![]);
+    let parent_output = Value::map([("child", Value::map([("value", Value::Bool(true))]))]);
+    let parent_report = registry
+        .verify(VerificationRequest {
+            compilation: &compilation,
+            goal: "example/Parent@0",
+            execution_instance: Some("network-1"),
+            input: &parent,
+            output: &parent_output,
+            subject: candidate(),
+            subject_bytes: b"candidate-v1",
+            execution_graph: reference("application/cbor", b"execution-graph"),
+            produced_at: "2026-07-21T09:30:00Z",
+        })
+        .unwrap();
+    let (bundle, payloads) = merge_evidence(child, parent_report);
+    let matching_claims = |polarity: &str| {
+        bundle
+            .claims
+            .iter()
+            .filter(|claim| {
+                claim.execution_instance.as_deref() == Some("child-1")
+                    && claim.status == "accepted"
+                    && claim.polarity == polarity
+            })
+            .map(|claim| claim.id.clone())
+            .collect()
+    };
+    let observations = [ChildObservation {
+        child: "child-1".to_owned(),
+        result: if child_condition {
+            ExecutionResult::Completed(Verdict::Satisfied {
+                output: Value::map([("value", Value::Bool(true))]),
+                evidence: matching_claims("supports"),
+            })
+        } else {
+            ExecutionResult::Completed(Verdict::Refuted {
+                counter_evidence: matching_claims("refutes"),
+            })
+        },
+    }];
+    let claimed = KernelRuntime::new(&compilation.ir)
+        .reduce("network-1", parent.clone(), &observations)
+        .unwrap();
+    let evaluation_contexts = [
+        ProofEvaluationContext {
+            instance: "child-1".to_owned(),
+            goal: "example/Child@0".to_owned(),
+            input: Value::owned_map(vec![]),
+            output: Value::map([("value", Value::Bool(true))]),
+        },
+        ProofEvaluationContext {
+            instance: "network-1".to_owned(),
+            goal: "example/Parent@0".to_owned(),
+            input: parent.clone(),
+            output: parent_output,
+        },
+    ];
+    verify_obligation_proof(ObligationProofRequest {
+        compilation: &compilation,
+        obligation_graph: &graph,
+        network: "network-1",
+        parent: &parent,
+        observations: &observations,
+        claimed: &claimed,
+        evidence: &bundle,
+        payloads: &payloads,
+        evaluation_contexts: &evaluation_contexts,
+        verifier_registry: &registry,
+        candidate: &candidate(),
+        candidate_bytes: b"candidate-v1",
+        produced_at: "2026-07-21T09:30:00Z",
+    })
+}
+
+#[test]
+fn decisive_refutation_outweighs_an_unresolved_parent_obligation() {
+    let checked = parent_unresolved_proof(false).unwrap();
+    assert_eq!(checked.state, ProofState::Refuted);
+}
+
+#[test]
+fn unresolved_parent_obligation_rejects_a_weaker_satisfied_reducer_result() {
+    let error = parent_unresolved_proof(true).unwrap_err();
+    assert_eq!(error.code, "BHCP7302");
+    assert!(
+        error
+            .message
+            .contains("checked parent obligation dispositions")
+    );
 }
 
 #[test]

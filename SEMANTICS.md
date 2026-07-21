@@ -685,8 +685,12 @@ proof MUST bind the exact network or child execution instance. Built-in expressi
 evidence MUST also bind the sealed typed input/output context used for deterministic
 re-evaluation, including for refuting outcomes, and an observed child result MUST
 agree with the instance-specific aggregate statuses of its structural prerequisites.
-The checked report preserves satisfied,
-refuted, unresolved, and faulted states. Execution-graph construction, runtime
+The retained reducer remains authoritative for composing child outcomes. Its exact
+result combines with parent-local obligation dispositions under the generic outcome
+precedence `Refuted > Faulted > Unresolved > Satisfied`; the checker rejects a weaker
+reducer result and does not interpret a child-discharge label as a behavior-specific
+parent rule. The checked report preserves satisfied, refuted, unresolved, and
+faulted states. Execution-graph construction, runtime
 enforcement, and final evidence-graph assembly remain separate stages.
 
 Composition quantifiers are stricter than logical quantifiers in S5: their domains
