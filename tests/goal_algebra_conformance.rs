@@ -171,6 +171,15 @@ fn feature_manifest_negotiates_completed_graph_builders_and_bounded_non_goals() 
         ))
     );
     assert_eq!(
+        support.remove(bhcp::state::STATE_FEATURE),
+        Some((
+            "supported",
+            Some(
+                "Ownership and retention analysis is supported; storage, planning, retries, and mutation remain separate."
+            )
+        ))
+    );
+    assert_eq!(
         support
             .remove("bhcp/feature.shared-typed-graph-model@0")
             .map(|(level, _)| level),

@@ -33,6 +33,11 @@
       "feature": "bhcp/feature.capability-graph-builder@0",
       "level": "supported",
       "notes": "Decision construction is supported; planning and runtime enforcement remain separate."
+    },
+    {
+      "feature": "bhcp/feature.state-graph-builder@0",
+      "level": "supported",
+      "notes": "Ownership and retention analysis is supported; storage, planning, retries, and mutation remain separate."
     }
   ],
   "native_extensions": []

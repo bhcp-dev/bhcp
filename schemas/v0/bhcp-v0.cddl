@@ -824,17 +824,32 @@ state-cell = {
 }
 state-node = {
   "id": ref-id,
-  "kind": "resource" / "cell" / "borrow" / "ownership" / "transition" / "invariant",
+  "kind": "resource" / "cell" / "borrow" / "ownership" / "transition" / "invariant" / "authority" / "freshness",
   ? "cell": state-cell,
   ? "handle": handle-type,
   ? "payload": value
 }
-state-transition = {
+state-transition = executed-state-transition / planned-state-transition
+executed-state-transition = {
   "id": ref-id,
   "cell": ref-id,
   "from_version": uint,
   "to_version": uint,
   "result": execution-result,
+  "atomic": true
+}
+planned-state-transition = {
+  "id": ref-id,
+  "cell": ref-id,
+  "from_version": uint,
+  "to_version": uint,
+  "read": ref-id,
+  "candidate": ref-id,
+  "compare_and_swap": ref-id,
+  "authority": [1* ref-id],
+  "invariants": [1* ref-id],
+  "freshness": ref-id,
+  "conflict": symbol-id,
   "atomic": true
 }
 state-graph-document = {
