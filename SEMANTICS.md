@@ -383,6 +383,17 @@ an unresolved required gap cannot be `Satisfied`.
 Schema anchors: `effect-row`, `effect`, `authority-clause`, `capability`, and
 `capability-graph-document`.
 
+The current Rust executable slice materializes a closed possible-effect row before
+semantic hashing. Atomic goals conservatively expose their authored `§allows` atoms;
+goal calls propagate child atoms, directly substitute referenced input resources,
+and reject effects outside an explicit parent ceiling or inside any accumulated
+prohibition. Policy scopes resolve a retained resource reference to its nominal type
+and match literal operation coordinates. Unsafe or foreign atoms preserve an
+`unresolved` evidence class. This is effect/authority analysis only: capability-graph
+nodes, obligation nodes, shared-budget allocation, retry accounting, conflict edges,
+and execution strategy remain later graph/planner stages and MUST NOT be inserted in
+`kernel-network`.
+
 ## S7. Canonical language
 
 Canonical source uses the `§` sigil, braces for blocks, semicolons as terminators,

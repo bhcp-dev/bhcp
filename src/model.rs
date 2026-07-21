@@ -1,5 +1,6 @@
 use std::collections::{BTreeMap, BTreeSet, HashSet};
 
+use crate::cbor::encode_deterministic;
 use crate::diagnostic::{Diagnostic, Result};
 use crate::expression::CheckedExpression;
 use crate::hash::{HashAlgorithm, SHA3_512};
@@ -505,7 +506,7 @@ pub struct Effect {
 }
 
 impl Effect {
-    fn to_value(&self) -> Value {
+    pub(crate) fn to_value(&self) -> Value {
         let mut entries = vec![("id".to_owned(), Value::Text(self.id.clone()))];
         if let Some(resource) = &self.resource {
             entries.push(("resource".to_owned(), Value::Text(resource.clone())));
@@ -517,6 +518,66 @@ impl Effect {
             ));
         }
         Value::owned_map(entries)
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct EffectRow {
+    pub effects: Vec<Effect>,
+    pub row_variable: Option<String>,
+}
+
+impl EffectRow {
+    pub fn empty() -> Self {
+        Self {
+            effects: vec![],
+            row_variable: None,
+        }
+    }
+
+    fn to_value(&self) -> Value {
+        let mut entries = vec![(
+            "effects".to_owned(),
+            Value::Array(self.effects.iter().map(Effect::to_value).collect()),
+        )];
+        if let Some(row_variable) = &self.row_variable {
+            entries.push(("row_variable".to_owned(), Value::Text(row_variable.clone())));
+        }
+        Value::owned_map(entries)
+    }
+
+    fn validate(&self, references: &mut Vec<String>) -> Result<()> {
+        let mut previous = None;
+        for effect in &self.effects {
+            if !is_symbol(&effect.id) {
+                return Err(Diagnostic::plain(
+                    "BHCP4001",
+                    "effect row contains an invalid effect ID",
+                ));
+            }
+            if let Some(resource) = &effect.resource {
+                references.push(resource.clone());
+            }
+            let encoded = encode_deterministic(&effect.to_value())?;
+            if previous.as_ref().is_some_and(|value| value >= &encoded) {
+                return Err(Diagnostic::plain(
+                    "BHCP4001",
+                    "effect row must be sorted by unique deterministic-CBOR atoms",
+                ));
+            }
+            previous = Some(encoded);
+        }
+        if self
+            .row_variable
+            .as_ref()
+            .is_some_and(|value| value.is_empty())
+        {
+            return Err(Diagnostic::plain(
+                "BHCP4001",
+                "effect row variable must be non-empty",
+            ));
+        }
+        Ok(())
     }
 }
 
@@ -723,6 +784,7 @@ pub struct GoalDefinition {
     pub type_mode: TypeMode,
     pub input: BhcpType,
     pub output: BhcpType,
+    pub effects: EffectRow,
     pub evidence: BhcpType,
     pub clauses: Vec<Clause>,
     pub policy_decision: Option<PolicyDecision>,
@@ -740,10 +802,7 @@ impl GoalDefinition {
             ),
             ("input".to_owned(), self.input.to_value()),
             ("output".to_owned(), self.output.to_value()),
-            (
-                "effects".to_owned(),
-                Value::map([("effects", Value::Array(vec![]))]),
-            ),
+            ("effects".to_owned(), self.effects.to_value()),
             ("evidence".to_owned(), self.evidence.to_value()),
             (
                 "clauses".to_owned(),
@@ -1153,6 +1212,19 @@ impl SemanticIrDocument {
             ));
         }
         validate_acyclic_definitions(&pure_dependencies)?;
+        let typed_resource_bindings: HashSet<_> = self
+            .goals
+            .iter()
+            .flat_map(|goal| &goal.clauses)
+            .filter_map(|clause| match &clause.kind {
+                ClauseKind::Fact { binding, .. }
+                    if is_effect_resource_type(&binding.value_type) =>
+                {
+                    Some(binding.id.as_str())
+                }
+                _ => None,
+            })
+            .collect();
         for goal in &self.goals {
             add_id(&goal.id, &mut ids)?;
             goals.insert(goal.id.clone());
@@ -1170,6 +1242,36 @@ impl SemanticIrDocument {
             }
             if let Some(decision) = &goal.policy_decision {
                 decision.validate()?;
+            }
+            if !matches!(goal.evidence, BhcpType::Evidence(_)) {
+                return Err(Diagnostic::plain(
+                    "BHCP4001",
+                    "goal evidence must use an Evidence type",
+                ));
+            }
+            goal.effects.validate(&mut references)?;
+            let local_resource_bindings: HashSet<_> = goal
+                .clauses
+                .iter()
+                .filter_map(|clause| match &clause.kind {
+                    ClauseKind::Fact { binding, .. }
+                        if is_effect_resource_type(&binding.value_type) =>
+                    {
+                        Some(binding.id.as_str())
+                    }
+                    _ => None,
+                })
+                .collect();
+            if goal.effects.effects.iter().any(|effect| {
+                effect
+                    .resource
+                    .as_deref()
+                    .is_some_and(|resource| !typed_resource_bindings.contains(resource))
+            }) {
+                return Err(Diagnostic::plain(
+                    "BHCP4001",
+                    "effect row resource must reference a nominal resource or handle binding",
+                ));
             }
             let contract_ids: HashSet<_> = goal
                 .clauses
@@ -1200,6 +1302,7 @@ impl SemanticIrDocument {
                         condition.validate(&mut ids, &mut references, &mut function_calls)?
                     }
                     ClauseKind::Authority { effects, .. } => {
+                        let mut previous = None;
                         for effect in effects {
                             if !is_symbol(&effect.id) {
                                 return Err(Diagnostic::plain(
@@ -1208,8 +1311,22 @@ impl SemanticIrDocument {
                                 ));
                             }
                             if let Some(resource) = &effect.resource {
+                                if !local_resource_bindings.contains(resource.as_str()) {
+                                    return Err(Diagnostic::plain(
+                                        "BHCP4001",
+                                        "authority effect resource must reference a local nominal resource or handle binding",
+                                    ));
+                                }
                                 references.push(resource.clone());
                             }
+                            let encoded = encode_deterministic(&effect.to_value())?;
+                            if previous.as_ref().is_some_and(|value| value >= &encoded) {
+                                return Err(Diagnostic::plain(
+                                    "BHCP4001",
+                                    "authority effects must be sorted by unique deterministic-CBOR atoms",
+                                ));
+                            }
+                            previous = Some(encoded);
                         }
                     }
                     ClauseKind::Preference { objective, .. } => {
@@ -1344,6 +1461,7 @@ impl SemanticIrDocument {
                 ));
             }
         }
+        crate::effects::validate_materialized(&self.goals)?;
         if let Some(hash) = &self.semantic_id {
             hash.validate()?;
         }
@@ -1351,6 +1469,14 @@ impl SemanticIrDocument {
             hash.validate()?;
         }
         Ok(())
+    }
+}
+
+fn is_effect_resource_type(value_type: &BhcpType) -> bool {
+    match value_type {
+        BhcpType::Handle(handle) => is_effect_resource_type(&handle.value_type),
+        BhcpType::Nominal(_, _) => true,
+        _ => false,
     }
 }
 

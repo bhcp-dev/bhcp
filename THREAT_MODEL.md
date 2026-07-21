@@ -70,12 +70,21 @@ authority must validate before they affect meaning.
   goal/binding/lifetime approval supplied to the ownership boundary; naming a
   lifetime `persistent` does not create authority. Invalid ownership is atomic and
   produces no later artifact.
+- Effects cannot disappear at a goal-call boundary. Canonical possible-effect rows
+  propagate child atoms, substitute direct resource bindings, accumulate denies, and
+  reject explicit parent-ceiling excess before semantic IR is emitted. Effective
+  capability/prohibition scopes match nominal resource types and literal operations;
+  unsafe or foreign atoms keep an unresolved evidence gap. Limits reject indirect,
+  negative, or inexact maxima, and a same-priority preference group cannot mix
+  incompatible objective types.
 
 ## Residual and deferred risks
 
-The repository is not a complete v0 parser, analyzer, planner, runtime, proof system,
-or execution graph. Complete obligation-graph construction, signature policy and key
-distribution, revocation services, durable clock attestation, full CDDL instance
+The repository is not a complete v0 parser, graph analyzer, planner, runtime, proof
+system, or execution graph. Effect rows are conservative declarations, not proof that
+an implementation cannot perform undeclared host effects; runtime capability
+enforcement remains required. Complete obligation-graph construction, signature
+policy and key distribution, revocation services, durable clock attestation, full CDDL instance
 interpretation, and scoped waiver application are deferred implementation work. A
 deployment must not treat a normative artifact shape or decision vector as proof
 that those runtime services already exist.
