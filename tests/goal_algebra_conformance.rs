@@ -2,7 +2,9 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 
+use bhcp::capability::build_capability_graph;
 use bhcp::cbor::{decode_deterministic, encode_deterministic};
+use bhcp::obligation::build_obligation_graph;
 use bhcp::pipeline::compile_source;
 use bhcp::prelude::{ALL_FEATURE, ANY_FEATURE, CHAIN_FEATURE, GATE_FEATURE, NONE_FEATURE};
 use bhcp::schema::{parse_diagnostic, validate_root};
@@ -148,7 +150,7 @@ fn feature_manifest_negotiates_completed_graph_builders_and_bounded_non_goals() 
         );
     }
     assert_eq!(
-        support.remove("bhcp/feature.complete-obligation-graph@0"),
+        support.remove("bhcp/feature.obligation-graph-builder@0"),
         Some((
             "supported",
             Some(
@@ -204,6 +206,53 @@ fn feature_manifest_negotiates_completed_graph_builders_and_bounded_non_goals() 
 }
 
 #[test]
+fn manifest_supports_every_feature_emitted_by_completed_graph_builders() {
+    let repository = root();
+    let source_path = repository.join("conformance/v0/fixtures/canonical-simple.bhcp");
+    let compilation = compile_source(&read(&source_path), source_path.to_str().unwrap()).unwrap();
+    let graphs = [
+        build_obligation_graph(&compilation).unwrap(),
+        build_capability_graph(&compilation).unwrap(),
+    ];
+
+    let manifest = parse_diagnostic(&read(
+        repository.join("schemas/v0/examples/feature-manifest.diag"),
+    ))
+    .unwrap();
+    let Value::Array(entries) = manifest.get("features_supported").unwrap() else {
+        panic!("features_supported must be an array")
+    };
+    let support = entries
+        .iter()
+        .map(|entry| {
+            let (Some(Value::Text(feature)), Some(Value::Text(level))) =
+                (entry.get("feature"), entry.get("level"))
+            else {
+                panic!("feature support entry must name text feature and level")
+            };
+            (feature.as_str(), level.as_str())
+        })
+        .collect::<BTreeMap<_, _>>();
+
+    for graph in graphs {
+        let value = graph.to_value();
+        let Some(Value::Array(features)) = value.get("features") else {
+            panic!("graph header must contain a feature array")
+        };
+        for feature in features {
+            let Value::Text(feature) = feature else {
+                panic!("graph features must be text")
+            };
+            assert_eq!(
+                support.get(feature.as_str()),
+                Some(&"supported"),
+                "emitted graph feature is not negotiable: {feature}"
+            );
+        }
+    }
+}
+
+#[test]
 fn graph_builder_completion_claims_stay_bounded_and_consistent() {
     let repository = root();
     let readme = read(repository.join("README.md"));
@@ -233,6 +282,8 @@ fn graph_builder_completion_claims_stay_bounded_and_consistent() {
 
     assert!(!readme.contains("does not yet build obligation"));
     assert!(!schema_readme.contains("obligation-graph construction unsupported"));
+    assert!(!schema_readme.contains("still-deferred general obligation/execution graph builders"));
+    assert!(schema_readme.contains("still-deferred execution graph builder"));
     assert!(!semantics.contains("Capability/state construction"));
 }
 
