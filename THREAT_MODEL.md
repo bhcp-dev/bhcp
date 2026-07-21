@@ -58,7 +58,9 @@ authority must validate before they affect meaning.
 
 - Presentation profiles are closed typed data, not parser callbacks. Ambiguous or
   recursive aliases, core capture, executable macros, semantic overrides, and
-  unregistered profiles reject before artifacts escape.
+  unregistered profiles reject before artifacts escape. Canonical profile-definition
+  sources materialize and validate every document as one source-local registry;
+  parse, inheritance, overlay, and effective-map failures expose no partial registry.
 - Policy layers may only restrict. Widening, loosening, removal, allow-over-deny,
   type weakening, incompatible units, and invalid topology reject a whole layer.
 - Process verifiers run only through exact project-relative registrations and a

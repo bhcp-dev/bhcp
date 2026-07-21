@@ -32,12 +32,13 @@ use crate::prelude::{
     CHAIN_LOWERER, CHAIN_REDUCER, DerivedChild, DerivedForm, GATE_FEATURE, GATE_LOWERER,
     NONE_FEATURE, NONE_LOWERER, NONE_REDUCER, NetworkShape, Prelude,
 };
-use crate::profile::{ProfileRegistry, SyntaxDocument};
+use crate::profile::{PresentationDocument, ProfileDocument, ProfileRegistry, SyntaxDocument};
 use crate::typecheck::{CheckedType, TypeRelations, check_type_definitions, surface_type};
 use crate::value::Value;
 
 const OWNERSHIP_FEATURE: &str = "bhcp/feature.ownership-analysis@0";
 const EXTENSION_FEATURE: &str = "bhcp/feature.extension-resolution@0";
+pub const PROFILE_SOURCE_FEATURE: &str = "bhcp/feature.profile-source-lowering@0";
 
 #[derive(Clone, Debug)]
 pub struct Compilation {
@@ -55,6 +56,15 @@ pub struct Compilation {
 pub struct ParsedPolicySource {
     pub ast: CanonicalAstDocument,
     pub documents: Vec<SourcePolicyDocument>,
+}
+
+#[derive(Clone, Debug)]
+pub struct ParsedProfileSource {
+    pub ast: CanonicalAstDocument,
+    pub syntaxes: Vec<SyntaxDocument>,
+    pub profiles: Vec<ProfileDocument>,
+    pub policies: Vec<SourcePolicyDocument>,
+    pub registry: ProfileRegistry,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -218,6 +228,99 @@ pub fn parse_policy_source_bytes_with_algorithm(
             .into_iter()
             .map(|policy| policy.document)
             .collect(),
+    })
+}
+
+pub fn parse_profile_source(source: &str, source_name: &str) -> Result<ParsedProfileSource> {
+    parse_profile_source_with_algorithm(source, source_name, HashAlgorithm::default())
+}
+
+pub fn parse_profile_source_with_algorithm(
+    source: &str,
+    source_name: &str,
+    algorithm: HashAlgorithm,
+) -> Result<ParsedProfileSource> {
+    parse_profile_source_bytes_with_algorithm(source.as_bytes(), source_name, algorithm)
+}
+
+pub fn parse_profile_source_bytes(source: &[u8], source_name: &str) -> Result<ParsedProfileSource> {
+    parse_profile_source_bytes_with_algorithm(source, source_name, HashAlgorithm::default())
+}
+
+pub fn parse_profile_source_bytes_with_algorithm(
+    source: &[u8],
+    source_name: &str,
+    algorithm: HashAlgorithm,
+) -> Result<ParsedProfileSource> {
+    let (ast, program) = parse_internal(source, source_name, algorithm, None)?;
+    if program.syntaxes.is_empty() && program.profiles.is_empty() {
+        return Err(Diagnostic::new(
+            "BHCP9004",
+            "profile source must contain at least one §syntax or §profile definition",
+            source_name,
+            1,
+            1,
+        ));
+    }
+    if !program.types.is_empty()
+        || !program.functions.is_empty()
+        || !program.predicates.is_empty()
+        || !program.refinements.is_empty()
+        || !program.goals.is_empty()
+        || !program.waivers.is_empty()
+        || !program.extensions.is_empty()
+    {
+        return Err(Diagnostic::new(
+            "BHCP9004",
+            "profile source may contain only policy, syntax, and profile definitions",
+            source_name,
+            1,
+            1,
+        ));
+    }
+
+    let mut syntaxes = program
+        .syntaxes
+        .into_iter()
+        .map(|surface| surface.document)
+        .collect::<Vec<_>>();
+    let mut profiles = program
+        .profiles
+        .into_iter()
+        .map(|surface| surface.document)
+        .collect::<Vec<_>>();
+    for syntax in &mut syntaxes {
+        syntax.header.artifact_id = Some(artifact_hash_with(&syntax.to_value(false), algorithm)?);
+        PresentationDocument::Syntax(syntax.clone()).validate()?;
+    }
+    for profile in &mut profiles {
+        profile.header.artifact_id = Some(artifact_hash_with(&profile.to_value(false), algorithm)?);
+        PresentationDocument::Profile(profile.clone()).validate()?;
+    }
+    let policies = program
+        .policies
+        .into_iter()
+        .map(|surface| surface.document)
+        .collect::<Vec<_>>();
+
+    let mut registry = ProfileRegistry::new();
+    for syntax in &syntaxes {
+        registry.register_syntax(syntax.clone())?;
+    }
+    for profile in &profiles {
+        registry.register_profile(profile.clone())?;
+    }
+    for policy in &policies {
+        registry.register_policy(policy.clone())?;
+    }
+    registry.validate(algorithm)?;
+
+    Ok(ParsedProfileSource {
+        ast,
+        syntaxes,
+        profiles,
+        policies,
+        registry,
     })
 }
 

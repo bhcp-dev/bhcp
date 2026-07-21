@@ -4,7 +4,10 @@ use std::path::{Component, Path, PathBuf};
 
 use bhcp::hash::{HashAlgorithm, format_hash};
 use bhcp::model::ContentReference;
-use bhcp::pipeline::{compile_source, parse_policy_source};
+use bhcp::pipeline::{
+    compile_source, parse_policy_source, parse_profile_source,
+    parse_source_bytes_with_profile_registry,
+};
 use bhcp::policy::{ExactNumber, WaiverDocument, WaiverWeakening, apply_waiver, compose_policies};
 use bhcp::profile::PresentationDocument;
 use bhcp::schema::{parse_diagnostic, validate_root, validate_schema_inventory};
@@ -1350,6 +1353,43 @@ fn validate_reference_semantics(root: &Path) -> Result<(), String> {
         if !profile_source.contains(marker) {
             return Err(format!("profile source omits projected value {marker}"));
         }
+    }
+
+    let profile_registry_source = format!(
+        "{}\n{}\n{}",
+        read_reference(root, "policy.bhcp")?,
+        syntax_source,
+        profile_source
+    );
+    let lowered_profiles = parse_profile_source(&profile_registry_source, "profiles.bhcp")
+        .map_err(|error| error.to_string())?;
+    if lowered_profiles.syntaxes.len() != 1 || lowered_profiles.profiles.len() != 1 {
+        return Err("reference profile source did not lower to exactly two roots".to_owned());
+    }
+    if lowered_profiles.syntaxes[0].to_value(false) != syntax_value
+        || lowered_profiles.profiles[0].to_value(false) != profile_value
+    {
+        return Err("source-lowered profile roots differ from canonical projections".to_owned());
+    }
+    if lowered_profiles.syntaxes[0].header.artifact_id.is_none()
+        || lowered_profiles.profiles[0].header.artifact_id.is_none()
+    {
+        return Err("source-lowered profile roots omit artifact identities".to_owned());
+    }
+    let alternate_error = parse_source_bytes_with_profile_registry(
+        alternate.as_bytes(),
+        "program.words.bhcp",
+        &lowered_profiles.registry,
+    )
+    .unwrap_err();
+    if alternate_error.code != "BHCP1004"
+        || !alternate_error
+            .message
+            .contains("expression syntax \"match\"")
+    {
+        return Err(format!(
+            "source-local profile registry did not reach the expected deferred front-end boundary: {alternate_error}"
+        ));
     }
 
     let waiver_value = parse_diagnostic(&read_reference(root, "waiver.diag")?)

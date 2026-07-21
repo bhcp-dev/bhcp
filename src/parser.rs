@@ -2534,11 +2534,17 @@ impl Parser<'_> {
     fn syntax_definition(&mut self) -> Result<SurfaceSyntax> {
         let keyword = self.expect("§syntax")?;
         let (symbol, _) = self.qualified_name()?;
+        let extends = if self.matches("§extends") {
+            self.consume();
+            Some(self.qualified_name()?.0)
+        } else {
+            None
+        };
         let (fields, end) = self.closed_meta_fields(
             "syntax",
             &[("preamble", true), ("mappings", true), ("formatting", true)],
         )?;
-        let value = governance_document_value("syntax", &symbol, None, &fields);
+        let value = governance_document_value("syntax", &symbol, extends.as_deref(), &fields);
         let document = match PresentationDocument::from_value(&value).map_err(|diagnostic| {
             at(
                 "BHCP1001",
@@ -2554,7 +2560,7 @@ impl Parser<'_> {
             "syntax",
             "§syntax",
             &symbol,
-            None,
+            extends.as_deref(),
             None,
             keyword.start.clone(),
             end,
