@@ -58,6 +58,13 @@ enforcement, and final evidence-graph assembly outside those three builder claim
 goal-algebra conformance harness validates that bounded distinction alongside the
 fixed 17-root inventory.
 
+The cross-graph consistency validator adds no eighteenth wire root. It reconstructs
+the existing obligation, capability, and state documents from one exact semantic-IR
+compilation, derives its supported-feature set from their emitted headers, and
+rejects dangling, cross-typed, missing, mismatched, or identity-rematerialized joins.
+Execution graphs, planner behavior, state/storage execution, and final evidence
+remain outside this schema-support claim.
+
 The waiver root is an authorization artifact with no standalone `semantic_id`. Its
 non-empty target list pairs exact source-rule identities and optional policy scopes
 with one of six closed category-specific weakening shapes. Direct or delegated issuer

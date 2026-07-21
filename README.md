@@ -442,6 +442,18 @@ encodes the closed typed candidate `{ input, output }`, passes only the binding'
 resolved structural targets and an explicit effective effect ceiling, and maps the
 result into the same evidence-bundle model as an in-process verifier.
 
+The completed cross-graph audit rebuilds all three analysis graphs from one exact
+validated compilation before correlating them. It requires structural obligation
+meaning and checker goal sets, one exact request/allow decision per eligible effect,
+full typed resource coordinates across capability and state graphs, and exact
+authority/version/candidate/invariant/freshness joins for every retained atomic
+transition. Rematerialized substitutions and cross-typed IDs fail under stable
+`BHCP7501`–`BHCP7507` diagnostics. The 57-row executable ledger and frozen reference
+graph identities are published in
+[`conformance/v0/graph-completion-audit.md`](conformance/v0/graph-completion-audit.md).
+This is analysis consistency, not planning, storage/CAS execution, runtime authority,
+or final evidence assembly.
+
 ### Project-local verifier adapters
 
 Canonical BHCP source declares a verifier's symbol, typed input/output evidence,

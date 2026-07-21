@@ -124,6 +124,16 @@ transition dependencies. These three supported builders do not claim execution-g
 construction, planning, storage/CAS execution, runtime enforcement, or final
 evidence-graph assembly.
 
+`graph-completion-audit.md`, `tests/graph_completion.rs`, and the 57 `graph` rows in
+`completion-manifest.txt` compose those builders through one exact compilation. The
+completed cross-graph consistency validator checks structural obligations/checker
+goals, effect request/decision bijections, full typed capability/state resource
+coordinates, and exact atomic-
+transition authority/version/candidate/invariant/freshness joins. The frozen
+`reference-program/graph-identities.txt` records semantic, artifact, and CBOR hashes
+for all three roots and is recomputed by the test. Runtime-only RET/STA behavior is
+still unclaimed.
+
 `tests/profile_source_lowering.rs` completes the milestone-7 source-profile boundary
 behind SYN-01 through SYN-07. Canonical policy, syntax, and profile definitions lower
 to identified wire roots and one atomically validated source-local registry whose

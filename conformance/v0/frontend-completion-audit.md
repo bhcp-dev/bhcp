@@ -69,8 +69,8 @@ roadmap issue explicitly adds their execution semantics; they are not silently
 counted as completed by this audit. Runtime-only quantification remains a normative
 rejection rather than an implementation gap.
 
-Post-IR work remains visible in the completion manifest: cross-graph audit,
+Post-IR work remains visible in the completion manifest. The later #118 audit now
+reconstructs and correlates the obligation, capability, and state-analysis graphs;
 execution-graph construction, planning, state/CAS storage and execution, evidence,
-SDK/CLI, end-to-end conformance, security, and final completion certification. The
-implemented obligation, capability, and state-analysis graphs remain separate,
-bounded inputs to those stages.
+SDK/CLI, end-to-end conformance, security, and final completion certification remain
+distinct downstream stages.

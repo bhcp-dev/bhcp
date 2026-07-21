@@ -1311,6 +1311,18 @@ conflicts, use after move, invalid lifetimes, and unapproved persistent shares r
 pre-IR errors; deletion or cross-kind substitution inside a received state graph is
 rejected before planning.
 
+The current Rust cross-graph validator MUST rebuild all three analysis graphs from
+one exact validated compilation before correlating a received set. Every eligible
+effect has exactly one request and one final allow decision retaining its goal,
+operation, opaque parameters, and typed resource coordinate. Capability and state
+resources join by the full semantic-IR source coordinate, never by coincidental
+graph-local node IDs. State authorities name exact capability decisions; transitions
+retain their cell, read, candidate, compare-and-swap, all authority and invariant
+inputs, versions, freshness, and atomicity. Obligation/checker inputs join by
+structural meaning and exact goal sets rather than array position. Unsupported
+features, dangling or cross-typed references, missing obligations, inconsistent
+effects/state, and identity-rematerialized substitutions fail before planning.
+
 Every execution node declares its typed inputs/outputs, effects, capability decision,
 budget allocation, executor, dependencies, and expected evidence. Execution graph
 edges are reference IDs, never object cycles. Runtime traces bind actual events to
@@ -1372,8 +1384,10 @@ audit, and final decisions from the exact retained compilation. Obligation IDs e
 generated clause IDs and labels; exact policy source provenance remains artifact-only
 audit data; every initial obligation status is open. The generic proof checker
 validates the complete obligation closure against sealed reducer observations and
-evidence while preserving all four result states. State construction, planning,
-runtime execution, and final evidence-graph assembly remain later stages.
+evidence while preserving all four result states. Deterministic state-analysis
+construction and the three-graph consistency validator are implemented. Execution-
+graph construction, planning, runtime execution, and final evidence-graph assembly
+remain later stages.
 
 ## S11. Wire encoding, normalization, and identity
 

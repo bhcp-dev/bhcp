@@ -4,9 +4,10 @@ This directory freezes the milestone-7 end-to-end acceptance subject. It is a
 normative target. The practical front end now compiles its canonical and remapped
 program sources, together with the derived extension, to equivalent governed
 semantic IR. Both paths retain the resolved profile type mode and policy overlays,
-including the exact reviewed waiver applied at its injected decision time. Downstream
-graph, planner, runtime, evidence, SDK, CLI, and end-to-end claims remain assigned to
-later roadmap issues.
+including the exact reviewed waiver applied at its injected decision time. The three
+analysis graphs and their mutual consistency are now executable and frozen by
+`graph-identities.txt`. Planner, execution-graph, runtime, evidence, SDK, CLI, and
+end-to-end claims remain assigned to later roadmap issues.
 
 The source inventory deliberately crosses every practical v0 boundary:
 
@@ -33,10 +34,14 @@ The source inventory deliberately crosses every practical v0 boundary:
   valid obligation states; the separate
   `outcome-matrix.txt` preserves planning refusal, completed verdict, cancellation,
   stale-evidence, and operational-fault distinctions.
+- `graph-identities.txt` freezes the semantic identity, artifact identity, and
+  deterministic-CBOR hash of the obligation, capability, and state graphs rebuilt
+  from the governed program. The test recomputes all three from canonical and
+  profiled source and requires byte equality.
 
-The source-to-IR portion now means deterministic source and artifact identities and
-checked governed semantic IR. Full reference-program completion additionally means
-mutually consistent governed graphs, a valid explained plan, capability-bounded
+The source-to-graph portion now means deterministic source and artifact identities,
+checked governed semantic IR, and mutually consistent governed analysis graphs. Full
+reference-program completion additionally means a valid explained plan, capability-bounded
 execution, and deterministic evidence through both the public Rust SDK and CLI. It
 does not require full theorem proving,
 unrestricted macros or grammar plugins, comprehensive temporal/reactive logic, or

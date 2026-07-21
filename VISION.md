@@ -82,8 +82,9 @@ That standard algebra is now published as one independently checkable conformanc
 set. Its manifest binds `all`, `any`, `none`, `chain`, and `gate` to canonical source,
 deterministic AST/IR bytes, empty or invalid boundaries, and generic proof-checker
 tamper evidence. The accompanying feature manifest distinguishes those implemented
-forms from completed obligation/capability/state-analysis graph builders and the
-remaining cross-graph audit, execution-graph, planning, and runtime stages.
+forms from the completed obligation/capability/state-analysis graph builders and
+their cross-graph consistency audit, while execution-graph, planning, and runtime
+stages remain distinct.
 
 ## One meaning, several representations
 
@@ -132,9 +133,10 @@ are enforced; exact integers cover deterministic CBOR's complete integer domain;
 and authored type definitions enter deterministic semantic IR. The practical S4-S9
 front-end ledger and canonical/remapped reference program now reach governed semantic
 IR, including retained calls, list construction, selection, and exhaustive matching.
-Additional parsed S7 execution forms retain stable pre-IR diagnostics; remaining
-cross-graph audit, execution-graph, planning, and runtime work stay distinct roadmap
-stages. The implemented
+Additional parsed S7 execution forms retain stable pre-IR diagnostics. The three
+analysis graphs now rebuild and correlate through one exact compilation boundary;
+execution-graph, planning, storage/CAS runtime, and final evidence work stay distinct
+roadmap stages. The implemented
 waiver path validates and applies exact typed
 targets and changes across all six categories, scope containment, direct/delegated
 issuer authority, injected half-open time validity, audit material, atomic rejection,
