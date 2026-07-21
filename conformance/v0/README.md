@@ -12,10 +12,11 @@ the five standard algebra rows into satisfied/refuted/unresolved/faulted instanc
 and therefore requires exactly 99 scenario records. It also reconciles all 17 CDDL
 root kinds, stable issue keys #99–#134, ten observable pipeline outcomes, and the
 [`reference-program/`](reference-program/) artifact and feature inventory. Missing,
-duplicate, or unknown records fail the focused contract test. The reference program
-is deliberately ahead of the partial front end and currently must fail closed at its
-first unsupported definition; it is not counted as executable conformance yet. Its
-already-implemented policy and typed artifact boundaries validate now, while a
+duplicate, or unknown records fail the focused contract test. The complete reference
+program remains deliberately ahead of the partial front end and is not counted as
+executable conformance yet. Its isolated extension source now executes through
+complete derived lowering, and its already-implemented policy and typed artifact
+boundaries validate now, while a
 reviewed typed semantic projection, exact alternate-source normalization, closed
 registry, content-bound extension rules, explicit policy-evidence producers,
 obligation inventory, and separate eight-case outcome matrix prevent disconnected,
@@ -301,8 +302,19 @@ target order, authorization/delegation, content references, and exact field orde
 reject stably; and parser callbacks, unrestricted macros, semantic overrides,
 expression-valued policy clauses, and invalid derived/native mixtures fail before
 artifacts. Frozen exact-symbol artifact references remain deferred source bindings.
-This is parsing evidence only: policy/waiver lowering, profile
-activation, and extension execution retain their downstream completion owners.
+This remains parsing evidence for policy, waiver, and profile activation; their
+downstream completion owners are unchanged.
+
+`tests/extension_lowering.rs` makes EXT-01 through EXT-04 and the extension path of
+KRN-12 executable. It compiles the checked-in reference extension through a restricted
+total-pure meta lowerer, validates and specializes the returned network/reducer, proves
+lowerer identity and source order disappear after equivalent lowering, and rejects
+missing lowerers, mixed modes, policy/core overrides, non-record calls, unsupported
+native symbols, and payload-schema mismatches before later artifacts. Supported native
+registrations retain sorted unique must-understand nodes whose exact descriptors and
+deterministic payloads are inspectable, semantic-identity relevant, and retained in
+schema-valid IR; tampered order, duplicate symbols, and optionalized received nodes
+fail closed.
 
 `tests/waiver_contract.rs` and `tests/waiver_application.rs` make the WAV-01/WAV-02
 decision and application boundaries finite and executable. They pin exact

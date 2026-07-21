@@ -130,6 +130,7 @@ fn feature_manifest_distinguishes_complete_algebra_from_deferred_graphs() {
         NONE_FEATURE,
         CHAIN_FEATURE,
         GATE_FEATURE,
+        "bhcp/feature.extension-resolution@0",
     ] {
         assert_eq!(levels.remove(feature), Some("supported"), "{feature}");
     }

@@ -125,6 +125,12 @@ impl DefinitionElaborator {
     ) -> Result<Self> {
         let mut templates = BTreeMap::new();
         for definition in &program.functions {
+            if matches!(
+                definition.result,
+                SurfaceType::Meta { .. } | SurfaceType::Reduction(_)
+            ) {
+                continue;
+            }
             templates.insert(
                 definition.symbol.clone(),
                 Template::Function(definition.clone()),
@@ -761,7 +767,10 @@ fn specialized_symbol(base: &str, arguments: &[CheckedType]) -> Result<String> {
     Ok(format!("{path}-{suffix}@{version}"))
 }
 
-fn substitute_checked_type(value: &CheckedType, arguments: &[CheckedType]) -> Result<CheckedType> {
+pub(crate) fn substitute_checked_type(
+    value: &CheckedType,
+    arguments: &[CheckedType],
+) -> Result<CheckedType> {
     fn substitute(value: &Value, arguments: &[CheckedType]) -> Result<Value> {
         if let Value::Array(parts) = value
             && let [Value::Text(tag), Value::Integer(index)] = parts.as_slice()

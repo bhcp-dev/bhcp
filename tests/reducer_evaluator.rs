@@ -109,6 +109,7 @@ fn ir(
         pure_functions: vec![],
         predicates: vec![],
         goals,
+        extensions: vec![],
         entrypoints: vec!["goal-parent".to_owned()],
         effective_policy: None,
         semantic_id: None,

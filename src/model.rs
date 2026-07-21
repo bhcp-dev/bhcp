@@ -881,6 +881,68 @@ pub struct PredicateVerifierBinding {
     pub(crate) trust: Vec<String>,
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ExtensionNode {
+    pub id: String,
+    pub extension: String,
+    pub payload: Value,
+    pub must_understand: bool,
+}
+
+impl ExtensionNode {
+    pub(crate) fn to_value(&self) -> Value {
+        Value::map([
+            ("id", Value::Text(self.id.clone())),
+            ("extension", Value::Text(self.extension.clone())),
+            ("payload", self.payload.clone()),
+            ("must_understand", Value::Bool(self.must_understand)),
+        ])
+    }
+
+    fn validate_payload(&self) -> Result<()> {
+        let Value::Map(entries) = &self.payload else {
+            return Err(Diagnostic::plain(
+                "BHCP4001",
+                "native extension payload must contain a descriptor and value envelope",
+            ));
+        };
+        let mut keys = HashSet::new();
+        if entries.len() != 2
+            || entries.iter().any(|(key, _)| {
+                !matches!(key.as_str(), "descriptor" | "value") || !keys.insert(key.as_str())
+            })
+        {
+            return Err(Diagnostic::plain(
+                "BHCP4001",
+                "native extension payload envelope must contain exactly descriptor and value",
+            ));
+        }
+        let descriptor = self
+            .payload
+            .get("descriptor")
+            .expect("validated envelope key");
+        crate::schema::validate_root(descriptor, "extension-descriptor").map_err(|diagnostic| {
+            Diagnostic::plain(
+                "BHCP4001",
+                format!(
+                    "native extension descriptor is invalid: {}",
+                    diagnostic.message
+                ),
+            )
+        })?;
+        if descriptor.get("symbol") != Some(&Value::Text(self.extension.clone()))
+            || descriptor.get("extension_kind") != Some(&Value::Text("native".to_owned()))
+            || descriptor.get("must_understand") != Some(&Value::Bool(self.must_understand))
+        {
+            return Err(Diagnostic::plain(
+                "BHCP4001",
+                "native extension descriptor does not agree with its retained node",
+            ));
+        }
+        Ok(())
+    }
+}
+
 impl PredicateVerifierBinding {
     fn to_value(&self) -> Value {
         let mut entries = vec![
@@ -961,6 +1023,7 @@ pub struct SemanticIrDocument {
     pub pure_functions: Vec<PureFunctionDefinition>,
     pub predicates: Vec<PredicateDefinition>,
     pub goals: Vec<GoalDefinition>,
+    pub extensions: Vec<ExtensionNode>,
     pub entrypoints: Vec<String>,
     pub effective_policy: Option<EffectivePolicyReference>,
     pub semantic_id: Option<HashId>,
@@ -1028,7 +1091,15 @@ impl SemanticIrDocument {
                         .collect(),
                 ),
             ),
-            ("extensions".to_owned(), Value::Array(vec![])),
+            (
+                "extensions".to_owned(),
+                Value::Array(
+                    self.extensions
+                        .iter()
+                        .map(ExtensionNode::to_value)
+                        .collect(),
+                ),
+            ),
             (
                 "entrypoints".to_owned(),
                 Value::Array(self.entrypoints.iter().cloned().map(Value::Text).collect()),
@@ -1212,6 +1283,33 @@ impl SemanticIrDocument {
             ));
         }
         validate_acyclic_definitions(&pure_dependencies)?;
+        let mut previous_extension = None;
+        let mut extension_symbols = HashSet::new();
+        for extension in &self.extensions {
+            add_id(&extension.id, &mut ids)?;
+            extension.validate_payload()?;
+            if !is_symbol(&extension.extension)
+                || extension.extension.starts_with("bhcp/")
+                || !extension.must_understand
+                || !extension_symbols.insert(extension.extension.clone())
+            {
+                return Err(Diagnostic::plain(
+                    "BHCP4001",
+                    "retained extensions must have unique must-understand symbol-ids",
+                ));
+            }
+            let encoded = encode_deterministic(&extension.to_value())?;
+            if previous_extension
+                .as_ref()
+                .is_some_and(|previous| previous >= &encoded)
+            {
+                return Err(Diagnostic::plain(
+                    "BHCP4001",
+                    "native extension nodes must be sorted by unique deterministic-CBOR values",
+                ));
+            }
+            previous_extension = Some(encoded);
+        }
         let typed_resource_bindings: HashSet<_> = self
             .goals
             .iter()

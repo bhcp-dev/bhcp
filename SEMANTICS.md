@@ -974,8 +974,9 @@ not labels or layout, enter source-rule identity. The current Rust parser implem
 this source-policy slice plus closed canonical `§waiver`, `§syntax`, `§profile`, and
 `§extension` source definitions. Expression-valued policy clauses, parser callbacks,
 unrestricted macros, semantic overrides, and unsupported native payload behavior fail
-before an AST. Parsing these governance forms does not activate them: waiver
-application, profile attachment, and extension checking/lowering remain later stages.
+before an AST. Parsing these governance forms does not by itself activate waiver or
+profile semantics; their application remains in the assigned stages. Extension
+definitions are activated by the closed executable boundary in S9.3.
 Waiver targets are projected through the same six-category typed model as waiver
 documents and must be in unique deterministic order. Inline authorization, audit,
 delegation, payload-schema, and extension-rule references are closed content-reference
@@ -1191,6 +1192,14 @@ NOT override core meanings or loosen enclosing policy. `must_understand = false`
 does not permit a compiler to ignore a derived use: it means no opaque feature
 remains after the mandatory lowering succeeds. Missing, rejected, or unevaluated
 lowering is an error.
+
+The current Rust slice executes derived lowerers in the restricted total-pure meta
+evaluator, validates the resulting typed network shape, specializes its reducer, and
+removes the derived descriptor and lowerer from runtime semantic IR. Native extensions
+are accepted only through an exact symbol and payload-schema registration; their
+descriptor and deterministic payload remain as sorted unique must-understand nodes
+and affect semantic identity. Unsupported, schema-mismatched, mixed-mode,
+policy-override, and reserved-core forms fail before any planning graph is emitted.
 
 Schema anchors: `syntax-document`, `profile-document`, `policy-document`,
 `waiver-document`, and `extension-descriptor-document`.
