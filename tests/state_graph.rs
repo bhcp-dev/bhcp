@@ -16,6 +16,23 @@ const OWNERSHIP: &str = r#"
 }
 "#;
 
+const OVERLAPPING_READS: &str = r#"
+§goal conformance/ReadPair@0 {
+    §input borrowed_file: borrowed read affine 'scope conformance/File@0;
+    §input shared_file: shared read affine 'scope conformance/File@0;
+}
+§goal conformance/ReadPairBoundary@0 {
+    §input enabled: Bool;
+    §input file: owned write affine 'scope conformance/File@0;
+    §gate when enabled {
+        child = conformance/ReadPair@0(
+            borrowed_file = borrow file,
+            shared_file = share file
+        );
+    };
+}
+"#;
+
 const RETENTION: &str = r#"
 §goal example/StateRead@0 {
     §input resource: Text;
@@ -88,6 +105,67 @@ fn ownership_resources_borrows_and_invariants_are_explicit_and_deterministic() {
         );
     }
     assert!(values(&value, "transitions").is_empty());
+
+    let borrow = nodes
+        .iter()
+        .find(|node| node.get("kind") == Some(&Value::Text("borrow".into())))
+        .unwrap();
+    let Value::Array(handle) = borrow.get("handle").unwrap() else {
+        panic!("borrow node must retain its child-declared handle")
+    };
+    assert_eq!(handle[1], Value::Text("borrowed".into()));
+    assert_eq!(handle[2], Value::Text("read".into()));
+    assert_eq!(handle[3], Value::Text("affine".into()));
+    assert_eq!(handle[4], Value::Text("scope".into()));
+}
+
+#[test]
+fn borrow_and_share_use_exact_child_handles_and_overlapping_reads_are_compatible() {
+    let compilation = compile_source(OVERLAPPING_READS, "own-read-read-compatible.bhcp").unwrap();
+    let graph = build_state_graph(&compilation).unwrap().to_value();
+    let borrow_nodes = values(&graph, "nodes")
+        .iter()
+        .filter(|node| node.get("kind") == Some(&Value::Text("borrow".into())))
+        .collect::<Vec<_>>();
+    assert_eq!(borrow_nodes.len(), 2);
+
+    let mut handles = borrow_nodes
+        .iter()
+        .map(|node| match node.get("handle").unwrap() {
+            Value::Array(handle) => handle[1..5]
+                .iter()
+                .map(|field| match field {
+                    Value::Text(field) => field.clone(),
+                    _ => panic!("handle field must be text"),
+                })
+                .collect::<Vec<_>>(),
+            _ => panic!("borrow/share node must retain its exact child handle"),
+        })
+        .collect::<Vec<_>>();
+    handles.sort();
+    assert_eq!(
+        handles,
+        vec![
+            vec![
+                "borrowed".to_owned(),
+                "read".to_owned(),
+                "affine".to_owned(),
+                "scope".to_owned(),
+            ],
+            vec![
+                "shared".to_owned(),
+                "read".to_owned(),
+                "affine".to_owned(),
+                "scope".to_owned(),
+            ],
+        ]
+    );
+
+    let compatible = values(&graph, "edges")
+        .iter()
+        .filter(|edge| edge.get("kind") == Some(&Value::Text("compatible".into())))
+        .collect::<Vec<_>>();
+    assert_eq!(compatible.len(), 1);
 }
 
 #[test]
@@ -280,6 +358,69 @@ fn equivalent_authority_order_does_not_change_state_graph_identity_or_bytes() {
     assert_eq!(first.semantic_id(), second.semantic_id());
     assert_eq!(first.artifact_id(), second.artifact_id());
     assert_eq!(first.to_cbor().unwrap(), second.to_cbor().unwrap());
+}
+
+#[test]
+fn every_exact_cas_effect_decision_guards_the_atomic_transition() {
+    let source = RETENTION
+        .replace(
+            "§allows bhcp-effect/state.compare-and-swap@0;",
+            "§allows bhcp-effect/state.compare-and-swap@0(\"primary\"), bhcp-effect/state.compare-and-swap@0(\"audit\");",
+        )
+        .replace(
+            "§allows bhcp-effect/state.compare-and-swap@0, bhcp-effect/state.read@0;",
+            "§allows bhcp-effect/state.compare-and-swap@0(\"primary\"), bhcp-effect/state.compare-and-swap@0(\"audit\"), bhcp-effect/state.read@0;",
+        );
+    let compilation = compile_source(&source, "multi-cas-authority.bhcp").unwrap();
+    let graph = build_state_graph(&compilation).unwrap().to_value();
+    let authority_nodes = values(&graph, "nodes")
+        .iter()
+        .filter(|node| node.get("kind") == Some(&Value::Text("authority".into())))
+        .collect::<Vec<_>>();
+    assert_eq!(authority_nodes.len(), 2);
+    let decisions = authority_nodes
+        .iter()
+        .map(
+            |node| match node.get("payload").unwrap().get("decision").unwrap() {
+                Value::Text(decision) => decision.clone(),
+                _ => panic!("authority decision must be a ref-id"),
+            },
+        )
+        .collect::<std::collections::BTreeSet<_>>();
+    assert_eq!(decisions.len(), 2);
+    let parameters = authority_nodes
+        .iter()
+        .map(|node| {
+            let Value::Array(parameters) = node
+                .get("payload")
+                .unwrap()
+                .get("effect")
+                .unwrap()
+                .get("parameters")
+                .unwrap()
+            else {
+                panic!("authority must retain exact CAS parameters")
+            };
+            parameters.clone()
+        })
+        .collect::<Vec<_>>();
+    assert!(parameters.contains(&vec![Value::Text("primary".into())]));
+    assert!(parameters.contains(&vec![Value::Text("audit".into())]));
+    let resource = authority_nodes[0]
+        .get("payload")
+        .unwrap()
+        .get("resource")
+        .unwrap();
+    assert!(
+        authority_nodes
+            .iter()
+            .all(|node| { node.get("payload").unwrap().get("resource").unwrap() == resource })
+    );
+    let transition = &values(&graph, "transitions")[0];
+    let Value::Array(authority) = transition.get("authority").unwrap() else {
+        unreachable!()
+    };
+    assert_eq!(authority.len(), 2);
 }
 
 #[test]

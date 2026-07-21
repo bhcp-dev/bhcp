@@ -7,9 +7,10 @@ use crate::cbor::encode_deterministic;
 use crate::diagnostic::{Diagnostic, Result};
 use crate::graph::{GraphDocument, GraphKind};
 use crate::hash::{HashAlgorithm, hash_value};
-use crate::kernel::ArgumentMode;
+use crate::kernel::{ArgumentMode, KernelChild};
 use crate::model::{
-    BhcpType, ClauseKind, ContentReference, Expression, ExpressionForm, GoalDefinition, HandleType,
+    BhcpType, ClauseKind, ContentReference, Effect, Expression, ExpressionForm, GoalDefinition,
+    HandleType,
 };
 use crate::obligation::validate_compilation;
 use crate::pipeline::Compilation;
@@ -49,7 +50,7 @@ pub fn build_state_graph(compilation: &Compilation) -> Result<GraphDocument> {
     }
     for goal in &goals {
         add_authored_invariants(goal, &mut nodes)?;
-        add_ownership_edges(goal, &resources, &mut nodes, &mut edges)?;
+        add_ownership_edges(goal, &goals, &resources, &mut nodes, &mut edges)?;
         if goal
             .body
             .as_ref()
@@ -265,6 +266,7 @@ fn add_authored_invariants(
 
 fn add_ownership_edges(
     goal: &GoalDefinition,
+    goals: &[&GoalDefinition],
     resources: &HashMap<(String, String), ResourceCoordinate>,
     nodes: &mut BTreeMap<String, Value>,
     edges: &mut BTreeMap<String, Value>,
@@ -303,20 +305,32 @@ fn add_ownership_edges(
                     ("mode", Value::Text(mode.to_owned())),
                 ]),
             )?;
-            let handle = resource
-                .handle
-                .as_ref()
-                .expect("ownership coordinate has a handle");
+            let target = goals
+                .iter()
+                .find(|target| target.id == child.goal)
+                .ok_or_else(|| invalid_construction("ownership edge target goal is missing"))?;
+            let BhcpType::Record(fields) = &target.input else {
+                return Err(invalid_construction(
+                    "ownership edge target input is not a record",
+                ));
+            };
+            let target_type = fields
+                .iter()
+                .find(|field| field.name == argument.name)
+                .map(|field| &field.value_type)
+                .ok_or_else(|| invalid_construction("ownership edge target argument is missing"))?;
+            let BhcpType::Handle(handle) = target_type else {
+                return Err(invalid_construction(
+                    "ownership edge target argument is not a handle",
+                ));
+            };
             insert_node(
                 nodes,
                 id.clone(),
                 Value::map([
                     ("id", Value::Text(id.clone())),
                     ("kind", Value::Text(kind.to_owned())),
-                    (
-                        "handle",
-                        BhcpType::Handle(Box::new(handle.clone())).to_value(),
-                    ),
+                    ("handle", target_type.to_value()),
                     (
                         "payload",
                         Value::map([
@@ -500,57 +514,50 @@ fn add_retention_topology(
             ),
         ]),
     )?;
-    let capability_decision = capability
-        .nodes()
+    let cas_goal = goals
         .iter()
-        .find(|node| {
-            node.kind == "decision"
-                && node.value().get("goal") == Some(&Value::Text(goal.symbol.clone()))
-                && node
-                    .value()
-                    .get("capability")
-                    .and_then(|value| value.get("effect"))
-                    .and_then(|value| value.get("id"))
-                    == Some(&Value::Text(
-                        "bhcp-effect/state.compare-and-swap@0".to_owned(),
-                    ))
-        })
-        .ok_or_else(|| {
-            invalid_construction(
-                "mutable retention transition requires the exact compare-and-swap capability decision",
-            )
-        })?;
-    let authority = structural_id(
-        "authority",
-        &Value::map([
-            ("goal", Value::Text(goal.symbol.clone())),
-            (
-                "operation",
-                Value::Text("bhcp/state.compare-and-swap@0".to_owned()),
-            ),
-            ("resource", Value::Text(resource.id.clone())),
-        ]),
-    )?;
-    insert_node(
-        nodes,
-        authority.clone(),
-        Value::map([
-            ("id", Value::Text(authority.clone())),
-            ("kind", Value::Text("authority".to_owned())),
-            (
-                "payload",
-                Value::map([
-                    ("goal", Value::Text(goal.symbol.clone())),
-                    (
-                        "operation",
-                        Value::Text("bhcp/state.compare-and-swap@0".to_owned()),
-                    ),
-                    ("decision", Value::Text(capability_decision.id.clone())),
-                    ("resource", Value::Text(resource.id.clone())),
-                ]),
-            ),
-        ]),
-    )?;
+        .find(|item| item.id == cas.goal)
+        .copied()
+        .ok_or_else(|| invalid_construction("retention compare-and-swap goal is missing"))?;
+    let decisions = exact_cas_decisions(goal, cas_goal, cas, capability)?;
+    let mut authority_ids = Vec::with_capacity(decisions.len());
+    for (decision, effect) in decisions {
+        let operation = effect
+            .get("id")
+            .and_then(|value| match value {
+                Value::Text(value) => Some(value.clone()),
+                _ => None,
+            })
+            .ok_or_else(|| invalid_construction("CAS capability effect has no operation ID"))?;
+        let authority = structural_id(
+            "authority",
+            &Value::map([
+                ("goal", Value::Text(goal.symbol.clone())),
+                ("decision", Value::Text(decision.clone())),
+                ("effect", effect.clone()),
+                ("resource", Value::Text(resource.id.clone())),
+            ]),
+        )?;
+        insert_node(
+            nodes,
+            authority.clone(),
+            Value::map([
+                ("id", Value::Text(authority.clone())),
+                ("kind", Value::Text("authority".to_owned())),
+                (
+                    "payload",
+                    Value::map([
+                        ("goal", Value::Text(goal.symbol.clone())),
+                        ("operation", Value::Text(operation)),
+                        ("effect", effect),
+                        ("decision", Value::Text(decision)),
+                        ("resource", Value::Text(resource.id.clone())),
+                    ]),
+                ),
+            ]),
+        )?;
+        authority_ids.push(authority);
+    }
     let freshness = structural_id(
         "freshness",
         &Value::map([
@@ -683,12 +690,14 @@ fn add_retention_topology(
         &role_ids["compare-and-swap"],
         "expected-version",
     )?;
-    add_edge(
-        edges,
-        &authority,
-        &role_ids["compare-and-swap"],
-        "requires-authority",
-    )?;
+    for authority in &authority_ids {
+        add_edge(
+            edges,
+            authority,
+            &role_ids["compare-and-swap"],
+            "requires-authority",
+        )?;
+    }
     add_edge(
         edges,
         &freshness,
@@ -711,7 +720,10 @@ fn add_retention_topology(
                 "compare_and_swap",
                 Value::Text(role_ids["compare-and-swap"].clone()),
             ),
-            ("authority", Value::Array(vec![Value::Text(authority)])),
+            (
+                "authority",
+                Value::Array(authority_ids.into_iter().map(Value::Text).collect()),
+            ),
             (
                 "invariants",
                 Value::Array(invariant_ids.into_iter().map(Value::Text).collect()),
@@ -725,6 +737,140 @@ fn add_retention_topology(
         ]),
     );
     Ok(())
+}
+
+fn exact_cas_decisions(
+    parent: &GoalDefinition,
+    cas_goal: &GoalDefinition,
+    cas_child: &KernelChild,
+    capability: &GraphDocument,
+) -> Result<BTreeMap<String, Value>> {
+    let cas_effects = cas_goal
+        .effects
+        .effects
+        .iter()
+        .filter(|effect| effect.id == "bhcp-effect/state.compare-and-swap@0")
+        .collect::<Vec<_>>();
+    if cas_effects.is_empty() {
+        return Err(invalid_construction(
+            "mutable retention transition requires the exact compare-and-swap capability decision",
+        ));
+    }
+    let mut decisions = BTreeMap::new();
+    for effect in cas_effects {
+        let projected_resource = projected_effect_resource(parent, cas_goal, cas_child, effect)?;
+        let matches = capability
+            .nodes()
+            .iter()
+            .filter_map(|node| {
+                if node.kind != "decision"
+                    || node.value().get("goal") != Some(&Value::Text(parent.symbol.clone()))
+                {
+                    return None;
+                }
+                let graph_effect = node
+                    .value()
+                    .get("capability")
+                    .and_then(|value| value.get("effect"))?;
+                effect_matches_capability(
+                    effect,
+                    projected_resource.as_deref(),
+                    parent,
+                    graph_effect,
+                    capability,
+                )
+                .then_some((node.id.clone(), graph_effect.clone()))
+            })
+            .collect::<Vec<_>>();
+        let [(decision, graph_effect)] = matches.as_slice() else {
+            return Err(invalid_construction(
+                "mutable retention transition requires one exact capability decision per compare-and-swap effect",
+            ));
+        };
+        decisions.insert(decision.clone(), graph_effect.clone());
+    }
+    Ok(decisions)
+}
+
+fn projected_effect_resource(
+    parent: &GoalDefinition,
+    cas_goal: &GoalDefinition,
+    cas_child: &KernelChild,
+    effect: &Effect,
+) -> Result<Option<String>> {
+    let Some(child_binding) = &effect.resource else {
+        return Ok(None);
+    };
+    let child_name = fact_binding(cas_goal, child_binding)
+        .map(|binding| binding.name.as_str())
+        .ok_or_else(|| invalid_construction("CAS effect resource binding is missing"))?;
+    let argument = cas_child
+        .arguments
+        .iter()
+        .find(|argument| argument.name == child_name)
+        .ok_or_else(|| invalid_construction("CAS effect resource argument is missing"))?;
+    let parent_name = parent_field_name(&argument.value)
+        .ok_or_else(|| invalid_construction("CAS effect resource is not a parent coordinate"))?;
+    fact_binding_by_name(parent, parent_name)
+        .map(|binding| Some(binding.id.clone()))
+        .ok_or_else(|| invalid_construction("parent CAS effect resource binding is missing"))
+}
+
+fn effect_matches_capability(
+    effect: &Effect,
+    projected_resource: Option<&str>,
+    parent: &GoalDefinition,
+    graph_effect: &Value,
+    capability: &GraphDocument,
+) -> bool {
+    if graph_effect.get("id") != Some(&Value::Text(effect.id.clone())) {
+        return false;
+    }
+    let expected_parameters =
+        (!effect.parameters.is_empty()).then(|| Value::Array(effect.parameters.clone()));
+    if graph_effect.get("parameters") != expected_parameters.as_ref() {
+        return false;
+    }
+    match (projected_resource, graph_effect.get("resource")) {
+        (None, None) => true,
+        (Some(binding), Some(Value::Text(resource))) => {
+            let Some(binding) = fact_binding(parent, binding) else {
+                return false;
+            };
+            capability.nodes().iter().any(|node| {
+                node.id == *resource
+                    && node.kind == "resource"
+                    && node
+                        .value()
+                        .get("resource")
+                        .and_then(|value| value.get("goal"))
+                        == Some(&Value::Text(parent.symbol.clone()))
+                    && node
+                        .value()
+                        .get("resource")
+                        .and_then(|value| value.get("name"))
+                        == Some(&Value::Text(binding.name.clone()))
+            })
+        }
+        _ => false,
+    }
+}
+
+fn fact_binding<'a>(goal: &'a GoalDefinition, id: &str) -> Option<&'a crate::model::Binding> {
+    goal.clauses.iter().find_map(|clause| match &clause.kind {
+        ClauseKind::Fact { binding, .. } if binding.id == id => Some(binding),
+        _ => None,
+    })
+}
+
+fn fact_binding_by_name<'a>(
+    goal: &'a GoalDefinition,
+    name: &str,
+) -> Option<&'a crate::model::Binding> {
+    goal.clauses.iter().find_map(|clause| match &clause.kind {
+        ClauseKind::Fact { binding, .. } if binding.name == name => Some(binding),
+        _ => None,
+    })
 }
 
 fn parent_field_name(expression: &Expression) -> Option<&str> {
