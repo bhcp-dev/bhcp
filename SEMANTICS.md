@@ -389,10 +389,15 @@ goal calls propagate child atoms, directly substitute referenced input resources
 and reject effects outside an explicit parent ceiling or inside any accumulated
 prohibition. Policy scopes resolve a retained resource reference to its nominal type
 and match literal operation coordinates. Unsafe or foreign atoms preserve an
-`unresolved` evidence class. This is effect/authority analysis only: capability-graph
-nodes, obligation nodes, shared-budget allocation, retry accounting, conflict edges,
-and execution strategy remain later graph/planner stages and MUST NOT be inserted in
-`kernel-network`.
+`unresolved` evidence class. The capability-graph builder validates that retained IR,
+then emits structural request, resource, authored/propagated ceiling, applicable
+policy grant/denial, waiver-audit, gap, and final decision nodes. Every retained
+possible effect has exactly one allow decision whose sources prove the applicable
+ceilings; denied or unresolved requests have already failed without IR. Parent
+propagation is explicit, policy/source provenance remains auditable, and exact graph
+validation rebuilds the document before planning. Shared-budget allocation, retry
+accounting, conflict edges, and execution strategy remain later planner stages and
+MUST NOT be inserted in `kernel-network`.
 
 ## S7. Canonical language
 
@@ -1227,6 +1232,15 @@ A planner request includes the semantic IR reference, input, graph references,
 budgets, policy, available executors, and required features. A planner result is
 either a typed execution graph or an explained refused/unresolved result. Planning
 does not grant authority.
+
+The current Rust capability builder derives this authority input only from a fully
+validated compilation envelope. Structural node IDs use goal, effect, resource, and
+normalized effective-rule meaning rather than source order or positional policy
+indices. Source clause links, policy-layer decomposition, exact source rules, and
+applied-waiver artifacts remain in artifact provenance. Unsafe, foreign, and
+unsupported extension-effect allow decisions retain required gaps; a graph that
+deletes, fabricates, or changes any decision fails exact reconstruction before it can
+enter a planner request.
 
 Every execution node declares its typed inputs/outputs, effects, capability decision,
 budget allocation, executor, dependencies, and expected evidence. Execution graph

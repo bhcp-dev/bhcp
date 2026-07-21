@@ -615,4 +615,13 @@ fn retained_policy_and_ir_envelopes_must_match_before_graph_construction() {
         build_obligation_graph(&mismatched_ir).unwrap_err().code,
         "BHCP7101"
     );
+
+    let mut mismatched_artifact_hash = compilation();
+    mismatched_artifact_hash.ir_hash.digest[0] ^= 0xff;
+    assert_eq!(
+        build_obligation_graph(&mismatched_artifact_hash)
+            .unwrap_err()
+            .code,
+        "BHCP7101"
+    );
 }

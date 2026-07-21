@@ -82,14 +82,21 @@ authority must validate before they affect meaning.
   unsafe or foreign atoms keep an unresolved evidence gap. Limits reject indirect,
   negative, or inexact maxima, and a same-priority preference group cannot mix
   incompatible objective types.
+- Planning cannot mint capability. The capability graph is rebuilt from a validated
+  semantic-IR byte/identity envelope and its exact retained effective policy. Every
+  possible effect receives one structural request and final allow decision with
+  authored or propagated authority and, when governed, a matching policy grant.
+  Applicable denials, source rules, waiver artifacts, resource coordinates, and
+  unsafe/foreign gaps remain visible. Deleted, substituted, out-of-scope, or
+  fabricated decisions fail exact graph validation before planning.
 
 ## Residual and deferred risks
 
-The repository is not a complete v0 parser, graph analyzer, planner, runtime, proof
+The repository is not a complete v0 parser, planner, runtime, proof
 system, or execution graph. Effect rows are conservative declarations, not proof that
 an implementation cannot perform undeclared host effects; runtime capability
-enforcement remains required. Complete obligation-graph construction, signature
-policy and key distribution, revocation services, durable clock attestation, and full
-CDDL instance interpretation are deferred implementation work. A
+enforcement remains required. State-graph construction, signature policy and key
+distribution, revocation services, durable clock attestation, and full CDDL instance
+interpretation are deferred implementation work. A
 deployment must not treat a normative artifact shape or decision vector as proof
 that those runtime services already exist.

@@ -155,6 +155,16 @@ These checks advertise `bhcp/feature.effect-authority-analysis@0`. Limits and
 preferences remain semantic clauses: allocation, retries, obligation nodes, conflict
 edges, and execution-graph decisions belong to their separately assigned roadmap
 stages and are not added to `kernel-network`.
+Validated semantic IR can now be lowered to a separate deterministic capability
+graph. The builder emits one request and one final allow decision for every retained
+possible effect, structural resource coordinates, authored and propagated ceiling
+grants, applicable effective-policy grants and denial context, exact source-rule and
+waiver audit provenance, and required unsafe/foreign/unsupported gaps. Parent
+propagation is an explicit edge. Denied or unresolved authority still fails before
+IR, and exact graph validation rebuilds the document from the retained compilation;
+planning cannot add or change a grant. Source clause IDs, policy decomposition,
+positional effective-rule indices, and applied-waiver presentation affect artifact
+audit identity without renaming structural authority nodes.
 Because materialized effect rows change semantic identity, active experiment
 `contract.semantic-id` pins were recomputed. Their completed-study identities remain
 unchanged in adjacent `.pre-effect-analysis` sidecars, and the frozen audit and

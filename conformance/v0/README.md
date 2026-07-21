@@ -200,6 +200,15 @@ allocation and retry accounting remain PLN-04 work. PLN-05 obligation constructi
 is emitted as its own typed graph and is deliberately not represented as
 `kernel-network` metadata.
 
+`tests/capability_graph.rs` carries those EFF decisions across the graph boundary.
+It checks one explicit request/final allow pair per execution-eligible effect,
+structural resource coordinates, parent propagation, authored ceilings, deny-wins
+context, effective-policy grants and exact source provenance, applied-waiver audit
+data, unsafe/foreign/unsupported gaps, deterministic identities, and fail-closed
+reconstruction.
+Denied or unresolved authority remains a pre-IR error and therefore cannot be
+reclassified as a planning grant.
+
 `tests/expression_calculus.rs` makes EXP-01 and EXP-02 executable at the closed wire
 calculus boundary. Its tables cover every expression constructor and pattern form,
 both finite-quantifier paths, exact-number families, checked machine overflow,
@@ -287,7 +296,7 @@ in `tests/obligation_graph.rs`.
 | POL-04 | Policy sources are duplicated or have missing, cyclic, or cross-layer inheritance references. | Composition rejected with stable `BHCP8110`; malformed source values remain `BHCP8001`. |
 | POL-05 | Policy presentation, source order, decomposition, retained provenance, or an observable effective coordinate changes. | Presentation/order normalize to identical bytes; decomposition/provenance change artifact ID only; requirements, evidence, effects, limits, type mode, waivability, and issuers change semantic ID. Materialized and recomputed algorithm-tagged IDs match. |
 | POL-06 | The policy CLI composes explicitly ordered source or canonical-CBOR inputs, inspects source/effective forms, or receives wrong layer order, unsupported features, malformed artifacts, or weakening. | Source/CBOR composition emits identical validated deterministic bytes; inspection names layers, rules, identities, and exact tightening provenance; every invalid case exits nonzero with a stable diagnostic and no partial artifact output. |
-| POL-07 | Executable source is elaborated under an effective policy with an exact type-mode boundary, allowed/prohibited/ungranted authority, and a dimensioned numeric limit at or above its maximum. | Exact boundaries emit schema-valid IR retaining effective-policy identities and normalized per-goal decisions; weaker type mode, prohibited authority, unresolved grant, and loose limits fail before IR with `BHCP8201`–`BHCP8204`; effective semantic changes alter program semantic identity while source-only policy decomposition does not. |
+| POL-07 | Executable source is elaborated under an effective policy with an exact type-mode boundary, allowed/prohibited/ungranted authority, and a dimensioned numeric limit at or above its maximum. | Exact boundaries emit schema-valid IR retaining effective-policy identities and normalized per-goal decisions, then a deterministic capability graph with exact source/waiver audit provenance and one final grant per eligible effect; weaker type mode, prohibited authority, unresolved grant, and loose limits fail before IR with `BHCP8201`–`BHCP8204`; effective semantic changes alter program/graph semantics while source-only policy decomposition remains artifact provenance. |
 | POL-08 | Applicable policy evidence demands have duplicate source contributors, multiple accepted classes or positive minima, registered or unavailable producers, and varying registration order. | Each effective demand becomes one normalized structural obligation retaining all source-layer provenance; only explicitly bound registered producers run, accepted class/minimum rules govern discharge, missing producers remain unresolved, rejection/fault remain distinct, and fixed inputs produce identical evidence-bundle bytes. |
 | WAV-01 | Exact scoped weakening has an authorized issuer, audit reference, active interval, and expiry. | Accepted only inside scope and time. |
 | WAV-02 | Waiver is expired, premature, overbroad, unauthorized, or targets a non-waivable rule. | Rejected, not ignored. |
