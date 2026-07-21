@@ -1031,30 +1031,31 @@ fn validate_observation_statuses(
         .filter(|id| node(graph, id).kind == "discharge")
         .collect::<Vec<_>>();
     for observation in observations {
-        let matches = discharge
+        let matching_discharges = discharge
             .iter()
             .filter(|id| {
                 texts(node(graph, id).value(), "source_clauses")
                     .contains(&observation.child.as_str())
             })
-            .collect::<Vec<_>>();
-        let [discharge] = matches.as_slice() else {
-            return Err(invalid_input(
-                "child observation does not have one exact structural discharge",
-            ));
-        };
+            .map(|id| id.as_str())
+            .collect::<BTreeSet<_>>();
         let dependencies = graph
             .edges()
             .iter()
-            .filter(|edge| edge.kind == "depends-on" && edge.from.as_str() == discharge.as_str())
+            .filter(|edge| {
+                edge.kind == "depends-on" && matching_discharges.contains(edge.from.as_str())
+            })
+            .map(|edge| edge.to.as_str())
+            .collect::<BTreeSet<_>>()
+            .into_iter()
             .map(|edge| {
                 statuses
-                    .get(&edge.to)
+                    .get(edge)
                     .copied()
                     .ok_or_else(|| invalid_input("child obligation status is missing"))
             })
             .collect::<Result<Vec<_>>>()?;
-        if dependencies.is_empty() || !result_matches_statuses(&observation.result, &dependencies) {
+        if !result_matches_statuses(&observation.result, &dependencies) {
             return Err(invalid_proof(
                 "child observation does not match its aggregate obligation evidence",
             ));

@@ -121,6 +121,17 @@ fn compilation(condition: bool) -> Compilation {
     .unwrap()
 }
 
+fn multiple_requirement_compilation() -> Compilation {
+    compile_source(
+        &SOURCE.replace("CONDITION", "true").replace(
+            "    §requires \"ready\": true;",
+            "    §requires \"ready\": true;\n    §requires \"also-ready\": true && true;",
+        ),
+        "proof-checker-multiple-requirements.bhcp",
+    )
+    .unwrap()
+}
+
 fn none_compilation(condition: bool) -> Compilation {
     let source = SOURCE
         .replace("CONDITION", if condition { "true" } else { "false" })
@@ -551,6 +562,27 @@ fn observed_child_result_must_match_its_aggregate_obligation_evidence() {
         }),
     );
     assert_eq!(checked.unwrap_err().code, "BHCP7302");
+}
+
+#[test]
+fn satisfied_child_aggregates_multiple_structural_discharges() {
+    let compilation = multiple_requirement_compilation();
+    let graph = build_obligation_graph(&compilation).unwrap();
+    let mut registry = VerifierRegistry::new();
+    registry.register(accepted_verifier()).unwrap();
+    let report = verification(&compilation, &registry);
+    let (_, checked) = proof(
+        &compilation,
+        &graph,
+        &report.bundle,
+        &report.payloads,
+        &registry,
+        ExecutionResult::Completed(Verdict::Satisfied {
+            output: Value::map([("value", Value::Bool(true))]),
+            evidence: accepted_claims(&report.bundle, "supports"),
+        }),
+    );
+    assert_eq!(checked.unwrap().state, ProofState::Satisfied);
 }
 
 #[test]
