@@ -332,6 +332,54 @@ fn invalid_source_registries_fail_atomically_before_custom_program_parsing() {
             "BHCP9003",
         ),
         (
+            "missing-policy-parent example/policy.missing@0",
+            format!(
+                r##"
+§policy example/policy.child@0 §extends example/policy.missing@0 {{
+    layer organization;
+}}
+§syntax example/syntax@0 {{
+    preamble "#!bhcp-profile"; mappings []; {formatting}
+}}
+"##
+            ),
+            "BHCP9003",
+        ),
+        (
+            "policy inheritance cycle includes",
+            format!(
+                r##"
+§policy example/policy.a@0 §extends example/policy.b@0 {{
+    layer organization;
+}}
+§policy example/policy.b@0 §extends example/policy.a@0 {{
+    layer organization;
+}}
+§syntax example/syntax@0 {{
+    preamble "#!bhcp-profile"; mappings []; {formatting}
+}}
+"##
+            ),
+            "BHCP8110",
+        ),
+        (
+            "extends a policy in another layer",
+            format!(
+                r##"
+§policy example/policy.parent@0 {{
+    layer organization;
+}}
+§policy example/policy.child@0 §extends example/policy.parent@0 {{
+    layer repository;
+}}
+§syntax example/syntax@0 {{
+    preamble "#!bhcp-profile"; mappings []; {formatting}
+}}
+"##
+            ),
+            "BHCP8110",
+        ),
+        (
             "policy inheritance cycle includes",
             format!(
                 r##"
