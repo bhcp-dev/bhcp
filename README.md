@@ -122,7 +122,7 @@ deterministic-CBOR `int` domain, including unsigned values above `i64::MAX`.
 Independently of that still-partial source lowering, the closed v0 wire expression
 checker covers every S5 expression and pattern form. It validates the complete tree
 before evaluation; constructs immutable records, tuples, variants, lists, canonical
-sets, and text-keyed maps; evaluates exact Integer/Rational/Decimal operations and
+sets, and generic-key maps; evaluates exact Integer/Rational/Decimal operations and
 checked machine-integer operations; enforces exhaustive patterns and lexical
 bindings; and makes selection, casts, division, and overflow fault explicitly.
 Pure calls resolve only through retained acyclic checked definitions. Quantifiers

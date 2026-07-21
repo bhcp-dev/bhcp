@@ -1,5 +1,9 @@
 use std::collections::{BTreeMap, BTreeSet};
 
+use num_bigint::BigInt;
+use num_integer::Integer;
+use num_traits::{One, Signed, ToPrimitive, Zero};
+
 use crate::cbor::encode_deterministic;
 use crate::diagnostic::{Diagnostic, Result};
 use crate::model::is_symbol;
@@ -18,7 +22,7 @@ pub struct ExpressionContext {
 #[derive(Clone, Debug, Default)]
 pub struct EvaluationContext {
     bindings: BTreeMap<String, Value>,
-    quantifier_witnesses: BTreeMap<String, Vec<Value>>,
+    quantifier_witnesses: BTreeMap<Vec<u8>, QuantifierWitness>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -59,7 +63,7 @@ enum Node {
         binding: String,
         domain: Box<CheckedExpression>,
         predicate: Box<CheckedExpression>,
-        verifier: Option<String>,
+        verifier: Option<VerifierRequirement>,
     },
     Call {
         parameters: Vec<String>,
@@ -74,6 +78,20 @@ struct CheckedFunction {
     parameters: Vec<(String, CheckedType)>,
     result: CheckedType,
     definition: CheckedExpression,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct VerifierRequirement {
+    verifier: String,
+    output: CheckedType,
+    trust: BTreeSet<String>,
+}
+
+#[derive(Clone, Debug)]
+struct QuantifierWitness {
+    verifier: String,
+    evidence: Value,
+    finite_domain: Vec<Value>,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -172,17 +190,57 @@ impl EvaluationContext {
         Ok(self)
     }
 
-    pub fn witness_quantifier_domain(
+    pub fn accept_quantifier_witness(
         mut self,
-        expression_id: impl Into<String>,
+        expression: &CheckedExpression,
+        verifier: impl Into<String>,
+        evidence: Value,
         finite_domain: Vec<Value>,
     ) -> Result<Self> {
-        let expression_id = expression_id.into();
-        if expression_id.is_empty()
-            || self
-                .quantifier_witnesses
-                .insert(expression_id, finite_domain)
-                .is_some()
+        let Node::Quantify {
+            verifier: Some(requirement),
+            ..
+        } = &expression.node
+        else {
+            return Err(invalid(
+                "accepted quantifier evidence requires a verifier-backed checked expression",
+            ));
+        };
+        let verifier = verifier.into();
+        if verifier != requirement.verifier {
+            return Err(invalid(
+                "quantifier evidence came from a different verifier",
+            ));
+        }
+        requirement
+            .output
+            .validate_value(&evidence, &RefinementEvidence::default())?;
+        let Value::Array(classes) = &evidence else {
+            return Err(invalid(
+                "quantifier evidence must retain its accepted classes",
+            ));
+        };
+        if requirement
+            .trust
+            .iter()
+            .any(|class| !classes.contains(&Value::Text(class.clone())))
+        {
+            return Err(invalid(
+                "quantifier evidence does not satisfy its trust restriction",
+            ));
+        }
+        let expression_key = encode_deterministic(&expression.value)?;
+        if self
+            .quantifier_witnesses
+            .insert(
+                expression_key,
+                QuantifierWitness {
+                    verifier,
+                    evidence,
+                    finite_domain,
+                },
+            )
+            .is_some()
         {
             return Err(invalid(
                 "quantifier witness identity is empty or duplicated",
@@ -259,15 +317,17 @@ fn check_expression(
         }
         [Value::Text(tag), Value::Map(fields)] if tag == "record" => {
             let declared = record_fields(&value_type)?;
+            let open = record_is_open(&value_type)?;
             let mut checked = Vec::with_capacity(fields.len());
             for (name, field) in fields {
-                let Some((field_type, _)) = declared.get(name) else {
+                let field = check_expression(field, bindings, functions, expression_ids)?;
+                if let Some((field_type, _)) = declared.get(name) {
+                    require_type(&field.value_type, field_type, "record field")?;
+                } else if !open {
                     return Err(invalid(format!(
                         "record expression has undeclared field {name:?}"
                     )));
-                };
-                let field = check_expression(field, bindings, functions, expression_ids)?;
-                require_type(&field.value_type, field_type, "record field")?;
+                }
                 checked.push((name.clone(), field));
             }
             for (name, (_, optional)) in &declared {
@@ -320,7 +380,6 @@ fn check_expression(
         }
         [Value::Text(tag), Value::Array(entries)] if tag == "map" => {
             let (key_type, element_type) = map_types(&value_type)?;
-            require_type(&key_type, &text_type()?, "map key")?;
             let mut checked = Vec::with_capacity(entries.len());
             for entry in entries {
                 let [key, element] = entry.as_array()? else {
@@ -569,17 +628,41 @@ fn evaluate(
         Node::Map(entries) => {
             let mut values = Vec::with_capacity(entries.len());
             for (key, element) in entries {
-                let Value::Text(key) = evaluate(key, bindings, context)? else {
-                    return Err(fault("map key did not evaluate to Text"));
-                };
-                if values.iter().any(|(candidate, _)| candidate == &key) {
-                    return Err(fault(format!(
-                        "map expression evaluates to duplicate key {key:?}"
-                    )));
-                }
-                values.push((key, evaluate(element, bindings, context)?));
+                values.push((
+                    evaluate(key, bindings, context)?,
+                    evaluate(element, bindings, context)?,
+                ));
             }
-            Value::owned_map(values)
+            if map_key_is_text(&expression.value_type)? {
+                let mut text_values = Vec::with_capacity(values.len());
+                for (key, value) in values {
+                    let Value::Text(key) = key else {
+                        return Err(fault("text-keyed map received a non-Text key"));
+                    };
+                    if text_values.iter().any(|(candidate, _)| candidate == &key) {
+                        return Err(fault(format!(
+                            "map expression evaluates to duplicate key {key:?}"
+                        )));
+                    }
+                    text_values.push((key, value));
+                }
+                Value::owned_map(text_values)
+            } else {
+                let mut encoded = values
+                    .into_iter()
+                    .map(|(key, value)| Ok((encode_deterministic(&key)?, key, value)))
+                    .collect::<Result<Vec<_>>>()?;
+                encoded.sort_by(|left, right| left.0.cmp(&right.0));
+                if encoded.windows(2).any(|pair| pair[0].0 == pair[1].0) {
+                    return Err(fault("map expression evaluates to a duplicate generic key"));
+                }
+                Value::Array(
+                    encoded
+                        .into_iter()
+                        .map(|(_, key, value)| Value::Array(vec![key, value]))
+                        .collect(),
+                )
+            }
         }
         Node::Select(subject, selector) => {
             evaluate_selection(evaluate(subject, bindings, context)?, selector)?
@@ -653,19 +736,34 @@ fn evaluate(
                     "finite quantifier domain did not evaluate to a collection",
                 ));
             };
-            if let Some(verifier) = verifier {
-                let id = expression_id(&expression.value)?;
-                let witnessed = context.quantifier_witnesses.get(id).ok_or_else(|| {
+            if let Some(requirement) = verifier {
+                let key = encode_deterministic(&expression.value)?;
+                let witness = context.quantifier_witnesses.get(&key).ok_or_else(|| {
                     fault(format!(
-                        "verifier-backed quantifier {id:?} has no accepted finite-domain witness from {verifier:?}"
+                        "verifier-backed quantifier has no accepted finite-domain evidence from {:?}",
+                        requirement.verifier
                     ))
                 })?;
-                if witnessed != &values {
-                    return Err(fault(format!(
-                        "verifier-backed quantifier {id:?} witness differs from its evaluated finite domain"
-                    )));
+                if witness.verifier != requirement.verifier {
+                    return Err(fault(
+                        "verifier-backed quantifier evidence identity changed after acceptance",
+                    ));
                 }
-                values.clone_from(witnessed);
+                requirement
+                    .output
+                    .validate_value(&witness.evidence, &RefinementEvidence::default())
+                    .map_err(|error| {
+                        fault(format!(
+                            "verifier-backed quantifier evidence became invalid: {}",
+                            error.message
+                        ))
+                    })?;
+                if witness.finite_domain != values {
+                    return Err(fault(
+                        "verifier-backed quantifier witness differs from its evaluated finite domain",
+                    ));
+                }
+                values.clone_from(&witness.finite_domain);
             }
             let mut result = *quantifier == Quantifier::ForAll;
             for value in values {
@@ -962,13 +1060,7 @@ fn evaluate_unary(operator: &str, operand: Value, result_type: &CheckedType) -> 
         },
         "-" => {
             let (numerator, denominator) = exact_ratio(&operand)?;
-            exact_value_for_type(
-                numerator
-                    .checked_neg()
-                    .ok_or_else(|| fault("exact negation exceeds the executable number domain"))?,
-                denominator,
-                result_type,
-            )
+            exact_value_for_type(-numerator, denominator, result_type)
         }
         _ => Err(fault("checked unary operator has no evaluator")),
     }
@@ -1026,12 +1118,8 @@ fn evaluate_binary(
         "<" | "<=" | ">" | ">=" => {
             let (left_numerator, left_denominator) = exact_ratio(&left)?;
             let (right_numerator, right_denominator) = exact_ratio(&right)?;
-            let left = left_numerator
-                .checked_mul(right_denominator)
-                .ok_or_else(|| fault("exact comparison exceeds the executable number domain"))?;
-            let right = right_numerator
-                .checked_mul(left_denominator)
-                .ok_or_else(|| fault("exact comparison exceeds the executable number domain"))?;
+            let left = left_numerator * right_denominator;
+            let right = right_numerator * left_denominator;
             Ok(Value::Bool(match operator {
                 "<" => left < right,
                 "<=" => left <= right,
@@ -1043,44 +1131,37 @@ fn evaluate_binary(
         "+" | "-" | "*" | "/" | "%" => {
             let (left_numerator, left_denominator) = exact_ratio(&left)?;
             let (right_numerator, right_denominator) = exact_ratio(&right)?;
-            if matches!(operator, "/" | "%") && right_numerator == 0 {
+            if matches!(operator, "/" | "%") && right_numerator.is_zero() {
                 return Err(fault("division by zero"));
             }
             let (numerator, denominator) = match operator {
                 "+" | "-" => {
-                    let left = left_numerator.checked_mul(right_denominator);
-                    let right = right_numerator.checked_mul(left_denominator);
-                    let numerator =
-                        match operator {
-                            "+" => left
-                                .and_then(|left| right.and_then(|right| left.checked_add(right))),
-                            "-" => left
-                                .and_then(|left| right.and_then(|right| left.checked_sub(right))),
-                            _ => unreachable!(),
-                        };
-                    (numerator, left_denominator.checked_mul(right_denominator))
+                    let left = left_numerator * &right_denominator;
+                    let right = right_numerator * &left_denominator;
+                    (
+                        if operator == "+" {
+                            left + right
+                        } else {
+                            left - right
+                        },
+                        left_denominator * right_denominator,
+                    )
                 }
                 "*" => (
-                    left_numerator.checked_mul(right_numerator),
-                    left_denominator.checked_mul(right_denominator),
+                    left_numerator * right_numerator,
+                    left_denominator * right_denominator,
                 ),
                 "/" => (
-                    left_numerator.checked_mul(right_denominator),
-                    left_denominator.checked_mul(right_numerator),
+                    left_numerator * right_denominator,
+                    left_denominator * right_numerator,
                 ),
-                "%" if left_denominator == 1 && right_denominator == 1 => {
-                    (left_numerator.checked_rem(right_numerator), Some(1))
+                "%" if left_denominator.is_one() && right_denominator.is_one() => {
+                    (left_numerator % right_numerator, BigInt::one())
                 }
                 "%" => return Err(fault("remainder is defined only for integral exact values")),
                 _ => unreachable!(),
             };
-            exact_value_for_type(
-                numerator
-                    .ok_or_else(|| fault("exact operation exceeds the executable number domain"))?,
-                denominator
-                    .ok_or_else(|| fault("exact operation exceeds the executable number domain"))?,
-                result_type,
-            )
+            exact_value_for_type(numerator, denominator, result_type)
         }
         _ => Err(fault("checked binary operator has no evaluator")),
     }
@@ -1176,7 +1257,10 @@ fn checked_binding(value: &Value) -> Result<(String, CheckedType)> {
     ))
 }
 
-fn checked_verifier_binding(value: &Value, domain_type: &CheckedType) -> Result<String> {
+fn checked_verifier_binding(
+    value: &Value,
+    domain_type: &CheckedType,
+) -> Result<VerifierRequirement> {
     let Value::Map(entries) = value else {
         return Err(invalid("verifier binding must be a closed map"));
     };
@@ -1206,35 +1290,55 @@ fn checked_verifier_binding(value: &Value, domain_type: &CheckedType) -> Result<
         domain_type,
         "verifier input",
     )?;
-    CheckedType::from_value(
-        value
-            .get("output")
-            .ok_or_else(|| invalid("verifier binding requires an evidence output type"))?,
-    )?;
+    let output_value = value
+        .get("output")
+        .ok_or_else(|| invalid("verifier binding requires an evidence output type"))?;
+    if !matches!(output_value, Value::Array(parts) if matches!(parts.as_slice(), [Value::Text(tag), Value::Array(_)] if tag == "evidence"))
+    {
+        return Err(invalid(
+            "verifier binding output must be a closed evidence type",
+        ));
+    }
+    let output = CheckedType::from_canonical_value(output_value)?;
     if let Some(configuration) = value.get("configuration") {
         CheckedType::validate_untyped_value(configuration)?;
     }
+    let mut retained_trust = BTreeSet::new();
     if let Some(trust) = value.get("trust") {
         let Value::Array(classes) = trust else {
             return Err(invalid("verifier trust restriction must be an array"));
         };
-        if classes
-            .iter()
-            .any(|class| !matches!(class, Value::Text(value) if !value.is_empty()))
-        {
-            return Err(invalid(
-                "verifier trust restriction contains an invalid class",
-            ));
+        for class in classes {
+            let Value::Text(class) = class else {
+                return Err(invalid(
+                    "verifier trust restriction contains an invalid class",
+                ));
+            };
+            if !is_evidence_class(class) || !retained_trust.insert(class.clone()) {
+                return Err(invalid(
+                    "verifier trust restriction contains an invalid or duplicate class",
+                ));
+            }
         }
     }
-    Ok(verifier.clone())
+    Ok(VerifierRequirement {
+        verifier: verifier.clone(),
+        output,
+        trust: retained_trust,
+    })
 }
 
-fn expression_id(value: &Value) -> Result<&str> {
-    match value.get("id") {
-        Some(Value::Text(id)) => Ok(id),
-        _ => Err(fault("checked expression lost its identity")),
-    }
+fn is_evidence_class(value: &str) -> bool {
+    matches!(
+        value,
+        "formal"
+            | "static"
+            | "empirical"
+            | "statistical"
+            | "model-judged"
+            | "human-approved"
+            | "unresolved"
+    ) || is_symbol(value)
 }
 
 fn nested_bindings(
@@ -1285,6 +1389,19 @@ fn record_fields(value_type: &CheckedType) -> Result<BTreeMap<String, (CheckedTy
             ))
         })
         .collect()
+}
+
+fn record_is_open(value_type: &CheckedType) -> Result<bool> {
+    let Value::Array(parts) = value_type.to_value() else {
+        unreachable!()
+    };
+    let [Value::Text(tag), Value::Bool(open), Value::Array(_)] = parts.as_slice() else {
+        return Err(invalid("record form requires a record type"));
+    };
+    if tag != "record" {
+        return Err(invalid("record form requires a record type"));
+    }
+    Ok(*open)
 }
 
 fn tuple_elements(value_type: &CheckedType) -> Result<Vec<CheckedType>> {
@@ -1345,6 +1462,11 @@ fn map_types(value_type: &CheckedType) -> Result<(CheckedType, CheckedType)> {
         CheckedType::from_value(key)?,
         CheckedType::from_value(value)?,
     ))
+}
+
+fn map_key_is_text(value_type: &CheckedType) -> Result<bool> {
+    let (key, _) = map_types(value_type)?;
+    Ok(key == text_type()?)
 }
 
 fn collection_element(value_type: &CheckedType, kind: &str) -> Result<CheckedType> {
@@ -1415,17 +1537,19 @@ fn numeric_kind(value_type: &CheckedType) -> Option<NumericKind> {
     }
 }
 
-fn exact_ratio(value: &Value) -> Result<(i128, i128)> {
+fn exact_ratio(value: &Value) -> Result<(BigInt, BigInt)> {
     let Value::Array(parts) = value else {
         return Err(fault("exact operation received a non-exact value"));
     };
     match parts.as_slice() {
-        [Value::Text(tag), Value::Integer(value)] if tag == "integer" => Ok((*value, 1)),
+        [Value::Text(tag), Value::Integer(value)] if tag == "integer" => {
+            Ok((BigInt::from(*value), BigInt::one()))
+        }
         [
             Value::Text(tag),
             Value::Integer(numerator),
             Value::Integer(denominator),
-        ] if tag == "rational" => Ok((*numerator, *denominator)),
+        ] if tag == "rational" => Ok((BigInt::from(*numerator), BigInt::from(*denominator))),
         [
             Value::Text(tag),
             Value::Integer(coefficient),
@@ -1433,16 +1557,11 @@ fn exact_ratio(value: &Value) -> Result<(i128, i128)> {
         ] if tag == "decimal" => {
             let magnitude = u32::try_from(exponent.unsigned_abs())
                 .map_err(|_| fault("decimal exponent exceeds the executable number domain"))?;
-            let power = checked_power_of_ten(magnitude)?;
+            let power = BigInt::from(10_u8).pow(magnitude);
             if *exponent >= 0 {
-                Ok((
-                    coefficient.checked_mul(power).ok_or_else(|| {
-                        fault("decimal value exceeds the executable number domain")
-                    })?,
-                    1,
-                ))
+                Ok((BigInt::from(*coefficient) * power, BigInt::one()))
             } else {
-                Ok((*coefficient, power))
+                Ok((BigInt::from(*coefficient), power))
             }
         }
         _ => Err(fault("exact operation received a non-exact value")),
@@ -1450,97 +1569,76 @@ fn exact_ratio(value: &Value) -> Result<(i128, i128)> {
 }
 
 fn exact_value_for_type(
-    numerator: i128,
-    denominator: i128,
+    numerator: BigInt,
+    denominator: BigInt,
     result_type: &CheckedType,
 ) -> Result<Value> {
     let (numerator, denominator) = reduced_ratio(numerator, denominator)?;
     match numeric_kind(result_type) {
         Some(NumericKind::Integer | NumericKind::MachineInteger) => {
-            if denominator != 1 {
+            if !denominator.is_one() {
                 return Err(fault("operation has no integral result"));
             }
-            Ok(exact_integer_value(numerator))
+            Ok(exact_integer_value(executable_integer(&numerator)?))
         }
         Some(NumericKind::Rational) => Ok(Value::Array(vec![
             Value::Text("rational".to_owned()),
-            Value::Integer(numerator),
-            Value::Integer(denominator),
+            Value::Integer(executable_integer(&numerator)?),
+            Value::Integer(executable_integer(&denominator)?),
         ])),
         Some(NumericKind::Decimal) => exact_decimal_value(numerator, denominator),
         None => Err(fault("checked operation has a non-numeric result type")),
     }
 }
 
-fn reduced_ratio(numerator: i128, denominator: i128) -> Result<(i128, i128)> {
-    if denominator == 0 {
+fn reduced_ratio(numerator: BigInt, denominator: BigInt) -> Result<(BigInt, BigInt)> {
+    if denominator.is_zero() {
         return Err(fault("division by zero"));
     }
-    let (numerator, denominator) = if denominator < 0 {
-        (
-            numerator
-                .checked_neg()
-                .ok_or_else(|| fault("exact value exceeds the executable number domain"))?,
-            denominator
-                .checked_neg()
-                .ok_or_else(|| fault("exact value exceeds the executable number domain"))?,
-        )
+    let (numerator, denominator) = if denominator.is_negative() {
+        (-numerator, -denominator)
     } else {
         (numerator, denominator)
     };
-    let divisor = greatest_common_divisor(numerator.unsigned_abs(), denominator as u128) as i128;
-    Ok((numerator / divisor, denominator / divisor))
+    let divisor = numerator.gcd(&denominator);
+    Ok((numerator / &divisor, denominator / divisor))
 }
 
-fn exact_decimal_value(numerator: i128, denominator: i128) -> Result<Value> {
+fn exact_decimal_value(numerator: BigInt, denominator: BigInt) -> Result<Value> {
     let mut denominator = denominator;
     let mut twos = 0_u32;
     let mut fives = 0_u32;
-    while denominator % 2 == 0 {
+    while (&denominator % 2_u8).is_zero() {
         denominator /= 2;
         twos += 1;
     }
-    while denominator % 5 == 0 {
+    while (&denominator % 5_u8).is_zero() {
         denominator /= 5;
         fives += 1;
     }
-    if denominator != 1 {
+    if !denominator.is_one() {
         return Err(fault("exact quotient has no finite Decimal representation"));
     }
     let scale = twos.max(fives);
     let mut coefficient = numerator;
-    coefficient = coefficient
-        .checked_mul(checked_power(2, scale - twos)?)
-        .and_then(|value| value.checked_mul(checked_power(5, scale - fives).ok()?))
-        .ok_or_else(|| fault("decimal result exceeds the executable number domain"))?;
+    coefficient *= BigInt::from(2_u8).pow(scale - twos);
+    coefficient *= BigInt::from(5_u8).pow(scale - fives);
     let mut exponent = -(scale as i128);
-    while coefficient != 0 && coefficient % 10 == 0 {
+    while !coefficient.is_zero() && (&coefficient % 10_u8).is_zero() {
         coefficient /= 10;
         exponent += 1;
     }
     Ok(Value::Array(vec![
         Value::Text("decimal".to_owned()),
-        Value::Integer(coefficient),
+        Value::Integer(executable_integer(&coefficient)?),
         Value::Integer(exponent),
     ]))
 }
 
-fn checked_power_of_ten(exponent: u32) -> Result<i128> {
-    checked_power(10, exponent)
-}
-
-fn checked_power(base: i128, exponent: u32) -> Result<i128> {
-    base.checked_pow(exponent)
-        .ok_or_else(|| fault("exact exponent exceeds the executable number domain"))
-}
-
-fn greatest_common_divisor(mut left: u128, mut right: u128) -> u128 {
-    while right != 0 {
-        let remainder = left % right;
-        left = right;
-        right = remainder;
-    }
-    left.max(1)
+fn executable_integer(value: &BigInt) -> Result<i128> {
+    value
+        .to_i128()
+        .ok_or_else(|| fault("exact result exceeds the executable deterministic-CBOR domain"))
 }
 
 fn exact_integer_value(value: i128) -> Value {

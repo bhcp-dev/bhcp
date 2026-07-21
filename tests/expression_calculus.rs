@@ -473,6 +473,53 @@ fn collections_maps_unary_and_all_exact_number_families_are_deterministic() {
         ])
     );
 
+    let generic_map = expression(
+        "generic-map",
+        r#"["map", ["exact-number", "Integer"], ["primitive", "Text"]]"#,
+        Value::Array(vec![
+            Value::Text("map".to_owned()),
+            Value::Array(vec![
+                Value::Array(vec![integer("generic-two", 2), text("generic-b", "b")]),
+                Value::Array(vec![integer("generic-one", 1), text("generic-a", "a")]),
+            ]),
+        ]),
+    );
+    assert_eq!(
+        evaluate(generic_map),
+        Value::Array(vec![
+            Value::Array(vec![
+                Value::Array(vec![Value::Text("integer".to_owned()), Value::Integer(1)]),
+                Value::Text("a".to_owned()),
+            ]),
+            Value::Array(vec![
+                Value::Array(vec![Value::Text("integer".to_owned()), Value::Integer(2)]),
+                Value::Text("b".to_owned()),
+            ]),
+        ])
+    );
+
+    let open_record = expression(
+        "open-record",
+        r#"["record", true, [["name", ["primitive", "Text"], false]]]"#,
+        Value::Array(vec![
+            Value::Text("record".to_owned()),
+            Value::map([
+                ("name", text("open-name", "Ada")),
+                ("score", integer("open-score", 10)),
+            ]),
+        ]),
+    );
+    assert_eq!(
+        evaluate(open_record),
+        Value::map([
+            ("name", Value::Text("Ada".to_owned())),
+            (
+                "score",
+                Value::Array(vec![Value::Text("integer".to_owned()), Value::Integer(10)]),
+            ),
+        ])
+    );
+
     let negated = expression(
         "negated",
         r#"["exact-number", "Integer"]"#,
@@ -517,6 +564,38 @@ fn collections_maps_unary_and_all_exact_number_families_are_deterministic() {
             Value::Text("rational".to_owned()),
             Value::Integer(5),
             Value::Integer(6),
+        ])
+    );
+
+    let boundary = u64::MAX as i128;
+    let comparison = expression(
+        "boundary-comparison",
+        r#"["primitive", "Bool"]"#,
+        Value::Array(vec![
+            Value::Text("binary".to_owned()),
+            Value::Text(">".to_owned()),
+            rational("boundary-left", boundary - 1, boundary),
+            rational("boundary-right", boundary - 2, boundary - 1),
+        ]),
+    );
+    assert_eq!(evaluate(comparison), Value::Bool(true));
+
+    let product = expression(
+        "boundary-product",
+        r#"["exact-number", "Rational"]"#,
+        Value::Array(vec![
+            Value::Text("binary".to_owned()),
+            Value::Text("*".to_owned()),
+            rational("boundary-factor-left", boundary - 1, boundary),
+            rational("boundary-factor-right", boundary, boundary - 1),
+        ]),
+    );
+    assert_eq!(
+        evaluate(product),
+        Value::Array(vec![
+            Value::Text("rational".to_owned()),
+            Value::Integer(1),
+            Value::Integer(1),
         ])
     );
 
@@ -700,9 +779,21 @@ fn exp_01_verifier_backed_quantification_requires_the_exact_finite_domain_witnes
             .code,
         "BHCP4202"
     );
+    assert!(
+        EvaluationContext::default()
+            .accept_quantifier_witness(
+                &checked,
+                "example/different-verifier@0",
+                Value::Array(vec![Value::Text("static".to_owned())]),
+                vec![],
+            )
+            .is_err()
+    );
     let witness = EvaluationContext::default()
-        .witness_quantifier_domain(
-            "witnessed-quantifier",
+        .accept_quantifier_witness(
+            &checked,
+            "example/finite-domain@0",
+            Value::Array(vec![Value::Text("static".to_owned())]),
             vec![
                 Value::Array(vec![Value::Text("integer".to_owned()), Value::Integer(1)]),
                 Value::Array(vec![Value::Text("integer".to_owned()), Value::Integer(2)]),

@@ -2307,12 +2307,54 @@ fn validate_map_value(
     element_type: &Value,
     evidence: &RefinementEvidence,
 ) -> Result<()> {
-    let Value::Map(entries) = value else {
-        return Err(mismatch("map value must be a map"));
-    };
-    for (key, element) in entries {
-        validate_value_against(&text(key), key_type, evidence)?;
-        validate_value_against(element, element_type, evidence)?;
+    // Native CBOR maps provide the unique canonical encoding for exact Text keys.
+    // Every other K uses a key-encoding-sorted array of [K, V] pairs so map<K, V>
+    // remains generic within the schema's recursively defined value domain.
+    let text_keys = matches!(key_type, Value::Array(parts) if matches!(parts.as_slice(), [Value::Text(tag), Value::Text(name)] if tag == "primitive" && name == "Text"));
+    match value {
+        Value::Map(entries) if text_keys => {
+            for (key, element) in entries {
+                validate_value_against(&text(key), key_type, evidence)?;
+                validate_value_against(element, element_type, evidence)?;
+            }
+        }
+        Value::Array(entries) if !text_keys => {
+            let mut previous = None;
+            for entry in entries {
+                let Value::Array(pair) = entry else {
+                    return Err(mismatch(
+                        "generic map entries must be canonical key-value pairs",
+                    ));
+                };
+                let [key, element] = pair.as_slice() else {
+                    return Err(mismatch(
+                        "generic map entries must be canonical key-value pairs",
+                    ));
+                };
+                validate_value_against(key, key_type, evidence)?;
+                validate_value_against(element, element_type, evidence)?;
+                let encoding = encode_deterministic(key)?;
+                if previous
+                    .as_ref()
+                    .is_some_and(|previous| previous >= &encoding)
+                {
+                    return Err(Diagnostic::plain(
+                        NONCANONICAL_TYPE,
+                        "generic map keys must be sorted and unique by deterministic encoding",
+                    ));
+                }
+                previous = Some(encoding);
+            }
+        }
+        Value::Map(_) => {
+            return Err(mismatch(
+                "generic-key map values must use canonical key-value pairs",
+            ));
+        }
+        Value::Array(_) => {
+            return Err(mismatch("Text-keyed map values must use a CBOR map"));
+        }
+        _ => return Err(mismatch("map value has the wrong shape")),
     }
     Ok(())
 }
