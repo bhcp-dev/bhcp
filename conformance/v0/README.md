@@ -53,8 +53,8 @@ all five derived forms, compares ten checked-in AST/IR artifacts byte for byte,
 round-trips both root kinds, compares the four expressible explicit `§compose`
 equivalents, and resolves named edge-case and generic proof-checker evidence in the
 behavior-specific suites. It also pins the six generator inputs, the 17 schema-root
-examples, and a feature manifest that marks the five self-hosted forms supported
-while leaving complete obligation-graph construction explicitly unsupported.
+examples, and that phase's feature-manifest boundary without rewriting historical
+artifacts when later graph stages land.
 
 The byte-level scanner tests execute the fixed S9.1 selection boundary before any
 profile-specific normalization: omission, an optional BOM, or an explicit canonical
@@ -106,10 +106,11 @@ requires exactly three acceptance claims for each Phase 4 issue #41–#49, resol
 every named test function, audits local evidence links, and keeps incomplete-v0 and
 unrestricted-macro/grammar-plugin non-goals consistent across public documentation.
 
-The registered verifier slice additionally executes EVD-01 through EVD-06 for flat
-contract clauses, including capability-bounded project adapters and their deterministic
-evidence mapping. It does not yet claim general obligation-graph construction,
-freshness windows, signatures, or full proof coverage.
+The registered verifier slice additionally executes EVD-01 through EVD-06, including
+capability-bounded project adapters and their deterministic evidence mapping. The
+obligation builder constructs normalized contract, retained-case, verifier,
+parent/child, and effective-policy nodes with exact audit provenance and open initial
+status. Freshness windows, signatures, and full proof coverage remain unclaimed.
 
 The manifest at `policy/manifest.txt` makes the complete no-waiver POL-01 through
 POL-08 slice executable. Its canonical sources cover organization, team, repository,
@@ -195,8 +196,9 @@ projection, explicit parent ceilings, accumulated deny-wins prohibitions, and po
 checks over every propagated goal boundary. The same suite covers nominal
 resource-scoped capabilities, unsafe evidence gaps, direct non-negative exact
 dimensioned limits, and compatible same-priority preference objectives. Shared-budget
-allocation and retry accounting remain PLN-04 work, while obligation construction
-remains PLN-05 work; neither is represented as `kernel-network` metadata here.
+allocation and retry accounting remain PLN-04 work. PLN-05 obligation construction
+is emitted as its own typed graph and is deliberately not represented as
+`kernel-network` metadata.
 
 `tests/expression_calculus.rs` makes EXP-01 and EXP-02 executable at the closed wire
 calculus boundary. Its tables cover every expression constructor and pattern form,
@@ -265,14 +267,15 @@ forms MUST lower to the same meaning.
 | PLN-02 | One pending set contains children sharing write state or exclusive borrows. | Execution-graph conflict edges prevent concurrency and planner diagnostics report stable reasons. |
 | PLN-03 | A chain connects incompatible output/input types. | Checker rejection before planning. |
 | PLN-04 | Children consume an unallocated shared budget including retries. | Total accounting remains within parent limit or planning refuses. |
-| PLN-05 | Requirements lack parent facts, invariants, or prior guarantees. | Explicit obligations are emitted; never assumed discharged. |
+| PLN-05 | Requirements lack parent facts, invariants, or prior guarantees. | Deterministic explicit obligations and dependencies are emitted with open status; none is assumed discharged. |
 
 The complete goal parser fixture covers the authored prerequisites for KRN-11,
 REC-01..03, and PLN-03..05: quantifier domains, recursive goal references, typed
 argument modes, limits, invariants, and nested composition all retain ordered source
 spans in canonical AST. This is syntax evidence only. Static finiteness, decreasing
-measures, chain compatibility, shared-budget accounting, and obligation construction
-remain assigned to their checker, recursion, planner, and graph roadmap owners.
+measures, chain compatibility, and shared-budget accounting remain assigned to their
+checker, recursion, and planner roadmap owners. Obligation construction is executable
+in `tests/obligation_graph.rs`.
 
 ## Policy, waivers, and extensions
 

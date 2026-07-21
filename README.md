@@ -344,9 +344,8 @@ indexes all five canonical sources, their explicit `§compose` equivalents where
 surface model exposes one, the ten checked-in AST/IR artifacts, and named executable
 empty/adversarial proof evidence. `tests/goal_algebra_conformance.rs` recompiles and
 schema-round-trips every entry byte for byte, checks the exact six-fixture generator
-and 17-root inventories, and verifies that the feature-manifest example advertises
-the five implemented self-hosted behaviors while marking complete obligation-graph
-construction unsupported.
+and 17-root inventories, and preserves that phase's feature-manifest boundary. The
+later obligation builder does not rewrite those historical algebra artifacts.
 
 The reducer evaluator now statically checks every branch before execution, supports
 typed literals, Boolean negation/conjunction/disjunction, equality, and total
@@ -363,9 +362,12 @@ functions and predicates into semantic IR remains the next stage. Adding derived
 behaviors must not introduce behavior-specific Rust primitives.
 
 The checker in this slice re-evaluates the retained reducer and verifies that every
-derivation premise is sealed evidence from an observed child. Full obligation-graph
-coverage remains part of the later analysis/evidence milestone; this runtime does not
-claim complete v0 proof checking yet.
+derivation premise is sealed evidence from an observed child. The obligation builder
+now emits deterministic open nodes for requirements, guarantees, invariants, limits,
+retained cases, verifier bindings, parent/child discharge dependencies, and effective
+policy requirements/evidence/limits. Generated clause IDs and labels are audit data,
+not structural identity; duplicate policy rules retain every exact source coordinate.
+This runtime still does not claim complete v0 proof checking.
 
 The registered verification foundation resolves explicit `§verify ... for "label"`
 targets to structural obligation IDs, re-evaluates total contract expressions over

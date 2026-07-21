@@ -1,6 +1,6 @@
 //! Registered verifier dispatch and deterministic v0 evidence bundles.
 
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::panic::{AssertUnwindSafe, catch_unwind};
 
 use crate::adapter::{
@@ -15,6 +15,7 @@ use crate::model::{
     BhcpType, ClauseKind, ContentReference, Expression, ExpressionForm, GoalDefinition, HashId,
     VerifierBinding, is_symbol,
 };
+use crate::obligation::{contract_target_map, policy_obligation_id};
 use crate::pipeline::Compilation;
 use crate::policy::{PolicyCategory, PolicyDocument, PolicyLayer};
 use crate::schema::validate_root;
@@ -890,7 +891,7 @@ fn policy_evidence_obligations(
             });
         }
         obligations.push(PolicyEvidenceObligation {
-            id: format!("policy-evidence-{}", index + 1),
+            id: policy_obligation_id(PolicyCategory::Evidence, *index, &rule.value.to_value())?,
             symbol: rule.value.obligation.clone(),
             classes: rule.value.classes.clone(),
             minimum: rule.value.minimum,
@@ -1085,21 +1086,19 @@ fn verify(
         ));
     }
 
-    let mut contract_obligations: Vec<_> = goal
-        .clauses
-        .iter()
-        .filter_map(|clause| {
-            matches!(clause.kind, ClauseKind::Contract { .. }).then_some(clause.id.clone())
-        })
-        .collect();
-    contract_obligations.sort();
+    let contract_targets = contract_target_map(goal)?;
+    let contract_obligations = contract_targets
+        .values()
+        .cloned()
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .collect::<Vec<_>>();
     let policy_obligations = policy_evidence_obligations(request.compilation, goal)?;
     if contract_obligations.is_empty() && policy_obligations.is_empty() {
         return Err(invalid(
             "verification requires at least one contract or policy evidence obligation",
         ));
     }
-    let obligation_set: HashSet<_> = contract_obligations.iter().cloned().collect();
     let mut obligations = contract_obligations.clone();
     obligations.extend(
         policy_obligations
@@ -1126,9 +1125,12 @@ fn verify(
         let Value::Bool(accepted) = evaluate(condition, &bindings)? else {
             return Err(invalid("contract condition did not evaluate to Bool"));
         };
+        let obligation = contract_targets
+            .get(&clause.id)
+            .expect("contract target map covers every contract clause");
         let payload_value = Value::map([
             ("goal", Value::Text(goal.id.clone())),
-            ("obligation", Value::Text(clause.id.clone())),
+            ("obligation", Value::Text(obligation.clone())),
             ("result", Value::Bool(accepted)),
         ]);
         builder.evidence(
@@ -1141,7 +1143,7 @@ fn verify(
                 encode_deterministic(&payload_value)?,
                 vec![],
             ),
-            std::slice::from_ref(&clause.id),
+            std::slice::from_ref(obligation),
             if accepted {
                 ClaimDisposition::Supports
             } else {
@@ -1165,13 +1167,17 @@ fn verify(
         let targeted = if targeted.is_empty() {
             contract_obligations.clone()
         } else {
-            if targeted
+            targeted
                 .iter()
-                .any(|obligation| !obligation_set.contains(obligation))
-            {
-                return Err(invalid("verifier targets an unknown obligation"));
-            }
-            targeted.clone()
+                .map(|source| {
+                    contract_targets
+                        .get(source)
+                        .cloned()
+                        .ok_or_else(|| invalid("verifier targets an unknown obligation"))
+                })
+                .collect::<Result<BTreeSet<_>>>()?
+                .into_iter()
+                .collect()
         };
         let Some(dispatch) = dispatch_registered(
             registry,
