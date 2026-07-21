@@ -1231,6 +1231,29 @@ impl SemanticIrDocument {
                 decision.validate()?;
             }
             goal.effects.validate(&mut references)?;
+            let local_resource_bindings: HashSet<_> = goal
+                .clauses
+                .iter()
+                .filter_map(|clause| match &clause.kind {
+                    ClauseKind::Fact { binding, .. }
+                        if is_effect_resource_type(&binding.value_type) =>
+                    {
+                        Some(binding.id.as_str())
+                    }
+                    _ => None,
+                })
+                .collect();
+            if goal.effects.effects.iter().any(|effect| {
+                effect
+                    .resource
+                    .as_deref()
+                    .is_some_and(|resource| !local_resource_bindings.contains(resource))
+            }) {
+                return Err(Diagnostic::plain(
+                    "BHCP4001",
+                    "effect row resource must reference a local nominal resource or handle binding",
+                ));
+            }
             let contract_ids: HashSet<_> = goal
                 .clauses
                 .iter()
@@ -1269,6 +1292,12 @@ impl SemanticIrDocument {
                                 ));
                             }
                             if let Some(resource) = &effect.resource {
+                                if !local_resource_bindings.contains(resource.as_str()) {
+                                    return Err(Diagnostic::plain(
+                                        "BHCP4001",
+                                        "authority effect resource must reference a local nominal resource or handle binding",
+                                    ));
+                                }
                                 references.push(resource.clone());
                             }
                             let encoded = encode_deterministic(&effect.to_value())?;
@@ -1413,6 +1442,7 @@ impl SemanticIrDocument {
                 ));
             }
         }
+        crate::effects::validate_materialized(&self.goals)?;
         if let Some(hash) = &self.semantic_id {
             hash.validate()?;
         }
@@ -1420,6 +1450,14 @@ impl SemanticIrDocument {
             hash.validate()?;
         }
         Ok(())
+    }
+}
+
+fn is_effect_resource_type(value_type: &BhcpType) -> bool {
+    match value_type {
+        BhcpType::Handle(handle) => is_effect_resource_type(&handle.value_type),
+        BhcpType::Nominal(_, _) => true,
+        _ => false,
     }
 }
 

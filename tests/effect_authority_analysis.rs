@@ -64,6 +64,53 @@ fn eff_01_child_effects_propagate_without_becoming_kernel_metadata() {
 }
 
 #[test]
+fn composite_allows_are_ceilings_not_invented_possible_effects() {
+    let source = r#"
+§goal example/Read@0 {
+    §output value: Text;
+    §allows bhcp-effect/fs.read@0;
+}
+§goal example/Parent@0 {
+    §output child: { value: Text };
+    §allows bhcp-effect/fs.read@0, bhcp-effect/fs.write@0;
+    §all { child = example/Read@0(); };
+}
+"#;
+    let compiled = compile_source(source, "effects.bhcp").unwrap();
+    assert_eq!(
+        effect_ids(&compiled, "example/Parent@0"),
+        ["bhcp-effect/fs.read@0"]
+    );
+}
+
+#[test]
+fn semantic_ir_validation_rejects_hidden_materialized_effects() {
+    let source = r#"
+§goal example/Read@0 {
+    §output value: Text;
+    §allows bhcp-effect/fs.read@0;
+}
+§goal example/Parent@0 {
+    §output child: { value: Text };
+    §all { child = example/Read@0(); };
+}
+"#;
+    let compiled = compile_source(source, "effects.bhcp").unwrap();
+    let mut tampered = compiled.ir;
+    tampered
+        .goals
+        .iter_mut()
+        .find(|goal| goal.symbol == "example/Parent@0")
+        .unwrap()
+        .effects
+        .effects
+        .clear();
+    let diagnostic = tampered.validate().unwrap_err();
+    assert_eq!(diagnostic.code, "BHCP4001");
+    assert!(diagnostic.message.contains("materialized effect row"));
+}
+
+#[test]
 fn eff_03_parent_prohibitions_and_explicit_ceilings_deny_child_excess() {
     let prohibited = r#"
 §goal example/Network@0 { §output value: Text; §allows bhcp-effect/network@0; }
@@ -139,6 +186,44 @@ fn effect_sets_are_canonical_and_resource_scopes_retain_typed_bindings() {
         unreachable!()
     };
     assert!(effects.iter().all(|effect| matches!(effect.get("resource"), Some(Value::Text(id)) if id.starts_with("binding-"))));
+}
+
+#[test]
+fn effect_resource_coordinates_require_nominal_resource_bindings() {
+    let source = r#"
+§goal example/Read@0 {
+    §input path: Text;
+    §allows bhcp-effect/fs.read@0(path);
+}
+"#;
+    let diagnostic = compile_source(source, "effects.bhcp").unwrap_err();
+    assert_eq!(diagnostic.code, "BHCP4501");
+    assert!(diagnostic.message.contains("path"));
+    assert!(diagnostic.message.contains("resource"));
+}
+
+#[test]
+fn retained_ir_rejects_non_resource_effect_coordinates() {
+    let source = r#"
+§goal example/Read@0 {
+    §input repository: example/Repository@0;
+    §allows bhcp-effect/fs.read@0(repository);
+}
+"#;
+    let compiled = compile_source(source, "effects.bhcp").unwrap();
+    let mut tampered = compiled.ir;
+    let binding = tampered.goals[0]
+        .clauses
+        .iter_mut()
+        .find_map(|clause| match &mut clause.kind {
+            bhcp::model::ClauseKind::Fact { binding, .. } => Some(binding),
+            _ => None,
+        })
+        .unwrap();
+    binding.value_type = BhcpType::Primitive("Text");
+    let diagnostic = tampered.validate().unwrap_err();
+    assert_eq!(diagnostic.code, "BHCP4001");
+    assert!(diagnostic.message.contains("effect row resource"));
 }
 
 #[test]

@@ -35,15 +35,26 @@ pub(crate) fn analyze(goals: &mut [GoalDefinition], source_name: &str) -> Result
         }
     }
 
-    let mut rows: Vec<Vec<Effect>> = authored
+    let mut rows: Vec<Vec<Effect>> = goals
         .iter()
-        .map(|authority| canonicalize(authority.allows.clone()))
+        .zip(&authored)
+        .map(|(goal, authority)| {
+            canonicalize(if goal.body.is_none() {
+                authority.allows.clone()
+            } else {
+                Vec::new()
+            })
+        })
         .collect::<Result<_>>()?;
     loop {
         let previous = rows.clone();
         let mut changed = false;
         for (index, goal) in goals.iter().enumerate() {
-            let mut inferred = authored[index].allows.clone();
+            let mut inferred = if goal.body.is_none() {
+                authored[index].allows.clone()
+            } else {
+                Vec::new()
+            };
             if let Some(network) = &goal.body {
                 for child in &network.children {
                     let child_index = by_id[&child.goal];
@@ -109,6 +120,32 @@ pub(crate) fn analyze(goals: &mut [GoalDefinition], source_name: &str) -> Result
             effects,
             row_variable: None,
         };
+    }
+    Ok(())
+}
+
+pub(crate) fn validate_materialized(goals: &[GoalDefinition]) -> Result<()> {
+    let mut expected = goals.to_vec();
+    analyze(&mut expected, "semantic-ir")?;
+    for (actual, expected) in goals.iter().zip(expected) {
+        if actual.effects != expected.effects {
+            return Err(Diagnostic::plain(
+                "BHCP4001",
+                format!(
+                    "goal {} materialized effect row does not match its authored and propagated effects",
+                    actual.symbol
+                ),
+            ));
+        }
+        if actual.evidence != expected.evidence {
+            return Err(Diagnostic::plain(
+                "BHCP4001",
+                format!(
+                    "goal {} evidence omits a required unsafe or foreign effect gap",
+                    actual.symbol
+                ),
+            ));
+        }
     }
     Ok(())
 }

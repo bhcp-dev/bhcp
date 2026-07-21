@@ -2778,6 +2778,16 @@ fn lower_effect(
                         at,
                     )
                 })?;
+                if resource_symbol(&binding.value_type).is_none() {
+                    return Err(error(
+                        "BHCP4501",
+                        format!(
+                            "effect resource coordinate {name:?} must reference a nominal resource or handle"
+                        ),
+                        source_name,
+                        at,
+                    ));
+                }
                 if resource.is_some() {
                     return Err(error(
                         "BHCP2004",
