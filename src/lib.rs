@@ -2,6 +2,7 @@ pub mod adapter;
 pub mod cbor;
 mod definition;
 pub mod diagnostic;
+mod effects;
 pub mod experiment;
 pub mod experiment_codex;
 pub mod expression;

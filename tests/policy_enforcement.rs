@@ -95,7 +95,9 @@ fn type_authority_prohibition_and_limit_denials_are_stable_and_emit_no_ir() {
     assert_eq!(unavailable.code, "BHCP8203");
     assert!(unavailable.message.contains("fs-write"));
 
-    let network = GOAL.replace("fs-read@0", "network@0");
+    let network = GOAL
+        .replace("fs-read@0", "network@0")
+        .replace("  §forbids bhcp-effect/network@0;\n", "");
     let network = compile_source_with_policy(
         &network,
         "goal.bhcp",

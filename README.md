@@ -14,7 +14,8 @@ subtyping, and explicit `Dynamic` boundaries, and materializes checked `§type`
 definitions in semantic IR. Canonical artifacts use deterministic CBOR and
 algorithm-tagged semantic or artifact identities. It is not yet a complete v0
 front end, planner, runtime, or SDK: source-expression forms beyond the currently
-parsed slice, effect/authority analysis, and graph construction remain roadmap work.
+parsed slice, graph construction, planner budget allocation, and execution remain
+roadmap work.
 
 ## Start here
 
@@ -140,6 +141,23 @@ requires linear consumption on all outcomes, keeps case scopes independent, and
 rejects expired-borrow or unapproved-shared state retention with stable
 `BHCP4401`–`BHCP4405` diagnostics. Executable handle data edges retain the exact
 canonical qualifiers and advertise `bhcp/feature.ownership-analysis@0`.
+Before IR identity is computed, the effect pass materializes canonical possible-effect
+rows from authored ceilings and child calls, projects direct resource arguments across
+goal boundaries, accumulates prohibitions with deny-wins semantics, and rejects child
+effects outside an explicit parent ceiling. Effective-policy capability and
+prohibition scopes are checked against the referenced resource's nominal type and
+literal operation coordinate at every goal boundary. Unsafe and foreign atoms retain
+an `unresolved` evidence class; dimensioned limits require direct non-negative exact
+upper bounds; and objectives at one preference priority require compatible types.
+These checks advertise `bhcp/feature.effect-authority-analysis@0`. Limits and
+preferences remain semantic clauses: allocation, retries, obligation nodes, conflict
+edges, and execution-graph decisions belong to their separately assigned roadmap
+stages and are not added to `kernel-network`.
+Because materialized effect rows change semantic identity, active experiment
+`contract.semantic-id` pins were recomputed. Their completed-study identities remain
+unchanged in adjacent `.pre-effect-analysis` sidecars, and the frozen audit and
+preregistration manifests point explicitly to those historical sidecars rather than
+rewriting past evidence.
 Predicate verifier arguments lower in canonical name order to a closed typed input
 record plus retained mode/expression configuration. Argument order is not semantic;
 the verifier symbol, types, modes, expressions, evidence output, and trust
@@ -150,12 +168,12 @@ generic/refinement declarations, all four fact kinds and initializers, invariant
 limits, authority, preferences, verifier arguments, executable cases, standalone
 goal calls, quantified composition, and recursively nested finite composition.
 These additional goal forms retain deterministic AST structure and fail closed
-before executable IR until their remaining effect, case-execution, and recursion or
+before executable IR until their remaining case-execution and recursion or
 retention-lowering stages land.
 
 | Canonical definition | Implemented source slice | Explicitly deferred |
 | --- | --- | --- |
-| `§goal` / `§function` | Complete goal and general-function parsing/AST construction; parsed pure function bodies resolve deterministically, type-check, infer bounded generics, monomorphize, and materialize beside the checked executable goal/prelude-function slice; ownership/resource flow is checked before IR | Source-expression grammar beyond the current parsed slice, finite-domain proof, effects/authority, case execution, and recursion semantics |
+| `§goal` / `§function` | Complete goal and general-function parsing/AST construction; parsed pure function bodies resolve deterministically, type-check, infer bounded generics, monomorphize, and materialize beside the checked executable goal/prelude-function slice; ownership/resource flow plus effect propagation, authority/prohibition ceilings, direct exact limits, and compatible preference groups are checked before IR emission | Source-expression grammar beyond the current parsed slice, finite-domain proof, case execution, recursion semantics, obligation/capability/state graphs, and planner allocation/retry decisions |
 | `§type` / `§predicate` / `§refines` | Complete parsing plus checked type/refinement lowering and parsed predicate elaboration: every v0 wire type normalizes, local generics enforce arity/bounds, total refinements retain candidate-bound evidence, and canonical predicate verifier interfaces/configuration materialize in semantic IR | Source-expression grammar beyond the current parsed slice and its complete source-to-IR audit |
 | `§policy` | Complete canonical source parsing for layer, `§extends`, six closed typed rules, scopes/parameters, waivability, and issuers; composition, inspection, policy-aware elaboration, and no-waiver conformance fixtures | Expression-valued policy clauses and enforcement beyond the compile-time/evidence boundary |
 | `§syntax` / `§profile` | Complete closed source-definition parsing into typed deterministic artifacts; fixed byte-level selection, exact one-parent resolution, monotonic attached overlays, resolved-profile inspection, span-aware custom-source compilation, and deterministic profile-aware formatting | Applying newly parsed definitions as source-local registry inputs remains the profile-lowering stage |
@@ -577,10 +595,12 @@ every source, effective rule, type mode, identity, and tightening provenance.
 
 The Rust policy-aware compilation API applies a validated effective document before
 semantic IR emission. It rejects source type mode below the effective minimum,
-prohibited or ungranted authority, and an explicit dimensioned numeric `§limit`
-above its effective maximum with stable `BHCP8201`–`BHCP8204` diagnostics. Accepted
-IR retains the effective policy identities and per-goal indices for every applicable
-requirement, evidence demand, prohibition, capability, and limit. Equivalent policy
+prohibited or ungranted authority across the final propagated effect row, and an
+explicit dimensioned numeric `§limit` above its effective maximum with stable
+`BHCP8201`–`BHCP8204` diagnostics. Resource scopes resolve retained binding IDs to
+their nominal resource types, while literal operation scopes must match directly.
+Accepted IR retains the effective policy identities and per-goal indices for every
+applicable requirement, evidence demand, prohibition, capability, and limit. Equivalent policy
 decompositions keep the same program semantic ID while their retained artifact IDs
 remain auditable. Applicable evidence demands are dispatched through explicit
 policy-obligation-to-verifier registry bindings and retain source-layer provenance in

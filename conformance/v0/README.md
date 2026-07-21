@@ -187,6 +187,16 @@ scopes, exact persistent-share approvals through nested initializer expressions,
 pre-IR rejection, fully qualified handle types in semantic IR, and canonical handle
 reference envelopes at the executable boundary.
 
+`tests/effect_authority_analysis.rs` makes EFF-01 through EFF-03 executable before
+semantic identity is computed. It proves deterministic-CBOR effect-set ordering,
+child-to-parent propagation without kernel planner metadata, direct resource
+projection, explicit parent ceilings, accumulated deny-wins prohibitions, and policy
+checks over every propagated goal boundary. The same suite covers nominal
+resource-scoped capabilities, unsafe evidence gaps, direct non-negative exact
+dimensioned limits, and compatible same-priority preference objectives. Shared-budget
+allocation and retry accounting remain PLN-04 work, while obligation construction
+remains PLN-05 work; neither is represented as `kernel-network` metadata here.
+
 `tests/expression_calculus.rs` makes EXP-01 and EXP-02 executable at the closed wire
 calculus boundary. Its tables cover every expression constructor and pattern form,
 both finite-quantifier paths, exact-number families, checked machine overflow,
