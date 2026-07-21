@@ -1,7 +1,7 @@
 use std::collections::{BTreeMap, HashMap, HashSet};
 
 use crate::cbor::encode_deterministic;
-use crate::definition::DefinitionElaborator;
+use crate::definition::{DefinitionElaborator, substitute_checked_type};
 use crate::diagnostic::{Diagnostic, Result};
 use crate::effects::{
     EFFECT_ANALYSIS_FEATURE, analyze as analyze_effects, canonicalize as canonicalize_effects,
@@ -33,7 +33,7 @@ use crate::prelude::{
     NONE_FEATURE, NONE_LOWERER, NONE_REDUCER, NetworkShape, Prelude,
 };
 use crate::profile::{ProfileRegistry, SyntaxDocument};
-use crate::typecheck::{CheckedType, check_type_definitions};
+use crate::typecheck::{CheckedType, TypeRelations, check_type_definitions, surface_type};
 use crate::value::Value;
 
 const OWNERSHIP_FEATURE: &str = "bhcp/feature.ownership-analysis@0";
@@ -898,14 +898,18 @@ fn elaborate(
         );
     }
     for (index, spec) in extension_specs.iter().enumerate() {
+        let mut state = ReducerLoweringState {
+            functions: &mut functions,
+            ids: &mut ids,
+            type_relations: &checked_types.relations,
+        };
         goals.push(lower_derived_extension(
             spec,
             index,
             source_name,
             &signatures,
             &prelude,
-            &mut functions,
-            &mut ids,
+            &mut state,
         )?);
     }
     for (index, goal) in program.goals.iter().enumerate() {
@@ -913,6 +917,7 @@ fn elaborate(
             definitions: &mut definitions,
             functions: &mut functions,
             ids: &mut ids,
+            type_relations: &checked_types.relations,
         };
         goals.push(lower_goal(
             goal,
@@ -1189,9 +1194,13 @@ fn lower_derived_extension(
     source_name: &str,
     signatures: &HashMap<String, GoalSignature>,
     prelude: &Prelude,
-    functions: &mut Vec<FunctionDefinition>,
-    ids: &mut Ids,
+    state: &mut ReducerLoweringState<'_>,
 ) -> Result<GoalDefinition> {
+    let ReducerLoweringState {
+        functions,
+        ids,
+        type_relations,
+    } = state;
     let signature = signatures
         .get(&spec.symbol)
         .expect("derived extension signature was indexed");
@@ -1261,7 +1270,13 @@ fn lower_derived_extension(
             &spec.at,
         )
     })?;
-    if !reducer_signature_matches(reducer_source, &spec.input, &observations, &spec.output) {
+    if !reducer_signature_matches(
+        reducer_source,
+        &spec.input,
+        &observations,
+        &spec.output,
+        type_relations,
+    ) {
         return Err(extension_error(
             "derived extension reducer signature does not match its specialization",
             source_name,
@@ -1289,6 +1304,7 @@ fn lower_derived_extension(
                 gate_condition: None,
             },
             source_name,
+            type_relations,
             ids,
         )?);
     }
@@ -1705,6 +1721,13 @@ struct GoalLoweringState<'a> {
     definitions: &'a mut DefinitionElaborator,
     functions: &'a mut Vec<FunctionDefinition>,
     ids: &'a mut Ids,
+    type_relations: &'a TypeRelations,
+}
+
+struct ReducerLoweringState<'a> {
+    functions: &'a mut Vec<FunctionDefinition>,
+    ids: &'a mut Ids,
+    type_relations: &'a TypeRelations,
 }
 
 fn lower_goal(
@@ -1719,6 +1742,7 @@ fn lower_goal(
         definitions,
         functions,
         ids,
+        type_relations,
     } = state;
     let clause_ids: Vec<_> = goal.clauses.iter().map(|_| ids.next("clause")).collect();
     let mut labels = HashMap::new();
@@ -1917,14 +1941,18 @@ fn lower_goal(
         .body
         .as_ref()
         .map(|composition| {
+            let mut state = ReducerLoweringState {
+                functions,
+                ids,
+                type_relations,
+            };
             lower_composition(
                 composition,
                 signature,
                 source_name,
                 signatures,
                 prelude,
-                functions,
-                ids,
+                &mut state,
             )
         })
         .transpose()?;
@@ -1948,9 +1976,13 @@ fn lower_composition(
     source_name: &str,
     signatures: &HashMap<String, GoalSignature>,
     prelude: &Prelude,
-    functions: &mut Vec<FunctionDefinition>,
-    ids: &mut Ids,
+    state: &mut ReducerLoweringState<'_>,
 ) -> Result<KernelNetwork> {
+    let ReducerLoweringState {
+        functions,
+        ids,
+        type_relations,
+    } = state;
     let is_chain = is_self_hosted_chain_composition(composition);
     let gate_condition = match composition {
         SurfaceComposition::DerivedGate {
@@ -2141,6 +2173,7 @@ fn lower_composition(
                 gate_condition: gate_condition.as_ref(),
             },
             source_name,
+            type_relations,
             ids,
         )?);
     }
@@ -2611,6 +2644,7 @@ fn instantiate_reducer(
     symbol: String,
     specialization: ReducerSpecialization<'_>,
     source_name: &str,
+    type_relations: &TypeRelations,
     ids: &mut Ids,
 ) -> Result<FunctionDefinition> {
     let ReducerSpecialization {
@@ -2619,7 +2653,7 @@ fn instantiate_reducer(
         output,
         gate_condition,
     } = specialization;
-    if !reducer_signature_matches(source, &input, &observations, &output) {
+    if !reducer_signature_matches(source, &input, &observations, &output, type_relations) {
         return Err(Diagnostic::plain(
             "BHCP3001",
             "reducer signature does not match its specialization",
@@ -2668,6 +2702,7 @@ fn reducer_signature_matches(
     input: &BhcpType,
     observations: &BhcpType,
     output: &BhcpType,
+    type_relations: &TypeRelations,
 ) -> bool {
     let [parent, observed] = source.parameters.as_slice() else {
         return false;
@@ -2681,14 +2716,57 @@ fn reducer_signature_matches(
         .cloned()
         .collect::<HashSet<_>>();
     let mut substitutions = HashMap::new();
-    surface_type_matches_specialization(&parent.value_type, input, &parameters, &mut substitutions)
-        && surface_type_matches_specialization(
+    let matches =
+        surface_type_matches_specialization(
+            &parent.value_type,
+            input,
+            &parameters,
+            &mut substitutions,
+        ) && surface_type_matches_specialization(
             &observed.value_type,
             observations,
             &parameters,
             &mut substitutions,
-        )
-        && surface_type_matches_specialization(result, output, &parameters, &mut substitutions)
+        ) && surface_type_matches_specialization(result, output, &parameters, &mut substitutions);
+    if !matches || substitutions.len() != source.type_parameters.len() {
+        return false;
+    }
+    let arguments = source
+        .type_parameters
+        .iter()
+        .map(|parameter| {
+            substitutions
+                .get(parameter)
+                .and_then(|argument| CheckedType::from_value(&argument.to_value()).ok())
+        })
+        .collect::<Option<Vec<_>>>();
+    let Some(arguments) = arguments else {
+        return false;
+    };
+    source
+        .type_parameter_bounds
+        .iter()
+        .enumerate()
+        .all(|(index, bound)| {
+            let Some(bound) = bound else {
+                return true;
+            };
+            let Ok(bound) = surface_type(bound, &source.type_parameters)
+                .and_then(|bound| substitute_checked_type(&bound, &arguments))
+            else {
+                return false;
+            };
+            is_dynamic_checked_type(&bound)
+                || arguments[index].is_subtype_of(&bound, type_relations)
+        })
+}
+
+fn is_dynamic_checked_type(value: &CheckedType) -> bool {
+    matches!(
+        value.to_value(),
+        Value::Array(parts)
+            if matches!(parts.as_slice(), [Value::Text(tag), Value::Text(name)] if tag == "special" && name == "Dynamic")
+    )
 }
 
 fn surface_type_matches_specialization(

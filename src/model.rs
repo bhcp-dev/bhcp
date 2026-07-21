@@ -1289,6 +1289,7 @@ impl SemanticIrDocument {
             add_id(&extension.id, &mut ids)?;
             extension.validate_payload()?;
             if !is_symbol(&extension.extension)
+                || extension.extension.starts_with("bhcp/")
                 || !extension.must_understand
                 || !extension_symbols.insert(extension.extension.clone())
             {

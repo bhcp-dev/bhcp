@@ -139,6 +139,25 @@ fn derived_extension_reducer_declaration_must_match_the_specialization() {
         assert_eq!(diagnostic.code, "BHCP5003", "{name}: {diagnostic}");
         assert!(diagnostic.message.contains("reducer signature"));
     }
+
+    let bounded = DERIVED
+        .replacen(
+            "§function example/reviewReducer@0(",
+            "§function example/reviewReducer@0<I: Text, O: Unit, Observations: {}>(",
+            1,
+        )
+        .replacen("parent: Unit", "parent: I", 1)
+        .replacen("observations: {}", "observations: Observations", 1)
+        .replacen("): Reduction<Unit> =", "): Reduction<O> =", 1);
+    let diagnostic = compile_source(&bounded, "bounded-reducer.bhcp").unwrap_err();
+    assert_eq!(diagnostic.code, "BHCP5003", "{diagnostic}");
+    assert!(diagnostic.message.contains("reducer signature"));
+
+    compile_source(
+        &bounded.replacen("I: Text", "I: Unit", 1),
+        "satisfied-reducer-bounds.bhcp",
+    )
+    .unwrap();
 }
 
 #[test]
@@ -314,6 +333,26 @@ fn native_nodes_are_source_order_independent_inspectable_and_fail_closed_when_ta
         .unwrap()
         .1 = Value::Text("example/forged@0".to_owned());
     assert_eq!(wrong_symbol.validate().unwrap_err().code, "BHCP4001");
+
+    let mut reserved_symbol = forward.ir.clone();
+    reserved_symbol.extensions[0].extension = "bhcp/prelude.all@0".to_owned();
+    let Value::Map(envelope) = &mut reserved_symbol.extensions[0].payload else {
+        unreachable!()
+    };
+    let Value::Map(descriptor) = &mut envelope
+        .iter_mut()
+        .find(|(key, _)| key == "descriptor")
+        .unwrap()
+        .1
+    else {
+        unreachable!()
+    };
+    descriptor
+        .iter_mut()
+        .find(|(key, _)| key == "symbol")
+        .unwrap()
+        .1 = Value::Text("bhcp/prelude.all@0".to_owned());
+    assert_eq!(reserved_symbol.validate().unwrap_err().code, "BHCP4001");
 
     let mut extra_envelope_field = forward.ir.clone();
     let Value::Map(envelope) = &mut extra_envelope_field.extensions[0].payload else {
