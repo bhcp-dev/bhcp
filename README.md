@@ -189,7 +189,7 @@ retention-lowering stages land.
 | `§goal` / `§function` | Complete goal and general-function parsing/AST construction; parsed pure function bodies resolve deterministically, type-check, infer bounded generics, monomorphize, and materialize beside the checked executable goal/prelude-function slice; ownership/resource flow plus effect propagation, authority/prohibition ceilings, direct exact limits, and compatible preference groups are checked before IR emission | Source-expression grammar beyond the current parsed slice, finite-domain proof, case execution, recursion semantics, state/execution graph construction, and planner allocation/retry decisions |
 | `§type` / `§predicate` / `§refines` | Complete parsing plus checked type/refinement lowering and parsed predicate elaboration: every v0 wire type normalizes, local generics enforce arity/bounds, total refinements retain candidate-bound evidence, and canonical predicate verifier interfaces/configuration materialize in semantic IR | Source-expression grammar beyond the current parsed slice and its complete source-to-IR audit |
 | `§policy` | Complete canonical source parsing for layer, `§extends`, six closed typed rules, scopes/parameters, waivability, and issuers; inline and explicit composition, inspection, policy-aware elaboration, and governed semantic IR | Expression-valued policy clauses and enforcement beyond the compile-time/evidence boundary |
-| `§syntax` / `§profile` | Complete closed source-definition parsing into typed deterministic artifacts; fixed byte-level selection, exact one-parent resolution, monotonic attached overlays, resolved-profile inspection, span-aware custom-source compilation, and deterministic profile-aware formatting | Applying newly parsed definitions as source-local registry inputs remains the profile-lowering stage |
+| `§syntax` / `§profile` | Complete closed source-definition lowering into identified typed artifacts and one atomically validated source-local syntax/profile/policy registry; fixed byte-level selection, exact one-parent resolution, monotonic attached overlays, resolved-profile inspection, span-aware custom-source compilation, and deterministic profile-aware formatting | Arbitrary grammars, executable macros, parser plugins, implicit parents, fallback search, and per-definition profile switching remain outside v0 |
 | `§waiver` / `§extension` | Complete closed source-definition parsing for all six typed waiver changes, canonical scopes/targets, authority/time fields, and wire-compatible derived/native descriptors. Fully materialized inline waivers apply through the exact waiver engine with an injected decision time. Derived extensions execute one concrete total pure BHCP lowerer and disappear into checked core IR; explicitly registered native extensions retain an exact-schema, must-understand node. | Resolving frozen symbolic waiver references remains governed. Native support is closed to exact host registrations; planning and execution do not interpret unknown native payloads. |
 | Other S7 definitions | None | `§use` declarations |
 
@@ -254,6 +254,11 @@ registration order, requires descendant syntax and nondecreasing type mode, reje
 duplicate/missing overlays, follows policy parents, and invokes the existing
 monotonic composer before elaboration. Registry topology failures use `BHCP9003`;
 policy weakening retains its category-specific `BHCP8101`–`BHCP8107` diagnostic.
+The profile-source lowering API accepts only canonical policy, syntax, and profile
+definitions, materializes deterministic syntax/profile artifact IDs, registers all
+documents, and validates every registered leaf before exposing the source-local
+registry. Source-defined syntax may name one exact parent with `§extends`; any parse,
+topology, overlay, or effective-map failure returns no partial registry.
 `render_profile_resolution` exposes the resolved chains, overlays, type mode, and
 effective-policy identity. The formatter consumes that resolved leaf, canonicalizes
 custom input without touching comments or literals, lays out canonical tokens through

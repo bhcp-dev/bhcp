@@ -38,6 +38,7 @@ use crate::value::Value;
 
 const OWNERSHIP_FEATURE: &str = "bhcp/feature.ownership-analysis@0";
 const EXTENSION_FEATURE: &str = "bhcp/feature.extension-resolution@0";
+pub const PROFILE_SOURCE_FEATURE: &str = "bhcp/feature.profile-source-lowering@0";
 
 #[derive(Clone, Debug)]
 pub struct Compilation {

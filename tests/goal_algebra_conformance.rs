@@ -173,6 +173,15 @@ fn feature_manifest_negotiates_completed_graph_builders_and_bounded_non_goals() 
             .map(|(level, _)| level),
         Some("supported")
     );
+    assert_eq!(
+        support.remove(bhcp::pipeline::PROFILE_SOURCE_FEATURE),
+        Some((
+            "supported",
+            Some(
+                "Canonical definitions lower to validated source-local registries; grammar extensions remain unsupported."
+            )
+        ))
+    );
     assert!(
         support.is_empty(),
         "unclassified feature support entries: {support:?}"

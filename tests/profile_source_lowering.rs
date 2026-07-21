@@ -332,6 +332,28 @@ fn invalid_source_registries_fail_atomically_before_custom_program_parsing() {
             "BHCP9003",
         ),
         (
+            "policy inheritance cycle includes",
+            format!(
+                r##"
+§policy example/policy.a@0 §extends example/policy.b@0 {{
+    layer organization;
+}}
+§policy example/policy.b@0 §extends example/policy.a@0 {{
+    layer organization;
+}}
+§syntax example/syntax@0 {{
+    preamble "#!bhcp-profile"; mappings []; {formatting}
+}}
+§profile example/profile@0 {{
+    syntax example/syntax@0;
+    type_mode strict;
+    policy_overlays [example/policy.a@0];
+}}
+"##
+            ),
+            "BHCP8110",
+        ),
+        (
             "profile source may contain only policy, syntax, and profile definitions",
             profile_source(
                 &format!(

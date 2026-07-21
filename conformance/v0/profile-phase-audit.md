@@ -61,6 +61,21 @@ The ledger is complete through the audit's own reviewed squash merge. Wiki, issu
 and milestone status are post-merge metadata reconciled under the same protected
 `main`-branch gate rather than inputs to an artifact's immutable delivery identity.
 
+## Milestone 7 source-lowering continuation
+
+Issue [#109](https://github.com/bhcp-dev/bhcp/issues/109) carries the bounded Phase 4
+presentation model into the v0 source pipeline without expanding its grammar or
+authority. The executable
+[`profile_source_lowering`](../../tests/profile_source_lowering.rs) harness proves
+that canonical `§syntax` / `§profile` definitions materialize the same identified
+wire documents as equivalent canonical construction, register co-authored policy
+overlays, resolve exact syntax/profile parents, and drive the existing parser,
+compiler, and formatter. Its atomic rejection matrix covers cycles, missing parents,
+ambiguity, punctuation prefixes, alias recursion, reserved-core rebinding, weaker
+type modes, missing overlays, executable definitions, and semantic overrides before a
+source-local registry escapes. The Phase 4 delivery ledger above remains immutable
+historical evidence; #109 is milestone-7 continuation evidence.
+
 ## Consistency result
 
 - [README](../../README.md) and [VISION](../../VISION.md) describe the implemented
