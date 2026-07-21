@@ -1120,7 +1120,7 @@ fn validate_verifier_binding(value: &Value) -> Result<()> {
     )?;
     require_symbol(value, "verifier", "verifier binding")?;
     validate_type(value.get("input").unwrap(), "verifier input type")?;
-    validate_type(value.get("output").unwrap(), "verifier output type")?;
+    validate_evidence_type(value.get("output").unwrap(), "verifier output type")?;
     if let Some(configuration) = value.get("configuration") {
         validate_bhcp_value(configuration, "verifier configuration")?;
     }
@@ -1356,6 +1356,28 @@ fn validate_evidence_class(value: &str) -> Result<()> {
     }
 }
 
+fn validate_evidence_type(value: &Value, context: &str) -> Result<()> {
+    validate_type(value, context)?;
+    let Value::Array(parts) = value else {
+        return Err(invalid_schema(format!("{context} must be evidence-type")));
+    };
+    let [Value::Text(kind), Value::Array(classes)] = parts.as_slice() else {
+        return Err(invalid_schema(format!("{context} must be evidence-type")));
+    };
+    if kind != "evidence" {
+        return Err(invalid_schema(format!("{context} must be evidence-type")));
+    }
+    for class in classes {
+        let Value::Text(class) = class else {
+            return Err(invalid_schema(format!(
+                "{context} evidence class must be text"
+            )));
+        };
+        validate_evidence_class(class)?;
+    }
+    Ok(())
+}
+
 fn reject_unknown_graph_fields(value: &Value, kind: GraphKind) -> Result<()> {
     let common = [
         "version",
@@ -1394,81 +1416,359 @@ fn reject_unknown_graph_fields(value: &Value, kind: GraphKind) -> Result<()> {
     Ok(())
 }
 
-fn normalize_document(value: &mut Value, _kind: GraphKind) -> Result<()> {
-    normalize_semantic_sets(value)
+fn normalize_document(value: &mut Value, kind: GraphKind) -> Result<()> {
+    normalize_header(value)?;
+    normalize_content_reference(map_field_mut(value, "semantic_ir").unwrap())?;
+    match kind {
+        GraphKind::Obligation => {
+            for node in array_field_mut(value, "nodes")? {
+                sort_optional_set_field(node, "evidence")?;
+            }
+            sort_set_field(value, "nodes")?;
+            sort_set_field(value, "edges")
+        }
+        GraphKind::Capability => {
+            for node in array_field_mut(value, "nodes")? {
+                if let Some(capability) = map_field_mut(node, "capability") {
+                    normalize_effect(map_field_mut(capability, "effect").unwrap())?;
+                    sort_set_field(capability, "sources")?;
+                }
+            }
+            sort_set_field(value, "nodes")?;
+            sort_set_field(value, "edges")
+        }
+        GraphKind::State => {
+            for node in array_field_mut(value, "nodes")? {
+                if let Some(cell) = map_field_mut(node, "cell") {
+                    normalize_type_field(cell, "type")?;
+                    normalize_state_value(map_field_mut(cell, "state").unwrap())?;
+                }
+                if let Some(handle) = map_field_mut(node, "handle") {
+                    normalize_type(handle)?;
+                }
+            }
+            for transition in array_field_mut(value, "transitions")? {
+                normalize_execution_result(map_field_mut(transition, "result").unwrap())?;
+            }
+            sort_set_field(value, "nodes")?;
+            sort_set_field(value, "edges")?;
+            sort_set_field(value, "transitions")
+        }
+        GraphKind::Execution => {
+            for node in array_field_mut(value, "nodes")? {
+                if let Some(Value::Map(inputs)) = map_field_mut(node, "inputs") {
+                    for (_, input) in inputs {
+                        normalize_type_field(input, "type")?;
+                    }
+                }
+                if let Some(Value::Map(outputs)) = map_field_mut(node, "outputs") {
+                    for (_, output) in outputs {
+                        normalize_type(output)?;
+                    }
+                }
+                normalize_effect_row(map_field_mut(node, "effects").unwrap())?;
+                for field in [
+                    "capability_decisions",
+                    "budgets",
+                    "expected_evidence",
+                    "dependencies",
+                ] {
+                    sort_set_field(node, field)?;
+                }
+            }
+            sort_set_field(value, "nodes")?;
+            sort_set_field(value, "edges")?;
+            sort_set_field(value, "entrypoints")
+        }
+        GraphKind::Evidence => {
+            normalize_content_reference(map_field_mut(value, "execution_graph").unwrap())?;
+            for claim in array_field_mut(value, "claims")? {
+                normalize_content_reference(map_field_mut(claim, "subject").unwrap())?;
+            }
+            for item in array_field_mut(value, "items")? {
+                normalize_content_reference(map_field_mut(item, "verifier_artifact").unwrap())?;
+                normalize_content_reference(map_field_mut(item, "payload").unwrap())?;
+                normalize_provenance(map_field_mut(item, "provenance").unwrap())?;
+                sort_set_field(item, "claims")?;
+                sort_set_field(item, "trust")?;
+            }
+            for gap in array_field_mut(value, "gaps")? {
+                sort_set_field(gap, "obligations")?;
+            }
+            if let Some(Value::Array(obligations)) = map_field_mut(value, "policy_obligations") {
+                for obligation in obligations {
+                    sort_set_field(obligation, "classes")?;
+                    sort_set_field(obligation, "sources")?;
+                }
+            }
+            for field in ["claims", "items", "gaps", "edges"] {
+                sort_set_field(value, field)?;
+            }
+            sort_optional_set_field(value, "policy_obligations")
+        }
+    }
 }
 
-fn normalize_semantic_sets(value: &mut Value) -> Result<()> {
-    match value {
-        Value::Array(items) => {
-            for item in items {
-                normalize_semantic_sets(item)?;
-            }
-            if let Ok(value_type) = crate::typecheck::CheckedType::from_value(value) {
-                *value = value_type.to_value();
-                return Ok(());
-            }
-            let Value::Array(items) = value else {
-                unreachable!()
-            };
-            match items.as_mut_slice() {
-                [
-                    Value::Text(kind),
-                    Value::Text(collection),
-                    Value::Array(elements),
-                ] if kind == "collection" && collection == "set" => {
-                    sort_semantic_set(elements, "expression set")?;
-                }
-                [Value::Text(kind), Value::Array(entries)] if kind == "map" => {
-                    sort_semantic_set(entries, "expression map")?;
-                }
-                [Value::Text(kind), _, Value::Array(references), ..] if kind == "captured" => {
-                    sort_semantic_set(references, "captured state references")?;
-                }
-                _ => {}
-            }
+fn normalize_header(value: &mut Value) -> Result<()> {
+    sort_set_field(value, "features")?;
+    if let Some(provenance) = map_field_mut(value, "provenance") {
+        normalize_provenance(provenance)?;
+    }
+    if let Some(Value::Array(authorizations)) = map_field_mut(value, "authorization") {
+        for authorization in authorizations.iter_mut() {
+            normalize_content_reference(map_field_mut(authorization, "subject").unwrap())?;
         }
-        Value::Map(entries) => {
-            for (_, item) in entries.iter_mut() {
-                normalize_semantic_sets(item)?;
-            }
-            for field in [
-                "features",
-                "authorization",
-                "digests",
-                "locations",
-                "parents",
-                "nodes",
-                "edges",
-                "transitions",
-                "entrypoints",
-                "evidence",
-                "sources",
-                "effects",
-                "capability_decisions",
-                "budgets",
-                "expected_evidence",
-                "dependencies",
-                "claims",
-                "items",
-                "gaps",
-                "trust",
-                "obligations",
-                "policy_obligations",
-                "classes",
-            ] {
-                if let Some(Value::Array(items)) = entries
-                    .iter_mut()
-                    .find_map(|(key, value)| (key == field).then_some(value))
-                {
-                    sort_semantic_set(items, field)?;
-                }
-            }
-        }
-        Value::Tag(_, item) => normalize_semantic_sets(item)?,
-        _ => {}
+        sort_semantic_set(authorizations, "authorization")?;
     }
     Ok(())
+}
+
+fn normalize_content_reference(value: &mut Value) -> Result<()> {
+    sort_set_field(value, "digests")?;
+    sort_optional_set_field(value, "locations")
+}
+
+fn normalize_provenance(value: &mut Value) -> Result<()> {
+    if let Some(source) = map_field_mut(value, "source") {
+        normalize_content_reference(source)?;
+    }
+    sort_optional_set_field(value, "parents")
+}
+
+fn normalize_effect_row(value: &mut Value) -> Result<()> {
+    for effect in array_field_mut(value, "effects")?.iter_mut() {
+        normalize_effect(effect)?;
+    }
+    sort_set_field(value, "effects")
+}
+
+fn normalize_effect(_value: &mut Value) -> Result<()> {
+    // Effect parameters are ordered arbitrary BHCP values and remain opaque.
+    Ok(())
+}
+
+fn normalize_state_value(value: &mut Value) -> Result<()> {
+    let Value::Array(parts) = value else {
+        unreachable!("validated state value")
+    };
+    if matches!(parts.first(), Some(Value::Text(kind)) if kind == "captured") {
+        let Value::Array(references) = &mut parts[2] else {
+            unreachable!("validated captured references")
+        };
+        sort_semantic_set(references, "captured state references")?;
+        normalize_provenance(&mut parts[3])?;
+        normalize_expression(&mut parts[5])?;
+    }
+    Ok(())
+}
+
+fn normalize_expression(value: &mut Value) -> Result<()> {
+    normalize_type_field(value, "type")?;
+    let Some(Value::Array(form)) = map_field_mut(value, "form") else {
+        unreachable!("validated expression form")
+    };
+    let kind = match form.first() {
+        Some(Value::Text(kind)) => kind.clone(),
+        _ => unreachable!("validated expression kind"),
+    };
+    match kind.as_str() {
+        "record" => {
+            let Value::Map(fields) = &mut form[1] else {
+                unreachable!()
+            };
+            for (_, field) in fields {
+                normalize_expression(field)?;
+            }
+        }
+        "tuple" => normalize_expression_array(&mut form[1])?,
+        "variant" => normalize_expression(&mut form[2])?,
+        "collection" => {
+            normalize_expression_array(&mut form[2])?;
+            if form[1] == Value::Text("set".to_owned()) {
+                let Value::Array(elements) = &mut form[2] else {
+                    unreachable!()
+                };
+                sort_semantic_set(elements, "expression set")?;
+            }
+        }
+        "map" => {
+            let Value::Array(entries) = &mut form[1] else {
+                unreachable!()
+            };
+            for entry in entries.iter_mut() {
+                let Value::Array(pair) = entry else {
+                    unreachable!()
+                };
+                normalize_expression(&mut pair[0])?;
+                normalize_expression(&mut pair[1])?;
+            }
+            sort_semantic_set(entries, "expression map")?;
+        }
+        "select" | "unary" => {
+            let index = if kind == "select" { 1 } else { 2 };
+            normalize_expression(&mut form[index])?;
+        }
+        "binary" => {
+            normalize_expression(&mut form[2])?;
+            normalize_expression(&mut form[3])?;
+        }
+        "if" => {
+            for expression in &mut form[1..=3] {
+                normalize_expression(expression)?;
+            }
+        }
+        "let" => {
+            normalize_binding(&mut form[1])?;
+            normalize_expression(&mut form[2])?;
+            normalize_expression(&mut form[3])?;
+        }
+        "match" => {
+            normalize_expression(&mut form[1])?;
+            let Value::Array(arms) = &mut form[2] else {
+                unreachable!()
+            };
+            for arm in arms {
+                normalize_match_arm(arm)?;
+            }
+        }
+        "call" => normalize_expression_array(&mut form[2])?,
+        "quantify" => {
+            normalize_binding(&mut form[2])?;
+            normalize_expression(&mut form[3])?;
+            normalize_expression(&mut form[4])?;
+            if form.len() == 6 {
+                normalize_verifier_binding(&mut form[5])?;
+            }
+        }
+        "cast-dynamic" => {
+            normalize_expression(&mut form[1])?;
+            normalize_type(&mut form[2])?;
+        }
+        "literal" | "reference" => {}
+        _ => unreachable!("validated expression form"),
+    }
+    Ok(())
+}
+
+fn normalize_expression_array(value: &mut Value) -> Result<()> {
+    let Value::Array(expressions) = value else {
+        unreachable!("validated expression array")
+    };
+    for expression in expressions {
+        normalize_expression(expression)?;
+    }
+    Ok(())
+}
+
+fn normalize_match_arm(value: &mut Value) -> Result<()> {
+    let Value::Array(parts) = value else {
+        unreachable!("validated match arm")
+    };
+    normalize_pattern(&mut parts[0])?;
+    for expression in &mut parts[1..] {
+        normalize_expression(expression)?;
+    }
+    Ok(())
+}
+
+fn normalize_pattern(value: &mut Value) -> Result<()> {
+    let Value::Array(parts) = value else {
+        unreachable!("validated pattern")
+    };
+    let kind = match parts.first() {
+        Some(Value::Text(kind)) => kind.as_str(),
+        _ => unreachable!(),
+    };
+    match kind {
+        "bind" => normalize_binding(&mut parts[1]),
+        "variant" => {
+            let Value::Array(patterns) = &mut parts[2] else {
+                unreachable!()
+            };
+            for pattern in patterns {
+                normalize_pattern(pattern)?;
+            }
+            Ok(())
+        }
+        "tuple" => {
+            let Value::Array(patterns) = &mut parts[1] else {
+                unreachable!()
+            };
+            for pattern in patterns {
+                normalize_pattern(pattern)?;
+            }
+            Ok(())
+        }
+        "record" => {
+            let Value::Map(patterns) = &mut parts[1] else {
+                unreachable!()
+            };
+            for (_, pattern) in patterns {
+                normalize_pattern(pattern)?;
+            }
+            Ok(())
+        }
+        "wildcard" | "literal" => Ok(()),
+        _ => unreachable!("validated pattern kind"),
+    }
+}
+
+fn normalize_binding(value: &mut Value) -> Result<()> {
+    normalize_type_field(value, "type")
+}
+
+fn normalize_verifier_binding(value: &mut Value) -> Result<()> {
+    normalize_type_field(value, "input")?;
+    normalize_type_field(value, "output")?;
+    sort_optional_set_field(value, "trust")
+}
+
+fn normalize_execution_result(value: &mut Value) -> Result<()> {
+    match text_field(value, "state") {
+        Some("completed") => {
+            let verdict = map_field_mut(value, "verdict").unwrap();
+            match text_field(verdict, "state") {
+                Some("satisfied") => sort_set_field(verdict, "evidence"),
+                Some("refuted") => sort_set_field(verdict, "counter_evidence"),
+                Some("unresolved") => sort_set_field(verdict, "partial_evidence"),
+                _ => unreachable!(),
+            }
+        }
+        Some("faulted") => Ok(()),
+        _ => unreachable!("validated execution result"),
+    }
+}
+
+fn normalize_type_field(value: &mut Value, field: &str) -> Result<()> {
+    normalize_type(map_field_mut(value, field).unwrap())
+}
+
+fn normalize_type(value: &mut Value) -> Result<()> {
+    *value = crate::typecheck::CheckedType::from_value(value)
+        .map_err(|error| invalid_schema(error.message))?
+        .to_value();
+    Ok(())
+}
+
+fn array_field_mut<'a>(value: &'a mut Value, field: &str) -> Result<&'a mut Vec<Value>> {
+    match map_field_mut(value, field) {
+        Some(Value::Array(items)) => Ok(items),
+        _ => Err(invalid_schema(format!(
+            "graph field {field} must be an array"
+        ))),
+    }
+}
+
+fn sort_set_field(value: &mut Value, field: &str) -> Result<()> {
+    sort_semantic_set(array_field_mut(value, field)?, field)
+}
+
+fn sort_optional_set_field(value: &mut Value, field: &str) -> Result<()> {
+    if value.get(field).is_some() {
+        sort_set_field(value, field)
+    } else {
+        Ok(())
+    }
 }
 
 fn sort_semantic_set(items: &mut Vec<Value>, field: &str) -> Result<()> {

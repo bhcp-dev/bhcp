@@ -147,6 +147,74 @@ fn evidence_graph(gaps: Vec<Value>) -> Value {
     ])
 }
 
+fn provenance(annotations: Option<Value>) -> Value {
+    let mut value = Value::map([
+        ("producer", Value::Text("example/compiler@0".to_owned())),
+        (
+            "created_at",
+            Value::Tag(0, Box::new(Value::Text("2026-01-01T00:00:00Z".to_owned()))),
+        ),
+    ]);
+    if let Some(annotations) = annotations {
+        replace_field(&mut value, "annotations", annotations);
+    }
+    value
+}
+
+fn ordered_colliding_value() -> Value {
+    Value::map([
+        (
+            "items",
+            Value::Array(vec![
+                Value::Text("aa".to_owned()),
+                Value::Text("b".to_owned()),
+            ]),
+        ),
+        (
+            "sources",
+            Value::Array(vec![
+                Value::Text("aa".to_owned()),
+                Value::Text("b".to_owned()),
+            ]),
+        ),
+        (
+            "effects",
+            Value::Array(vec![
+                Value::Text("aa".to_owned()),
+                Value::Text("b".to_owned()),
+            ]),
+        ),
+        (
+            "claims",
+            Value::Array(vec![
+                Value::Text("aa".to_owned()),
+                Value::Text("b".to_owned()),
+            ]),
+        ),
+    ])
+}
+
+fn bool_type() -> Value {
+    Value::Array(vec![
+        Value::Text("primitive".to_owned()),
+        Value::Text("Bool".to_owned()),
+    ])
+}
+
+fn literal_expression(id: &str, literal: bool) -> Value {
+    Value::map([
+        ("id", Value::Text(id.to_owned())),
+        ("type", bool_type()),
+        (
+            "form",
+            Value::Array(vec![
+                Value::Text("literal".to_owned()),
+                Value::Bool(literal),
+            ]),
+        ),
+    ])
+}
+
 fn replace_field(value: &mut Value, field: &str, replacement: Value) {
     let Value::Map(entries) = value else {
         panic!("expected map")
@@ -156,6 +224,13 @@ fn replace_field(value: &mut Value, field: &str, replacement: Value) {
     } else {
         entries.push((field.to_owned(), replacement));
     }
+}
+
+fn field_mut<'a>(value: &'a mut Value, field: &str) -> &'a mut Value {
+    let Value::Map(entries) = value else {
+        panic!("expected map")
+    };
+    &mut entries.iter_mut().find(|(key, _)| key == field).unwrap().1
 }
 
 fn assert_cbor_item_sorted(items: &[Value]) {
@@ -283,6 +358,255 @@ fn every_semantic_set_uses_normalized_deterministic_cbor_item_order() {
 }
 
 #[test]
+fn arbitrary_value_arrays_preserve_order_under_semantic_set_key_names() {
+    let ordered = ordered_colliding_value();
+    let capability = capability_graph(vec![Value::map([
+        ("id", Value::Text("request".to_owned())),
+        ("kind", Value::Text("request".to_owned())),
+        (
+            "capability",
+            Value::map([
+                (
+                    "effect",
+                    Value::map([("id", Value::Text("bhcp-effect/fs.read@0".to_owned()))]),
+                ),
+                ("scope", ordered.clone()),
+                ("decision", Value::Text("allow".to_owned())),
+                (
+                    "sources",
+                    Value::Array(vec![Value::Text("policy".to_owned())]),
+                ),
+            ]),
+        ),
+        ("payload", ordered.clone()),
+    ])]);
+    let capability = GraphDocument::from_value(&capability).unwrap().to_value();
+    let Value::Array(capability_nodes) = capability.get("nodes").unwrap() else {
+        unreachable!()
+    };
+    assert_eq!(capability_nodes[0].get("payload"), Some(&ordered));
+    assert_eq!(
+        capability_nodes[0].get("capability").unwrap().get("scope"),
+        Some(&ordered)
+    );
+
+    let mut obligation = obligation_graph(vec![], vec![]);
+    replace_field(
+        &mut obligation,
+        "provenance",
+        provenance(Some(Value::map([("ordered", ordered.clone())]))),
+    );
+    let obligation = GraphDocument::from_value(&obligation).unwrap().to_value();
+    assert_eq!(
+        obligation
+            .get("provenance")
+            .unwrap()
+            .get("annotations")
+            .unwrap()
+            .get("ordered"),
+        Some(&ordered)
+    );
+
+    let evidence = evidence_graph(vec![Value::map([
+        ("id", Value::Text("gap".to_owned())),
+        ("kind", Value::Text("missing".to_owned())),
+        (
+            "obligations",
+            Value::Array(vec![Value::Text("obligation".to_owned())]),
+        ),
+        (
+            "reason",
+            Value::map([
+                ("code", Value::Text("example/reason@0".to_owned())),
+                ("message", Value::Text("missing".to_owned())),
+                ("details", ordered.clone()),
+            ]),
+        ),
+        ("required", Value::Bool(true)),
+    ])]);
+    let evidence = GraphDocument::from_value(&evidence).unwrap().to_value();
+    let Value::Array(gaps) = evidence.get("gaps").unwrap() else {
+        unreachable!()
+    };
+    assert_eq!(
+        gaps[0].get("reason").unwrap().get("details"),
+        Some(&ordered)
+    );
+
+    let completed = Value::map([
+        ("state", Value::Text("completed".to_owned())),
+        (
+            "verdict",
+            Value::map([
+                ("state", Value::Text("satisfied".to_owned())),
+                ("output", ordered.clone()),
+                ("evidence", Value::Array(vec![Value::Text("e".to_owned())])),
+            ]),
+        ),
+    ]);
+    let faulted = Value::map([
+        ("state", Value::Text("faulted".to_owned())),
+        (
+            "fault",
+            Value::map([
+                (
+                    "error",
+                    Value::map([
+                        ("code", Value::Text("example/fault@0".to_owned())),
+                        ("message", Value::Text("fault".to_owned())),
+                    ]),
+                ),
+                (
+                    "trace",
+                    Value::Array(vec![Value::map([
+                        ("sequence", Value::Integer(0)),
+                        ("node", Value::Text("cell".to_owned())),
+                        (
+                            "at",
+                            Value::Tag(0, Box::new(Value::Text("2026-01-01T00:00:00Z".to_owned()))),
+                        ),
+                        ("kind", Value::Text("example/trace@0".to_owned())),
+                        ("payload", ordered.clone()),
+                    ])]),
+                ),
+            ]),
+        ),
+    ]);
+    let state = state_graph(
+        vec![Value::map([
+            ("id", Value::Text("cell".to_owned())),
+            ("kind", Value::Text("cell".to_owned())),
+        ])],
+        vec![
+            Value::map([
+                ("id", Value::Text("completed".to_owned())),
+                ("cell", Value::Text("cell".to_owned())),
+                ("from_version", Value::Integer(0)),
+                ("to_version", Value::Integer(1)),
+                ("result", completed),
+                ("atomic", Value::Bool(true)),
+            ]),
+            Value::map([
+                ("id", Value::Text("faulted".to_owned())),
+                ("cell", Value::Text("cell".to_owned())),
+                ("from_version", Value::Integer(1)),
+                ("to_version", Value::Integer(2)),
+                ("result", faulted),
+                ("atomic", Value::Bool(true)),
+            ]),
+        ],
+    );
+    let state = GraphDocument::from_value(&state).unwrap().to_value();
+    let Value::Array(transitions) = state.get("transitions").unwrap() else {
+        unreachable!()
+    };
+    let completed = transitions
+        .iter()
+        .find(|transition| transition.get("id") == Some(&Value::Text("completed".to_owned())))
+        .unwrap();
+    assert_eq!(
+        completed
+            .get("result")
+            .unwrap()
+            .get("verdict")
+            .unwrap()
+            .get("output"),
+        Some(&ordered)
+    );
+    let faulted = transitions
+        .iter()
+        .find(|transition| transition.get("id") == Some(&Value::Text("faulted".to_owned())))
+        .unwrap();
+    let Value::Array(trace) = faulted
+        .get("result")
+        .unwrap()
+        .get("fault")
+        .unwrap()
+        .get("trace")
+        .unwrap()
+    else {
+        unreachable!()
+    };
+    assert_eq!(trace[0].get("payload"), Some(&ordered));
+}
+
+#[test]
+fn quantified_verifier_output_must_be_evidence_type() {
+    let binding = Value::map([
+        ("id", Value::Text("candidate".to_owned())),
+        ("type", bool_type()),
+    ]);
+    let verifier = Value::map([
+        ("verifier", Value::Text("example/verifier@0".to_owned())),
+        ("input", bool_type()),
+        ("output", bool_type()),
+    ]);
+    let expression = Value::map([
+        ("id", Value::Text("quantified".to_owned())),
+        ("type", bool_type()),
+        (
+            "form",
+            Value::Array(vec![
+                Value::Text("quantify".to_owned()),
+                Value::Text("forall".to_owned()),
+                binding,
+                literal_expression("domain", true),
+                literal_expression("predicate", true),
+                verifier,
+            ]),
+        ),
+    ]);
+    let captured = Value::Array(vec![
+        Value::Text("captured".to_owned()),
+        Value::Bool(true),
+        Value::Array(vec![Value::Text("evidence".to_owned())]),
+        provenance(None),
+        Value::Tag(0, Box::new(Value::Text("2026-01-01T00:00:00Z".to_owned()))),
+        expression,
+    ]);
+    let state = state_graph(
+        vec![Value::map([
+            ("id", Value::Text("cell".to_owned())),
+            ("kind", Value::Text("cell".to_owned())),
+            (
+                "cell",
+                Value::map([
+                    ("key", Value::Text("key".to_owned())),
+                    ("type", bool_type()),
+                    ("state", captured),
+                    ("atomic_version", Value::Integer(0)),
+                ]),
+            ),
+        ])],
+        vec![],
+    );
+    assert_eq!(
+        GraphDocument::from_value(&state).unwrap_err().code,
+        "BHCP7001"
+    );
+
+    let mut valid = state;
+    let Value::Array(nodes) = field_mut(&mut valid, "nodes") else {
+        unreachable!()
+    };
+    let Value::Array(captured) = field_mut(field_mut(&mut nodes[0], "cell"), "state") else {
+        unreachable!()
+    };
+    let Value::Array(form) = field_mut(&mut captured[5], "form") else {
+        unreachable!()
+    };
+    replace_field(
+        &mut form[5],
+        "output",
+        Value::Array(vec![
+            Value::Text("evidence".to_owned()),
+            Value::Array(vec![Value::Text("static".to_owned())]),
+        ]),
+    );
+    assert!(GraphDocument::from_value(&valid).is_ok());
+}
+
+#[test]
 fn malformed_graphs_fail_closed_with_stable_categories() {
     let duplicate = obligation_graph(
         vec![obligation("a", "open"), obligation("a", "open")],
@@ -371,6 +695,14 @@ fn every_graph_root_rejects_malformed_nested_typed_members() {
         ])],
         vec![],
     );
+    let state_handle = state_graph(
+        vec![Value::map([
+            ("id", Value::Text("resource".to_owned())),
+            ("kind", Value::Text("resource".to_owned())),
+            ("handle", bool_type()),
+        ])],
+        vec![],
+    );
 
     let mut invalid_output = execution_node("node", &[]);
     replace_field(
@@ -412,6 +744,7 @@ fn every_graph_root_rejects_malformed_nested_typed_members() {
         obligation,
         capability,
         state,
+        state_handle,
         execution_graph(vec![invalid_output], vec!["node"]),
         execution_graph(vec![invalid_effects], vec!["node"]),
         execution_graph(vec![invalid_budgets], vec!["node"]),
