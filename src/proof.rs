@@ -1118,18 +1118,22 @@ fn validate_dependency_premises(
         let Some(claim) = claims.get(premise.as_str()) else {
             continue;
         };
-        let Some((_, discharge)) = dependencies
+        let matching_dependencies = dependencies
             .iter()
-            .find(|(target, _)| *target == claim.obligation)
-        else {
+            .filter(|(target, _)| *target == claim.obligation)
+            .map(|(_, discharge)| *discharge)
+            .collect::<Vec<_>>();
+        if matching_dependencies.is_empty() {
             return Err(invalid_proof(
                 "reducer premise does not target a structural child dependency",
             ));
-        };
-        let child_ids = texts(discharge.value(), "source_clauses");
-        let valid = observations.iter().any(|observation| {
-            child_ids.contains(&observation.child.as_str())
-                && observation_claim_matches(&observation.result, premise, claim)
+        }
+        let valid = matching_dependencies.iter().any(|discharge| {
+            let child_ids = texts(discharge.value(), "source_clauses");
+            observations.iter().any(|observation| {
+                child_ids.contains(&observation.child.as_str())
+                    && observation_claim_matches(&observation.result, premise, claim)
+            })
         });
         if !valid {
             return Err(invalid_proof(
