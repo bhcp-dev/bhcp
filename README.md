@@ -12,9 +12,11 @@ deterministic evidence bundles. It also validates and normalizes every v0 wire t
 checks exact and machine values, generic bounds, refinements, nominal/structural
 subtyping, and explicit `Dynamic` boundaries, and materializes checked `§type`
 definitions in semantic IR. Canonical artifacts use deterministic CBOR and
-algorithm-tagged semantic or artifact identities. It is not yet a complete v0
-front end, planner, runtime, or SDK: source-expression forms beyond the currently
-parsed slice, effect/authority analysis, and graph construction remain roadmap work.
+algorithm-tagged semantic or artifact identities. A shared safe-Rust graph boundary
+now decodes, validates, normalizes, identifies, and inspects obligation, capability,
+state, execution, and evidence graph documents. It is not yet a complete v0 front
+end, planner, runtime, or SDK: source-expression forms beyond the currently parsed
+slice, effect/authority analysis, and graph construction remain roadmap work.
 
 ## Start here
 
@@ -365,9 +367,13 @@ effective rule index and every originating layer, policy symbol, and source rule
 Missing mappings or registrations remain required unresolved gaps; rejection and
 operational fault behavior is unchanged.
 
-This library boundary does not yet build obligation or execution graphs. Process-backed
-adapters now register through the generic verifier registry rather than becoming kernel
-primitives. Dispatch deterministically encodes the closed typed candidate
+This library boundary does not yet build obligation or execution graphs. It does
+provide their common typed wire boundary: all five graph roots reject unknown fields,
+duplicate IDs, dangling local references, and cycles in obligation/execution graphs;
+normalize semantic sets; validate materialized semantic/artifact identities; and expose
+nodes, edges, references, provenance, and validation errors without a JSON canonical
+intermediate. Process-backed adapters now register through the generic verifier registry
+rather than becoming kernel primitives. Dispatch deterministically encodes the closed typed candidate
 `{ input, output }`, passes only the binding's resolved structural targets and an
 explicit effective effect ceiling, and maps the result into the same evidence-bundle
 model as an in-process verifier.

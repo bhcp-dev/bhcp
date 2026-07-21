@@ -1250,6 +1250,12 @@ Schema anchors: all `*-graph-document`, `planner-request-document`,
 `planner-result-document`, `evidence-bundle-document`, and
 `execution-result-document`.
 
+Implementation status: the executable foundation has one shared typed wire model for
+obligation, capability, state, execution, and evidence graphs. It validates closed
+schema shapes and reference integrity, normalizes semantic sets, rejects forbidden
+cycles, and exposes graph inspection. Construction of those graphs remains assigned to
+the later graph builders and planner/runtime stages.
+
 ## S11. Wire encoding, normalization, and identity
 
 All platform artifacts MUST validate against the CDDL bundle in `schemas/v0/`.
@@ -1304,6 +1310,11 @@ MUST reject a selected algorithm it does not implement. Content references MAY c
 additional registered digests. Unknown algorithms in received artifacts are retained
 but MUST NOT be treated as verified. A content reference includes media type, size,
 and one or more digests; it is valid only if every claimed understood digest verifies.
+
+Implementation status: the shared graph model recomputes both identities from the
+normative projections, excludes presentation/provenance coordinates from semantic
+identity while retaining them in artifact identity, and encodes directly through the
+deterministic CBOR value model rather than a JSON intermediate.
 
 Schema anchors: `semantic-id`, `artifact-id`, `digest`, `content-reference`, and every
 document header.

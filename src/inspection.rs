@@ -3,6 +3,7 @@
 use std::collections::HashMap;
 use std::fmt::Write;
 
+use crate::graph::GraphDocument;
 use crate::profile::ResolvedProfile;
 use crate::value::Value;
 
@@ -52,12 +53,22 @@ pub fn render_artifact(artifact: &Value, source: Option<&str>) -> String {
             writeln!(output, "{field} {identity}").unwrap();
         }
     }
-    if kind == "semantic-ir" {
+    if matches!(
+        kind,
+        "obligation-graph"
+            | "capability-graph"
+            | "state-graph"
+            | "execution-graph"
+            | "evidence-bundle"
+    ) {
+        render_graph_artifact(artifact, &mut output);
+        if kind == "evidence-bundle" {
+            render_evidence_bundle(artifact, &mut output);
+        }
+    } else if kind == "semantic-ir" {
         render_semantic_ir(artifact, &mut output);
     } else if kind == "policy" {
         render_policy(artifact, &mut output);
-    } else if kind == "evidence-bundle" {
-        render_evidence_bundle(artifact, &mut output);
     } else {
         if let Some(profile) = text_field(artifact, "profile") {
             writeln!(output, "profile {profile}").unwrap();
@@ -67,6 +78,52 @@ pub fn render_artifact(artifact: &Value, source: Option<&str>) -> String {
         }
     }
     output
+}
+
+fn render_graph_artifact(artifact: &Value, output: &mut String) {
+    let graph = match GraphDocument::from_value(artifact) {
+        Ok(graph) => graph,
+        Err(error) => {
+            writeln!(output, "validation-error {} {}", error.code, error.message).unwrap();
+            return;
+        }
+    };
+    for node in graph.nodes() {
+        writeln!(output, "node {} {}", node.id, node.kind).unwrap();
+    }
+    for edge in graph.edges() {
+        writeln!(
+            output,
+            "edge {} {} {} -> {}",
+            edge.id, edge.kind, edge.from, edge.to
+        )
+        .unwrap();
+    }
+    for field in ["semantic_ir", "execution_graph"] {
+        if let Some(reference) = artifact.get(field) {
+            let media_type = text_field(reference, "media_type").unwrap_or("?");
+            let size = integer_field(reference, "size")
+                .map(|size| size.to_string())
+                .unwrap_or_else(|| "?".to_owned());
+            writeln!(output, "reference {field} {media_type} size {size}").unwrap();
+        }
+    }
+    render_provenance(artifact, output);
+    for node in graph.nodes() {
+        render_provenance(node.value(), output);
+    }
+}
+
+fn render_provenance(value: &Value, output: &mut String) {
+    let Some(provenance) = value.get("provenance") else {
+        return;
+    };
+    let producer = text_field(provenance, "producer").unwrap_or("?");
+    let created_at = match provenance.get("created_at") {
+        Some(Value::Tag(0, value)) => text_value(value).unwrap_or("?"),
+        _ => "?",
+    };
+    writeln!(output, "provenance {producer} {created_at}").unwrap();
 }
 
 fn render_evidence_bundle(artifact: &Value, output: &mut String) {

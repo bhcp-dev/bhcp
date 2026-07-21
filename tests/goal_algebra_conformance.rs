@@ -137,6 +137,10 @@ fn feature_manifest_distinguishes_complete_algebra_from_deferred_graphs() {
         levels.remove("bhcp/feature.complete-obligation-graph@0"),
         Some("unsupported")
     );
+    assert_eq!(
+        levels.remove("bhcp/feature.shared-typed-graph-model@0"),
+        Some("supported")
+    );
     assert!(
         levels.is_empty(),
         "unclassified feature support entries: {levels:?}"
@@ -154,7 +158,17 @@ fn feature_manifest_distinguishes_complete_algebra_from_deferred_graphs() {
         .collect::<BTreeSet<_>>();
     assert_eq!(
         documents,
-        ["canonical-ast", "semantic-ir"].into_iter().collect()
+        [
+            "canonical-ast",
+            "semantic-ir",
+            "obligation-graph",
+            "capability-graph",
+            "state-graph",
+            "execution-graph",
+            "evidence-bundle",
+        ]
+        .into_iter()
+        .collect()
     );
     assert_eq!(value.get("native_extensions"), Some(&Value::Array(vec![])));
 }

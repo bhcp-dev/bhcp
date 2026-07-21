@@ -4,7 +4,7 @@
   "kind": "feature-manifest",
   "implementation": "example/checker@0",
   "implementation_version": "0.0.0",
-  "documents": ["canonical-ast", "semantic-ir"],
+  "documents": ["canonical-ast", "semantic-ir", "obligation-graph", "capability-graph", "state-graph", "execution-graph", "evidence-bundle"],
   "features_supported": [
     {"feature": "bhcp/core@0", "level": "required"},
     {"feature": "bhcp/feature.self-hosted-all@0", "level": "supported"},
@@ -12,6 +12,7 @@
     {"feature": "bhcp/feature.self-hosted-none@0", "level": "supported"},
     {"feature": "bhcp/feature.self-hosted-chain@0", "level": "supported"},
     {"feature": "bhcp/feature.self-hosted-gate@0", "level": "supported"},
+    {"feature": "bhcp/feature.shared-typed-graph-model@0", "level": "supported"},
     {
       "feature": "bhcp/feature.complete-obligation-graph@0",
       "level": "unsupported",

@@ -6,6 +6,7 @@ pub mod experiment;
 pub mod experiment_codex;
 pub mod expression;
 pub mod formatting;
+pub mod graph;
 pub mod hash;
 pub mod inspection;
 pub mod kernel;
