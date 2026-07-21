@@ -205,12 +205,22 @@ impl DefinitionElaborator {
         argument_types: &[CheckedType],
         at: &Point,
     ) -> Result<ResolvedCall> {
-        if !self.templates.contains_key(symbol) {
-            return Err(invalid_at(
-                format!("unresolved pure definition {symbol:?}"),
-                &self.source_name,
-                at,
-            ));
+        match self.templates.get(symbol) {
+            None => {
+                return Err(invalid_at(
+                    format!("unresolved pure definition {symbol:?}"),
+                    &self.source_name,
+                    at,
+                ));
+            }
+            Some(Template::Predicate(predicate)) if predicate.definition.is_none() => {
+                return Err(invalid_at(
+                    format!("predicate {symbol:?} has no retained pure body"),
+                    &self.source_name,
+                    at,
+                ));
+            }
+            Some(_) => {}
         }
         self.instantiate(symbol, argument_types, at)
     }

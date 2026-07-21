@@ -202,6 +202,33 @@ fn verifier_arguments_are_canonical_and_semantically_bound() {
 }
 
 #[test]
+fn verifier_configuration_calls_require_retained_pure_bodies() {
+    let diagnostic = compile_source(
+        r#"
+§predicate example/external@0(value: Text): Bool
+    with example/firstVerifier@0(subject = value);
+§predicate example/outer@0(value: Text): Bool
+    with example/secondVerifier@0(flag = example/external@0(value));
+"#,
+        "verifier-only-call.bhcp",
+    )
+    .unwrap_err();
+    assert_eq!(diagnostic.code, "BHCP4301");
+    assert!(diagnostic.message.contains("has no retained pure body"));
+
+    let pure_configuration = compile_source(
+        r#"
+§function example/nonEmpty@0(value: Text): Bool = value != "";
+§predicate example/outer@0(value: Text): Bool
+    with example/secondVerifier@0(flag = example/nonEmpty@0(value));
+"#,
+        "pure-verifier-call.bhcp",
+    )
+    .unwrap();
+    validate_root(&pure_configuration.ir.to_value(true), "semantic-ir").unwrap();
+}
+
+#[test]
 fn refinement_types_and_edges_survive_definition_elaboration() {
     let source = r#"
 §type example/Entity@0 = Text;

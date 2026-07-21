@@ -1042,6 +1042,7 @@ impl SemanticIrDocument {
             Value::Text("primitive".to_owned()),
             Value::Text("Bool".to_owned()),
         ]))?;
+        let mut verifier_configuration_calls = BTreeSet::new();
         for predicate in &self.predicates {
             add_id(&predicate.id, &mut ids)?;
             if !is_symbol(&predicate.symbol) || !function_symbols.insert(predicate.symbol.clone()) {
@@ -1086,12 +1087,15 @@ impl SemanticIrDocument {
                 ));
             }
             if let Some(binding) = &predicate.verifier {
+                let mut verifier_calls = BTreeSet::new();
                 validate_predicate_verifier_configuration(
                     binding,
                     &mut ids,
                     &mut references,
-                    &mut calls,
+                    &mut verifier_calls,
                 )?;
+                calls.extend(verifier_calls.iter().cloned());
+                verifier_configuration_calls.extend(verifier_calls);
             }
             if predicate.definition.is_some() {
                 pure_dependencies.insert(predicate.symbol.clone(), calls);
@@ -1107,6 +1111,15 @@ impl SemanticIrDocument {
                     "pure definition call does not resolve to a retained definition",
                 ));
             }
+        }
+        if verifier_configuration_calls
+            .iter()
+            .any(|symbol| !pure_dependencies.contains_key(symbol))
+        {
+            return Err(Diagnostic::plain(
+                "BHCP4001",
+                "predicate verifier configuration call does not resolve to a retained pure body",
+            ));
         }
         validate_acyclic_definitions(&pure_dependencies)?;
         for goal in &self.goals {
